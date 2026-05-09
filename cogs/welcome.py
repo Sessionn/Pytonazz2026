@@ -17,7 +17,7 @@ Gruppo /goodbye  (👑 idem):
 Nota: /welcome set ha lo stesso parametro plain_text di /goodbye set.
 
 Comandi standalone (👑 manage_guild):
-  /tags
+  /wg_tags
   /autorole set
   /autorole remove
   /autorole status
@@ -477,11 +477,11 @@ class Welcome(commands.Cog):
             log.error(tag("WEL", f"_send_event({event}) error: {e}"))
 
     # ──────────────────────────────────────────────────────────────
-    # /tags
+    # /wg_tags
     # ──────────────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="tags",
+        name="wg_tags",
         description=f"{_CROWN} Placeholder e markdown per i messaggi welcome/goodbye",
     )
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -516,7 +516,7 @@ class Welcome(commands.Cog):
     @app_commands.describe(
         plain_text          = "True = messaggio semplice, False = embed (default)",
         title               = "Titolo (solo embed)",
-        description         = "Testo principale (placeholder → /tags)",
+        description         = "Testo principale (placeholder → /wg_tags)",
         footer              = "Footer ('none' per rimuovere, solo embed)",
         footer_icon_url     = "URL icona footer ('none' per rimuovere, solo embed)",
         footer_icon_upload  = "Carica icona footer come immagine (solo embed)",
@@ -646,7 +646,7 @@ class Welcome(commands.Cog):
     @app_commands.describe(
         plain_text          = "True = messaggio semplice, False = embed (default)",
         title               = "Titolo (solo embed)",
-        description         = "Testo principale (placeholder → /tags)",
+        description         = "Testo principale (placeholder → /wg_tags)",
         footer              = "Footer ('none' per rimuovere, solo embed)",
         footer_icon_url     = "URL icona footer ('none' per rimuovere, solo embed)",
         footer_icon_upload  = "Carica icona footer come immagine (solo embed)",
