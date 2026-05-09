@@ -11,12 +11,12 @@ PAGE_SIZE = 10
 
 _PRIORITY = ["music", "fun", "birthdays", "welcome", "tts", "moderation", "roles", "quote", "filters"]
 
-# Sottocomandi da nascondere nell'help
+# Sottocomandi da nascondere nell'help (formato: qualified_name con spazi, come Discord)
 _HIDDEN_CMDS = {
-    "welcome_field_remove",
-    "welcome_field_list",
-    "goodbye_field_remove",
-    "goodbye_field_list",
+    "welcome field_remove",
+    "welcome field_list",
+    "goodbye field_remove",
+    "goodbye field_list",
 }
 
 _PERM_BADGES = {
@@ -101,7 +101,8 @@ def _cmd_perm(cmd) -> str:
     return "public"
 
 def _cmd_full_name(cmd) -> str:
-    return command_slug(getattr(cmd, "qualified_name", cmd.name))
+    """Ritorna il nome completo con spazi, identico a come Discord lo mostra."""
+    return getattr(cmd, "qualified_name", cmd.name)
 
 def _is_hidden(cmd) -> bool:
     return _cmd_full_name(cmd) in _HIDDEN_CMDS
