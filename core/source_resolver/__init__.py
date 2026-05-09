@@ -13,7 +13,7 @@ import yt_dlp
 from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
 
-# ── Sub-module imports ────────────────────────────────────────────────────────
+# ── Sub-module imports ───────────────────────────────────────────────────────────────────
 from core.source_resolver.scoring import (
     _MV_KEYWORDS,
     _VARIANT_KEYWORDS,
@@ -465,6 +465,7 @@ class SourceResolver:
                 enrich_log.debug(tag("SPOTIFY", f"enrich skip: {e}"))
                 continue
 
+            # Casi anomali: rimangono INFO perché utili da monitorare sempre
             if not meta or not score:
                 enrich_log.info(tag("SPOTIFY", f"enrich[{idx}]  {b(track.title)}  skip  reason=no_meta"))
                 continue
@@ -490,14 +491,27 @@ class SourceResolver:
                     track.artist = sp_artist
 
             _dc = _BGRN if decision == "full" else (_BYEL if decision == "cover_only" else _BRED)
-            enrich_log.info(tag(
-                "SPOTIFY",
-                f"enrich[{idx}]  query={b(original_query)}  sp={b(sp_title)}  yt={b(yt_title_before)}  "
-                f"conf={score['confidence']:.2f}  q={score['query_sim']:.2f}  yt_sim={score['yt_sim']:.2f}  "
-                f"art={score['artist_sim']:.2f}  dur={score['duration_sim']:.2f}  "
-                f"junk={score['variant_penalty']:.2f}  nm={score['non_music_penalty']:.2f}  "
-                f"decision={hi(decision, _dc)}  reason={dim(score['reason'])}"
-            ))
+
+            # ── Log DEBUG con formattazione a colonne ─────────────────────────────────
+            conf_pct  = int(score['confidence'] * 100)
+            q_pct     = int(score['query_sim']  * 100)
+            yt_pct    = int(score['yt_sim']     * 100)
+            art_pct   = int(score['artist_sim'] * 100)
+            dur_pct   = int(score['duration_sim'] * 100)
+            junk_pct  = int(score['variant_penalty'] * 100)
+            nm_pct    = int(score['non_music_penalty'] * 100)
+            enrich_log.debug(
+                tag("SPOTIFY",
+                    f"enrich[{idx}]\n"
+                    f"  query  : {b(original_query)}\n"
+                    f"  sp     : {b(sp_title)}  ({b(sp_artist)})\n"
+                    f"  yt     : {b(yt_title_before)}\n"
+                    f"  conf   : {hi(f'{conf_pct:3d}%', _dc)}  "
+                    f"q={q_pct:3d}%  yt={yt_pct:3d}%  art={art_pct:3d}%  "
+                    f"dur={dur_pct:3d}%  junk={junk_pct:3d}%  nm={nm_pct:3d}%\n"
+                    f"  result : {hi(decision, _dc)}  ({dim(score['reason'])})"
+                )
+            )
         return tracks
 
     @classmethod
