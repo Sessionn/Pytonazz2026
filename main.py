@@ -198,7 +198,7 @@ class Pitonazz(commands.Bot):
             for gid in Config.GUILD_IDS:
                 guild_obj = self.get_guild(gid)
                 if guild_obj is None:
-                    log.warning(tag("SYNC", f"Guild {b(str(gid))} non trovata — bot non presente, sync saltato"))
+                    log.warning(tag("SYNC", f"Guild {b(str(gid))} non trovata \u2014 bot non presente, sync saltato"))
                     continue
                 g      = discord.Object(id=gid)
                 self.tree.clear_commands(guild=g)
@@ -229,8 +229,7 @@ class Pitonazz(commands.Bot):
     async def apply_next_status(self):
         if not self._status_list:
             return
-        maintenance = await cfg.get_maintenance()
-        if maintenance:
+        if cfg.maintenance:
             return
         e = self._status_list[self._status_index % len(self._status_list)]
         self._status_index += 1
@@ -246,7 +245,7 @@ class Pitonazz(commands.Bot):
 
     async def apply_maintenance_presence(self):
         await self.change_presence(
-            activity=discord.Activity(type=discord.ActivityType.watching, name="🛠️ Manutenzione in corso"),
+            activity=discord.Activity(type=discord.ActivityType.watching, name="\U0001f6e0\ufe0f Manutenzione in corso"),
             status=discord.Status.do_not_disturb,
         )
 
