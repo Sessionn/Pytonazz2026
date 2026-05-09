@@ -1,18 +1,17 @@
-"""Cervello AI centralizzato.
+"""Cervello AI centralizzato — Groq only.
 
 Tutti i cog importano da qui. Nessun altro file istanzia client AI,
 definisce modelli o conosce il provider attivo.
 
-Architettura a 3 livelli:
-  1. Gemini primary   (gemini-2.5-flash)      — modello principale
-  2. Gemini fallback  (gemini-2.0-flash)      — se primary è 404/overload
-  3. Groq emergency   (llama-3.1-8b-instant)  — se Gemini è completamente down
+Architettura a 2 livelli:
+  1. Groq primary   (llama-3.3-70b-versatile)  — modello principale
+  2. Groq fallback  (llama-3.1-8b-instant)     — se primary è down/rate-limited
 
 Per cambiare modello: modifica MODELS qui sotto, non toccare altro.
 
 API pubblica
 ------------
-  MODELS                   dict con 'primary', 'fallback', 'emergency'
+  MODELS                   dict con 'primary', 'fallback'
   chat(messages, **kw)     → (reply: str, model: str)
   generate(prompt, **kw)   → str   (one-shot, senza memoria)
   load_prompt(path)        → str   (legge .txt con cache LRU)
@@ -31,26 +30,16 @@ from core.log_colors import tag, b
 log = logging.getLogger("pitonazz.ai_client")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MODELLI — modifica solo qui per cambiare provider/versione
+# MODELLI — modifica solo qui per cambiare versione
 # ══════════════════════════════════════════════════════════════════════════════
 
 MODELS = {
-    "primary":   "gemini-2.5-flash",       # Gemini principale
-    "fallback":  "gemini-2.0-flash",       # Gemini backup (se primary down)
-    "emergency": "llama-3.1-8b-instant",   # Groq solo se Gemini è irraggiungibile
+    "primary":  "llama-3.3-70b-versatile",  # Groq principale
+    "fallback": "llama-3.1-8b-instant",     # Groq backup (se primary rate-limited/down)
 }
 
-# ── Client singleton ──────────────────────────────────────────────────────────
-_gemini_client = None
-_groq_client   = None
-
-
-def _get_gemini():
-    global _gemini_client
-    if _gemini_client is None:
-        from google import genai
-        _gemini_client = genai.Client(api_key=Config.GEMINI_API_KEY)
-    return _gemini_client
+# ── Client singleton ──────────────────────────────────────────────────────────────────────────
+_groq_client = None
 
 
 def _get_groq():
@@ -61,7 +50,7 @@ def _get_groq():
     return _groq_client
 
 
-# ── Utility ───────────────────────────────────────────────────────────────────
+# ── Utility ────────────────────────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=8)
 def load_prompt(path: str) -> str:
@@ -79,71 +68,20 @@ def invalidate_prompt_cache() -> None:
     log.info(tag("AI", "Cache prompt invalidata."))
 
 
-def _build_gemini_contents(messages: list[dict]):
-    """Converte formato OpenAI → google-genai (system separato, roles user/model)."""
-    from google.genai import types as t
-    system = ""
-    contents = []
-    for msg in messages:
-        role, content = msg["role"], msg["content"]
-        if role == "system":
-            system = content
-        elif role == "user":
-            contents.append(t.Content(role="user",  parts=[t.Part(text=content)]))
-        elif role == "assistant":
-            contents.append(t.Content(role="model", parts=[t.Part(text=content)]))
-    return system, contents
-
-
-# ── Chiamata Gemini ───────────────────────────────────────────────────────────
-
-async def _call_gemini(
-    messages: list[dict],
-    max_tokens: int,
-    temperature: float,
-) -> tuple[str, str]:
-    """Prova primary, poi fallback interno Gemini."""
-    from google.genai import types as t
-
-    client = _get_gemini()
-    system, contents = _build_gemini_contents(messages)
-    config = t.GenerateContentConfig(
-        system_instruction=system or None,
-        max_output_tokens=max_tokens,
-        temperature=temperature,
-    )
-
-    for model in [MODELS["primary"], MODELS["fallback"]]:
-        try:
-            resp = await client.aio.models.generate_content(
-                model=model, contents=contents, config=config
-            )
-            reply = resp.text.strip()
-            log.debug(tag("AI", f"Risposta da {b(model)} ({len(reply)} chars)"))
-            return reply, model
-        except Exception as e:
-            if model == MODELS["primary"]:
-                log.warning(tag("AI", f"Primary fallito — provo fallback: {e}"))
-                continue
-            raise
-
-    raise RuntimeError("Entrambi i modelli Gemini non disponibili.")
-
-
-# ── Chiamata Groq (emergency) ─────────────────────────────────────────────────
+# ── Chiamata Groq ─────────────────────────────────────────────────────────────────────────
 
 async def _call_groq(
     messages: list[dict],
     max_tokens: int,
     temperature: float,
+    model: str,
 ) -> tuple[str, str]:
-    """Emergency fallback su Groq. Solo se Gemini è completamente irraggiungibile."""
     import groq as groq_lib
 
     client = _get_groq()
     try:
         resp = await client.chat.completions.create(
-            model=MODELS["emergency"],
+            model=model,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -154,14 +92,14 @@ async def _call_groq(
         reply = (content or "").strip()
         if not reply:
             raise RuntimeError("Groq ha restituito una risposta vuota.")
-        log.warning(tag("AI", f"Emergency Groq attivo — {b(MODELS['emergency'])}"))
-        return reply, MODELS["emergency"]
+        log.debug(tag("AI", f"Risposta da {b(model)} ({len(reply)} chars)"))
+        return reply, model
     except (groq_lib.APIStatusError, groq_lib.APIConnectionError, groq_lib.RateLimitError) as e:
-        log.error(tag("AI", f"Emergency Groq fallito: {e}"))
+        log.error(tag("AI", f"Groq {b(model)} fallito: {e}"))
         raise
 
 
-# ── API pubblica ──────────────────────────────────────────────────────────────
+# ── API pubblica ──────────────────────────────────────────────────────────────────────────
 
 async def chat(
     messages: list[dict],
@@ -169,7 +107,7 @@ async def chat(
     temperature: float = 0.85,
     **_: Any,
 ) -> tuple[str, str]:
-    """Chiamata AI con fallback a 3 livelli: Gemini primary → Gemini fallback → Groq emergency.
+    """Chiamata AI con fallback a 2 livelli: Groq primary → Groq fallback.
 
     Parametri
     ---------
@@ -181,17 +119,15 @@ async def chat(
     -------
     (reply, model_usato)
     """
-    if Config.GEMINI_API_KEY:
-        try:
-            return await _call_gemini(messages, max_tokens, temperature)
-        except Exception as e:
-            log.error(tag("AI", f"Gemini completamente down: {e}"))
+    if not Config.GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY non configurata nel .env — il modulo AI non è disponibile.")
 
-    if Config.GROQ_API_KEY:
-        log.warning(tag("AI", "Gemini irraggiungibile — attivo emergency Groq"))
-        return await _call_groq(messages, max_tokens, temperature)
+    try:
+        return await _call_groq(messages, max_tokens, temperature, MODELS["primary"])
+    except Exception as e:
+        log.warning(tag("AI", f"Primary {b(MODELS['primary'])} fallito — provo fallback: {e}"))
 
-    raise RuntimeError("Nessun provider AI disponibile (controlla GEMINI_API_KEY / GROQ_API_KEY nel .env).")
+    return await _call_groq(messages, max_tokens, temperature, MODELS["fallback"])
 
 
 async def generate(
