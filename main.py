@@ -180,8 +180,6 @@ class Pitonazz(commands.Bot):
                 log.error(tag("COG", f"Errore caricamento {b(cog)}: {exc}"))
                 traceback.print_exc()
 
-        await self._sync_commands()
-
         # Hot-reload watchdog
         observer = Observer()
         handler = CogReloadHandler(self)
@@ -193,6 +191,7 @@ class Pitonazz(commands.Bot):
         asyncio.create_task(check_ytdlp_update())
 
     async def _sync_commands(self):
+        # Chiamato da on_ready: la guild cache è già popolata qui
         if Config.GUILD_IDS:
             self._guild_sync_counts.clear()
             for gid in Config.GUILD_IDS:
@@ -211,6 +210,10 @@ class Pitonazz(commands.Bot):
 
     async def on_ready(self):
         log.info(tag("READY", f"{b(str(self.user))}  online  ID: {self.user.id}"))
+
+        # Sync qui: guild cache disponibile
+        await self._sync_commands()
+
         for gid, count in self._guild_sync_counts.items():
             guild_obj = self.get_guild(gid)
             name = guild_obj.name if guild_obj else str(gid)
