@@ -12,12 +12,13 @@ log = logging.getLogger("pitonazz.config")
 
 _CLR_ON = "\033[92m"
 _CLR_OFF = "\033[91m"
+_CLR_WARN = "\033[93m"
 _CLR_GRAY = "\033[90m"
 _UNCONFIGURED_PROXY = "(non configurata in env)"
+_UNCONFIGURED_COOKIE = "(non configurato in env)"
 
 
 def _is_http_proxy_url(value: str) -> bool:
-    # FFmpeg usa `-http_proxy`: accettiamo solo proxy HTTP(S).
     normalized_url = (value or "").strip().lower()
     return normalized_url.startswith("http://") or normalized_url.startswith("https://")
 
@@ -65,18 +66,8 @@ class Config:
     SPOTIFY_CLIENT_ID:     str = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
-    GEMINI_API_KEY:        str = os.getenv("GEMINI_API_KEY", "")
 
     # ── Permessi ─────────────────────────────────────────────────────────────────────────────
-    # OWNER_ID  → UNA sola persona. Comandi distruttivi/irreversibili.
-    # DEV_IDS   → Lista separata da virgola. Incluso sempre l'owner.
-    #             Comandi di gestione e debug quotidiani.
-    # DEV_ID    → Legacy alias (vecchio nome). Usato come fallback.
-    #
-    # Esempio .env:
-    #   OWNER_ID=123456789
-    #   DEV_IDS=123456789,987654321
-
     _owner_raw: str = os.getenv("OWNER_ID") or os.getenv("DEV_ID") or ""
     OWNER_ID: int | None = int(_owner_raw) if _owner_raw.strip().isdigit() else None
 
@@ -96,8 +87,19 @@ class Config:
     _has_http_fallback: bool = _is_http_proxy_url(_proxy)
     _ffmpeg_proxy: str = _raw_ffmpeg_proxy or (_proxy if _has_http_fallback else "")
 
-    # ── Cookies (opzionali) ────────────────────────────────────────────────────────────────
-    _cookies: str = os.getenv("COOKIE_FILE", "")
+    # ── Cookies ────────────────────────────────────────────────────────────────────────────
+    # COOKIES_ENABLED=true/false in .env — default ON se COOKIE_FILE è presente
+    _cookies_raw: str = os.getenv("COOKIE_FILE", "")
+    _cookies_enabled_raw: str = os.getenv("COOKIES_ENABLED", "").strip().lower()
+    COOKIES_ENABLED: bool = (
+        (_cookies_enabled_raw not in ("false", "0", "no", "off"))
+        if _cookies_enabled_raw
+        else bool(_cookies_raw)
+    )
+    EFFECTIVE_COOKIE_FILE: str = _cookies_raw if COOKIES_ENABLED else ""
+
+    # Manteniamo _cookies per compatibilità con YDL_OPTIONS
+    _cookies: str = EFFECTIVE_COOKIE_FILE
 
     # ── Audio ────────────────────────────────────────────────────────────────────────────────
     FFMPEG_OPTIONS = {
@@ -125,13 +127,11 @@ class Config:
         "source_address": "0.0.0.0",
         "skip_download": True,
         "extract_flat": False,
-        **({"proxy": _proxy} if _proxy else {}),
+        **({
+            "proxy": _proxy} if _proxy else {}),
     }
 
     # ── Timing ──────────────────────────────────────────────────────────────────────────────
-    # STATUS_INTERVAL è stato rimosso da qui perché non aveva effetto a runtime.
-    # Il valore effettivo è BotConfig.status_interval (default 300),
-    # persistito in assets/config/bot_config.json e modificabile via /setconfig.
     IDLE_TIMEOUT:     int = 600
     EMPTY_CH_TIMEOUT: int = 600
 
@@ -142,31 +142,52 @@ class Config:
     MAX_VOLUME:       float = 1.0
 
     # ── Logging ──────────────────────────────────────────────────────────────────────────────
-    # LOG_LEVEL=DEBUG abilita i dettagli DEBUG solo per il logger di
-    # enrichment Spotify (pitonazz.spotify_enrich). Il resto resta a INFO.
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 
     # ── AI ───────────────────────────────────────────────────────────────────────────────────
-    AI_COOLDOWN_SECONDS: int = 5   # secondi tra una richiesta e l'altra per utente
+    AI_COOLDOWN_SECONDS: int = 5
 
 
 def validate_config() -> None:
-    """Logga warning per le variabili d'ambiente critiche mancanti.
-    Da chiamare all'avvio (in main.py) prima di avviare il bot.
-    """
     if not Config.DISCORD_TOKEN:
         raise RuntimeError(
             "DISCORD_TOKEN non trovato nel .env — impossibile avviare il bot."
         )
-    if not Config.GEMINI_API_KEY and not Config.GROQ_API_KEY:
+    if not Config.GROQ_API_KEY:
         log.warning(
-            "Né GEMINI_API_KEY né GROQ_API_KEY configurate: il cog AI non funzionerà."
+            "GROQ_API_KEY non configurata: il cog AI non funzionerà."
         )
     if not Config.SPOTIFY_CLIENT_ID or not Config.SPOTIFY_CLIENT_SECRET:
         log.warning(
             "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET mancanti: "
             "le ricerche Spotify non funzioneranno."
         )
+
+
+def _validate_cookie_file(path: str) -> tuple[bool, str]:
+    """Verifica esistenza, leggibilità e formato Netscape del file cookie.
+
+    Returns
+    -------
+    (ok: bool, messaggio: str)
+    """
+    import os as _os
+    if not path:
+        return False, "nessun path specificato"
+    if not _os.path.exists(path):
+        return False, f"file non trovato: {path}"
+    if not _os.access(path, _os.R_OK):
+        return False, f"file non leggibile (permessi): {path}"
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            first_line = f.readline().strip()
+            if not first_line.startswith("# Netscape HTTP Cookie File") and \
+               not first_line.startswith("# HTTP Cookie File"):
+                return False, f"header Netscape mancante (prima riga: {first_line[:60]!r})"
+            data_lines = sum(1 for line in f if line.strip() and not line.startswith("#"))
+        return True, f"OK — {data_lines} righe dati"
+    except Exception as e:
+        return False, f"errore lettura: {e}"
 
 
 def start_proxy_startup_check() -> None:
@@ -209,3 +230,35 @@ def start_proxy_startup_check() -> None:
             proxy_log.exception("Errore durante il proxy startup check in background.")
 
     threading.Thread(target=_check_and_log, name="proxy-startup-check", daemon=True).start()
+
+
+def start_cookie_startup_check() -> None:
+    """Verifica il file cookie in background e logga lo stato startup."""
+
+    cookie_log = logging.getLogger("pitonazz")
+    enabled = Config.COOKIES_ENABLED
+    path = (Config.EFFECTIVE_COOKIE_FILE or "").strip()
+
+    def _fmt(text: str, color: str, *, bolded: bool = False) -> str:
+        value = hi(text, color)
+        return b(value) if bolded else value
+
+    def _status_label(on: bool) -> str:
+        return _fmt("ON", _CLR_ON, bolded=True) if on else _fmt("OFF", _CLR_OFF, bolded=True)
+
+    def _check_and_log() -> None:
+        try:
+            state = _status_label(enabled)
+            if not enabled:
+                cookie_log.info(tag("COOKIE", f"{state}  {_fmt(_UNCONFIGURED_COOKIE, _CLR_GRAY)}"))
+                return
+            ok, msg = _validate_cookie_file(path)
+            detail = _fmt(msg, _CLR_ON if ok else _CLR_OFF)
+            icon = "✅" if ok else "⚠️"
+            cookie_log.info(tag("COOKIE", f"{state}  {icon}  {detail}"))
+            if not ok:
+                cookie_log.warning(tag("COOKIE", f"Cookie disabilitati di fatto — {msg}"))
+        except Exception:
+            cookie_log.exception("Errore durante il cookie startup check in background.")
+
+    threading.Thread(target=_check_and_log, name="cookie-startup-check", daemon=True).start()
