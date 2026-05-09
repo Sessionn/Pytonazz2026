@@ -147,7 +147,7 @@ class Dev(commands.Cog):
         log.info(tag("DEV", f"maintenance → {b(attiva)}"))
         await inter.response.send_message(stato, ephemeral=True)
 
-    @app_commands.command(name="backupconfig", description=f"{_OWN} 👑 Esporta la configurazione del bot in un file ZIP")
+    @app_commands.command(name="backup config", description=f"{_OWN} 👑 Esporta la configurazione del bot in un file ZIP")
     @owner_check
     async def backupconfig(self, inter: discord.Interaction):
         await inter.response.defer(ephemeral=True)
@@ -155,7 +155,6 @@ class Dev(commands.Cog):
         ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
         included = []
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            # File di configurazione flat
             for fpath in BACKUP_FILES:
                 if fpath.exists():
                     zf.write(fpath, fpath.name)
@@ -168,7 +167,6 @@ class Dev(commands.Cog):
                         log.info(tag("BACKUP", f"incluso (vuoto): {b(fpath.name)}"))
                         continue
                     log.info(tag("BACKUP", f"non trovato (skip): {b(fpath.name)}"))
-            # Immagini welcome (./data/welcome_images/)
             if WELCOME_IMAGES_DIR.exists():
                 for img in WELCOME_IMAGES_DIR.iterdir():
                     if img.is_file():
@@ -195,13 +193,13 @@ class Dev(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="restoreconfig", description=f"{_OWN} 👑 Ripristina la configurazione da un file ZIP di backup")
-    @app_commands.describe(backup="File ZIP generato da /backupconfig")
+    @app_commands.command(name="restore config", description=f"{_OWN} 👑 Ripristina la configurazione da un file ZIP di backup")
+    @app_commands.describe(backup="File ZIP generato da /backup config")
     @owner_check
     async def restoreconfig(self, inter: discord.Interaction, backup: discord.Attachment):
         await inter.response.defer(ephemeral=True)
         if not backup.filename.endswith(".zip"):
-            return await inter.followup.send("❌ Devi allegare un file `.zip` generato da `/backupconfig`.", ephemeral=True)
+            return await inter.followup.send("❌ Devi allegare un file `.zip` generato da `/backup config`.", ephemeral=True)
         if backup.size > _MAX_RESTORE_BYTES:
             return await inter.followup.send(
                 f"❌ File troppo grande (max {_MAX_RESTORE_BYTES // 1024 // 1024} MB).",
@@ -213,7 +211,6 @@ class Dev(commands.Cog):
         try:
             with zipfile.ZipFile(buf, "r") as zf:
                 names = zf.namelist()
-                # Ripristina file di configurazione flat
                 for fpath in BACKUP_FILES:
                     if fpath.name in names:
                         content = zf.read(fpath.name)
@@ -221,7 +218,6 @@ class Dev(commands.Cog):
                         fpath.write_bytes(content)
                         restored.append(fpath.name)
                         log.info(tag("RESTORE", f"ripristinato: {b(fpath.name)}"))
-                # Ripristina immagini welcome
                 for name in names:
                     if name.startswith("welcome_images/") and not name.endswith("/"):
                         img_name = Path(name).name
@@ -243,7 +239,7 @@ class Dev(commands.Cog):
 
     # ── DEV — comandi di gestione quotidiana ──────────────────────────────────
 
-    @app_commands.command(name="disablecommand", description=f"{_OWN} Disabilita un comando slash a runtime")
+    @app_commands.command(name="disable command", description=f"{_OWN} Disabilita un comando slash a runtime")
     @app_commands.describe(comando="Comando da disabilitare")
     @dev_check
     async def disablecommand(self, inter: discord.Interaction, comando: str):
@@ -259,7 +255,7 @@ class Dev(commands.Cog):
             )
         log.info(tag("DEV", f"disable  {b(comando)}"))
         await inter.response.send_message(
-            f"🚫 `/{comando}` **disabilitato**.\n*(Usa `/enablecommand` per riattivarlo)*",
+            f"🚫 `/{comando}` **disabilitato**.\n*(Usa `/enable command` per riattivarlo)*",
             ephemeral=True,
         )
 
@@ -276,7 +272,7 @@ class Dev(commands.Cog):
         ]
         return [app_commands.Choice(name=n, value=n) for n in sorted(cmds)[:25]]
 
-    @app_commands.command(name="enablecommand", description=f"{_OWN} Riabilita un comando slash disabilitato")
+    @app_commands.command(name="enable command", description=f"{_OWN} Riabilita un comando slash disabilitato")
     @app_commands.describe(comando="Comando da riabilitare")
     @dev_check
     async def enablecommand(self, inter: discord.Interaction, comando: str):
@@ -296,7 +292,7 @@ class Dev(commands.Cog):
         cmds = [n for n in disabled if current in self._norm_cmd_name(n)]
         return [app_commands.Choice(name=n, value=n) for n in sorted(cmds)[:25]]
 
-    @app_commands.command(name="commandlist", description=f"{_OWN} Panoramica comandi: abilitati, disabilitati e protetti")
+    @app_commands.command(name="command list", description=f"{_OWN} Panoramica comandi: abilitati, disabilitati e protetti")
     @dev_check
     async def commandlist(self, inter: discord.Interaction):
         disabled_set = {self._norm_cmd_name(n) for n in cfg.disabled_commands}
@@ -323,25 +319,25 @@ class Dev(commands.Cog):
         embed.add_field(name=f"🚫 Disabilitati ({len(disabled_lines)})",                  value="\n".join(disabled_lines)  or "*Nessuno*", inline=False)
         embed.add_field(name=f"🔒 Protetti — non disabilitabili ({len(protected_lines)})", value="\n".join(protected_lines) or "*Nessuno*", inline=False)
         embed.set_footer(text="Context menu contrassegnati con 📋")
-        log.info(tag("DEV", f"commandlist  totale={len(all_cmds)}  disabilitati={len(disabled_lines)}"))
+        log.info(tag("DEV", f"command list  totale={len(all_cmds)}  disabilitati={len(disabled_lines)}"))
         await inter.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="setlogchannel", description=f"{_OWN} Imposta il canale per gli errori del bot")
+    @app_commands.command(name="set log channel", description=f"{_OWN} Imposta il canale per gli errori del bot")
     @app_commands.describe(canale="Canale testo dove inviare gli errori (ometti per disattivare)")
     @dev_check
     async def setlogchannel(self, inter: discord.Interaction, canale: Optional[discord.TextChannel] = None):
         if canale is None:
             await cfg.set_log_channel(None)
-            log.info(tag("DEV", "setlogchannel → rimosso"))
+            log.info(tag("DEV", "set log channel → rimosso"))
             await inter.response.send_message("🔕 Log channel **rimosso**.", ephemeral=True)
         else:
             await cfg.set_log_channel(canale.id)
-            log.info(tag("DEV", f"setlogchannel → #{canale.name} ({canale.id})"))
+            log.info(tag("DEV", f"set log channel → #{canale.name} ({canale.id})"))
             await inter.response.send_message(
                 f"✅ Errori del bot inviati in {canale.mention}", ephemeral=True
             )
 
-    @app_commands.command(name="ttsvolume", description=f"{_OWN} Cambia il volume del TTS (0.1 – 3.0)")
+    @app_commands.command(name="tts volume", description=f"{_OWN} Cambia il volume del TTS (0.1 – 3.0)")
     @app_commands.describe(valore="Moltiplicatore volume: 1.0 = originale")
     @dev_check
     async def ttsvolume(self, inter: discord.Interaction, valore: app_commands.Range[float, 0.1, 3.0]):
@@ -353,7 +349,11 @@ class Dev(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="addstatus", description=f"{_OWN} Aggiunge un'attività alla rotazione")
+    # ── STATUS gruppo ─────────────────────────────────────────────────────────
+
+    status = app_commands.Group(name="status", description=f"{_OWN} Gestione attività/status del bot")
+
+    @status.command(name="add", description=f"{_OWN} Aggiunge un'attività alla rotazione")
     @app_commands.describe(tipo="Tipo di attività", nome="Testo", stato="Stato del bot")
     @app_commands.choices(tipo=[
         app_commands.Choice(name="🎮 Giocando a",    value="playing"),
@@ -369,7 +369,7 @@ class Dev(commands.Cog):
         app_commands.Choice(name="⚫ Invisibile",      value="invisible"),
     ])
     @dev_check
-    async def addstatus(self, inter: discord.Interaction, tipo: str, nome: str, stato: str = "online"):
+    async def status_add(self, inter: discord.Interaction, tipo: str, nome: str, stato: str = "online"):
         data = _load_custom()
         data.append({"type": tipo, "name": nome, "status": stato})
         _save_custom(data)
@@ -381,16 +381,16 @@ class Dev(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="removestatus", description=f"{_OWN} Rimuove un'attività custom dalla rotazione")
-    @app_commands.describe(indice="Numero custom da /liststatus")
+    @status.command(name="remove", description=f"{_OWN} Rimuove un'attività custom dalla rotazione")
+    @app_commands.describe(indice="Numero custom da /status list (a partire da 0; lo 0 è il default)")
     @dev_check
-    async def removestatus(self, inter: discord.Interaction, indice: int):
+    async def status_remove(self, inter: discord.Interaction, indice: int):
         data = _load_custom()
         if not data:
             return await inter.response.send_message("❌ Nessuna attività custom da rimuovere.", ephemeral=True)
-        if not (1 <= indice <= len(data)):
-            return await inter.response.send_message(f"❌ Indice non valido. Custom: 1–{len(data)}", ephemeral=True)
-        removed = data.pop(indice - 1)
+        if not (0 <= indice < len(data)):
+            return await inter.response.send_message(f"❌ Indice non valido. Custom: 0–{len(data)-1}", ephemeral=True)
+        removed = data.pop(indice)
         _save_custom(data)
         self.bot.reload_status_list()
         log.info(tag("STATUS", f"remove  {b(removed['name'])}  rotazione={len(self.bot._status_list)}"))
@@ -399,9 +399,9 @@ class Dev(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="editstatus", description=f"{_OWN} Modifica un'attività custom esistente")
+    @status.command(name="edit", description=f"{_OWN} Modifica un'attività custom esistente")
     @app_commands.describe(
-        indice="Numero custom da /liststatus",
+        indice="Numero custom da /status list (a partire da 0)",
         nome="Nuovo testo (lascia vuoto per non modificare)",
         tipo="Nuovo tipo",
         stato="Nuovo stato",
@@ -420,7 +420,7 @@ class Dev(commands.Cog):
         app_commands.Choice(name="⚫ Invisibile",      value="invisible"),
     ])
     @dev_check
-    async def editstatus(
+    async def status_edit(
         self, inter: discord.Interaction,
         indice: int,
         nome: Optional[str] = None,
@@ -430,11 +430,11 @@ class Dev(commands.Cog):
         data = _load_custom()
         if not data:
             return await inter.response.send_message("❌ Nessuna attività custom da modificare.", ephemeral=True)
-        if not (1 <= indice <= len(data)):
-            return await inter.response.send_message(f"❌ Indice non valido. Custom: 1–{len(data)}", ephemeral=True)
+        if not (0 <= indice < len(data)):
+            return await inter.response.send_message(f"❌ Indice non valido. Custom: 0–{len(data)-1}", ephemeral=True)
         if nome is None and tipo is None and stato is None:
             return await inter.response.send_message("❌ Specifica almeno un campo da modificare.", ephemeral=True)
-        entry = data[indice - 1]
+        entry = data[indice]
         old   = dict(entry)
         if nome  is not None: entry["name"]   = nome
         if tipo  is not None: entry["type"]   = tipo
@@ -450,28 +450,29 @@ class Dev(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="liststatus", description=f"{_OWN} Mostra tutte le attività in rotazione")
+    @status.command(name="list", description=f"{_OWN} Mostra tutte le attività in rotazione")
     @dev_check
-    async def liststatus(self, inter: discord.Interaction):
+    async def status_list(self, inter: discord.Interaction):
         from assets.status_messages import STATUS_CYCLE
         custom = _load_custom()
         lines = []
         for i, e in enumerate(STATUS_CYCLE):
             s    = STATUS_LABEL.get(e.get("status", "online"), e.get("status", ""))
             tipo = e["type"].name if hasattr(e["type"], "name") else str(e["type"])
-            lines.append(f"**{i+1}.** `{tipo}` {e['name']} — {s} *(base)*")
+            lines.append(f"**{i}.** `{tipo}` {e['name']} — {s} *(default)*")
         for i, e in enumerate(custom):
             s    = STATUS_LABEL.get(e.get("status", "online"), e.get("status", ""))
             tipo = e["type"] if isinstance(e["type"], str) else e["type"].name
-            lines.append(f"**{len(STATUS_CYCLE)+i+1}.** `{tipo}` {e['name']} — {s} *(custom #{i+1})*")
+            lines.append(f"**{len(STATUS_CYCLE)+i}.** `{tipo}` {e['name']} — {s}")
         embed = discord.Embed(
             title=f"🎤 Rotazione attività ({len(self.bot._status_list)} voci)",
             description="\n".join(lines) or "Nessuna attività.",
             color=0x5865F2,
         )
+        embed.set_footer(text="Gli indici da 0 a N-1 sono i default, quelli successivi sono custom. Usa /status remove <indice> per rimuovere.")
         await inter.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="setstatus", description=f"{_OWN} Imposta subito uno stato (non aggiunto alla rotazione)")
+    @status.command(name="set", description=f"{_OWN} Imposta subito uno stato (non aggiunto alla rotazione)")
     @app_commands.describe(tipo="Tipo", nome="Testo", stato="Stato")
     @app_commands.choices(tipo=[
         app_commands.Choice(name="🎮 Giocando a",    value="playing"),
@@ -487,7 +488,7 @@ class Dev(commands.Cog):
         app_commands.Choice(name="⚫ Invisibile",      value="invisible"),
     ])
     @dev_check
-    async def setstatus(self, inter: discord.Interaction, tipo: str, nome: str, stato: str = "online"):
+    async def status_set(self, inter: discord.Interaction, tipo: str, nome: str, stato: str = "online"):
         act_type = TYPE_MAP.get(tipo, discord.ActivityType.playing)
         activity = (
             discord.CustomActivity(name=nome)
@@ -502,10 +503,10 @@ class Dev(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="statusinterval", description=f"{_OWN} Cambia l'intervallo della rotazione status")
+    @status.command(name="interval", description=f"{_OWN} Cambia l'intervallo della rotazione status")
     @app_commands.describe(secondi="Intervallo in secondi (minimo 10)")
     @dev_check
-    async def statusinterval(self, inter: discord.Interaction, secondi: int):
+    async def status_interval(self, inter: discord.Interaction, secondi: int):
         if secondi < 10:
             return await inter.response.send_message("❌ Minimo 10 secondi.", ephemeral=True)
         await cfg.set_status_interval(secondi)
@@ -516,6 +517,8 @@ class Dev(commands.Cog):
             f"⏱️ Intervallo aggiornato: **{secondi}s** ({minuti:.1f} min)\n*(salvato, sopravvive ai restart)*",
             ephemeral=True,
         )
+
+    # ── Altri comandi dev ─────────────────────────────────────────────────────
 
     @app_commands.command(name="say", description=f"{_OWN} Fai parlare il bot in un canale")
     @app_commands.describe(testo="Messaggio da inviare", canale="Canale destinazione (default: corrente)")
@@ -549,7 +552,7 @@ class Dev(commands.Cog):
         log.info(tag("DEV", f"announce  → #{dest.name}  titolo={b(titolo)}"))
         await inter.response.send_message(f"✅ Annuncio inviato in {dest.mention}", ephemeral=True)
 
-    @app_commands.command(name="coglist", description=f"{_OWN} Lista di tutti i cog caricati")
+    @app_commands.command(name="cog list", description=f"{_OWN} Lista di tutti i cog caricati")
     @dev_check
     async def coglist(self, inter: discord.Interaction):
         cogs = sorted(self.bot.cogs.keys())
@@ -561,24 +564,23 @@ class Dev(commands.Cog):
         )
         await inter.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="ai_reset", description=f"{_OWN} Azzera la memoria conversazionale dell'AI")
+    @app_commands.command(name="ai reset", description=f"{_OWN} Azzera la memoria conversazionale dell'AI")
     @app_commands.describe(canale="Canale da resettare (default: tutti)")
     @dev_check
     async def ai_reset(self, inter: discord.Interaction, canale: Optional[discord.TextChannel] = None):
         invalidate_prompt_cache()
         if canale:
             _ = clear_conversation_memory(canale.id)
-            log.info(tag("AI", f"ai_reset  canale=#{canale.name}  da {user(str(inter.user))}"))
+            log.info(tag("AI", f"ai reset  canale=#{canale.name}  da {user(str(inter.user))}"))
             await inter.response.send_message(
                 f"🧹 Memoria AI resettata per {canale.mention}.", ephemeral=True
             )
         else:
             count = clear_conversation_memory()
-            log.info(tag("AI", f"ai_reset  TUTTI ({count} canali)  da {user(str(inter.user))}"))
+            log.info(tag("AI", f"ai reset  TUTTI ({count} canali)  da {user(str(inter.user))}"))
             await inter.response.send_message(
                 f"🧹 Memoria AI resettata per **{count}** canali.", ephemeral=True
             )
-
 
     @app_commands.command(name="debug", description=f"{_OWN} Attiva/disattiva il livello log DEBUG a runtime")
     @app_commands.describe(stato="on = DEBUG enrichment Spotify, off = INFO")

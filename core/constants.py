@@ -36,11 +36,11 @@ STATUS_LABEL: dict[str, str] = {
 # Comandi che non possono essere disabilitati dall'owner.
 # Fonte unica: importata sia da main.py che da cogs/dev.py
 UNDISABLEABLE: frozenset[str] = frozenset({
-    "disablecommand", "enablecommand", "commandlist", "sync", "restart",
-    "maintenance", "coglist", "help", "help-dev",
+    "disable command", "enable command", "command list", "sync", "restart",
+    "maintenance", "cog list", "help", "help dev",
 })
 
 
 def command_slug(name: str) -> str:
-    """Normalizza un nome comando (anche qualificato) in formato underscore."""
-    return "_".join(str(name).strip().lower().split())
+    """Normalizza un nome comando (anche qualificato) in formato spazio, senza trattini/underscore."""
+    return " ".join(str(name).strip().lower().replace("_", " ").replace("-", " ").split())

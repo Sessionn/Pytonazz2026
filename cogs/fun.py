@@ -80,4 +80,131 @@ async def citazione_context(inter: discord.Interaction, message: discord.Message
         testo = testo[:_MAX_QUOTE_LEN] + "\u2026"
     utente = message.author
     avatar_url = utente.display_avatar.url if hasattr(utente, "display_avatar") else None
-    nome = utente.display_name if hasattr(utente, "display_name") else str(utent
+    nome = utente.display_name if hasattr(utente, "display_name") else str(utente)
+    log.info(tag("CMD", f"citazione_ctx {user(str(inter.user))} su msg di {user(nome)}"))
+    await inter.response.defer()
+    try:
+        img = await build_quote_card(testo, nome, avatar_url)
+        await inter.followup.send(
+            file=discord.File(fp=img, filename="citazione.png"),
+        )
+    except Exception as e:
+        log.error(tag("CMD", f"citazione_ctx errore: {e}"), exc_info=True)
+        await inter.followup.send("\u274c Errore durante la generazione della citazione.", ephemeral=True)
+
+
+class Fun(commands.Cog):
+    COG_ICON  = "\U0001f3b2"
+    COG_LABEL = "Divertimento"
+    COG_TYPE  = "fun"
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        bot.tree.add_command(citazione_context)
+
+    def cog_unload(self):
+        self.bot.tree.remove_command("Citazione", type=discord.AppCommandType.message)
+
+    # ── 8ball ─────────────────────────────────────────────────────────────────
+
+    @app_commands.command(name="8ball", description="\U0001f3b1 Fai una domanda all'8-Ball")
+    @app_commands.describe(domanda="La domanda da porre")
+    async def ball8(self, inter: discord.Interaction, domanda: str):
+        key     = random.choice(_8BALL_OUTCOMES)
+        label, emoji, pool = _8BALL_LABELS[key]
+        testo, colore = random.choice(pool)
+        embed = discord.Embed(
+            description=f"**{testo}**",
+            color=colore,
+        )
+        embed.set_author(name=f"{emoji} {label}")
+        embed.add_field(name="Domanda", value=domanda, inline=False)
+        log.info(tag("CMD", f"8ball  {user(str(inter.user))}  →  {label}"))
+        await inter.response.send_message(embed=embed)
+
+    # ── Citazione slash ───────────────────────────────────────────────────────
+
+    @app_commands.command(name="citazione", description="\U0001f4dc Genera una citazione in stile card")
+    @app_commands.describe(
+        testo="Testo della citazione",
+        autore="Nome dell'autore (default: il tuo)",
+    )
+    async def citazione(
+        self,
+        inter: discord.Interaction,
+        testo: str,
+        autore: Optional[str] = None,
+    ):
+        if len(testo) > _MAX_QUOTE_LEN:
+            testo = testo[:_MAX_QUOTE_LEN] + "\u2026"
+        nome = autore or inter.user.display_name
+        avatar_url = inter.user.display_avatar.url if not autore else None
+        log.info(tag("CMD", f"citazione {user(str(inter.user))} autore={nome}"))
+        await inter.response.defer()
+        try:
+            img = await build_quote_card(testo, nome, avatar_url)
+            await inter.followup.send(
+                file=discord.File(fp=img, filename="citazione.png")
+            )
+        except Exception as e:
+            log.error(tag("CMD", f"citazione errore: {e}"), exc_info=True)
+            await inter.followup.send("\u274c Errore durante la generazione della citazione.", ephemeral=True)
+
+    # ── Roulette ──────────────────────────────────────────────────────────────
+
+    @app_commands.command(name="roulette", description="\U0001f52b Roulette russa: 1 colpo su 6")
+    async def roulette(self, inter: discord.Interaction):
+        chamber = random.randint(1, 6)
+        dead    = chamber == 1
+        display = _cylinder_display(chamber, dead)
+        if dead:
+            embed = discord.Embed(
+                title="\U0001f4a5 BANG!",
+                description=f"{inter.user.mention} ha premuto il grilletto e... **ERA IL COLPO**!\n\n{display}",
+                color=0xe74c3c,
+            )
+        else:
+            embed = discord.Embed(
+                title="\U0001f389 Click!",
+                description=f"{inter.user.mention} ha premuto il grilletto... **Sei vivo!**\n\n{display}",
+                color=0x2ecc71,
+            )
+        log.info(tag("CMD", f"roulette {user(str(inter.user))} camera={chamber} morto={dead}"))
+        await inter.response.send_message(embed=embed)
+
+    # ── Poll ──────────────────────────────────────────────────────────────────
+
+    @app_commands.command(name="poll", description="\U0001f4ca Crea un sondaggio con fino a 4 opzioni")
+    @app_commands.describe(
+        domanda="La domanda del sondaggio",
+        opzione1="Prima opzione",
+        opzione2="Seconda opzione",
+        opzione3="Terza opzione (opzionale)",
+        opzione4="Quarta opzione (opzionale)",
+    )
+    async def poll(
+        self,
+        inter: discord.Interaction,
+        domanda: str,
+        opzione1: str,
+        opzione2: str,
+        opzione3: Optional[str] = None,
+        opzione4: Optional[str] = None,
+    ):
+        opzioni = [o for o in [opzione1, opzione2, opzione3, opzione4] if o]
+        desc = "\n".join(f"{_POLL_EMOJIS[i]} {o}" for i, o in enumerate(opzioni))
+        embed = discord.Embed(
+            title=f"\U0001f4ca {domanda}",
+            description=desc,
+            color=0x5865f2,
+        )
+        embed.set_footer(text=f"Sondaggio di {inter.user.display_name}")
+        await inter.response.send_message(embed=embed)
+        msg = await inter.original_response()
+        for i in range(len(opzioni)):
+            await msg.add_reaction(_POLL_EMOJIS[i])
+        log.info(tag("CMD", f"poll {user(str(inter.user))} opzioni={len(opzioni)}"))
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Fun(bot))
