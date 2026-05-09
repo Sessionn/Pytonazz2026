@@ -147,7 +147,7 @@ class Dev(commands.Cog):
         log.info(tag("DEV", f"maintenance \u2192 {b(attiva)}"))
         await inter.response.send_message(stato, ephemeral=True)
 
-    @app_commands.command(name="backup config", description=f"{_OWN} \U0001f451 Esporta la configurazione del bot in un file ZIP")
+    @app_commands.command(name="backupconfig", description=f"{_OWN} \U0001f451 Esporta la configurazione del bot in un file ZIP")
     @owner_check
     async def backupconfig(self, inter: discord.Interaction):
         await inter.response.defer(ephemeral=True)
@@ -193,13 +193,13 @@ class Dev(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="restore config", description=f"{_OWN} \U0001f451 Ripristina la configurazione da un file ZIP di backup")
-    @app_commands.describe(backup="File ZIP generato da /backup config")
+    @app_commands.command(name="restoreconfig", description=f"{_OWN} \U0001f451 Ripristina la configurazione da un file ZIP di backup")
+    @app_commands.describe(backup="File ZIP generato da /backupconfig")
     @owner_check
     async def restoreconfig(self, inter: discord.Interaction, backup: discord.Attachment):
         await inter.response.defer(ephemeral=True)
         if not backup.filename.endswith(".zip"):
-            return await inter.followup.send("\u274c Devi allegare un file `.zip` generato da `/backup config`.", ephemeral=True)
+            return await inter.followup.send("\u274c Devi allegare un file `.zip` generato da `/backupconfig`.", ephemeral=True)
         if backup.size > _MAX_RESTORE_BYTES:
             return await inter.followup.send(
                 f"\u274c File troppo grande (max {_MAX_RESTORE_BYTES // 1024 // 1024} MB).",
@@ -239,7 +239,7 @@ class Dev(commands.Cog):
 
     # ── DEV ───────────────────────────────────────────────────────────────────
 
-    @app_commands.command(name="disable command", description=f"{_OWN} Disabilita un comando slash a runtime")
+    @app_commands.command(name="disable_command", description=f"{_OWN} Disabilita un comando slash a runtime")
     @app_commands.describe(comando="Comando da disabilitare")
     @dev_check
     async def disablecommand(self, inter: discord.Interaction, comando: str):
@@ -255,7 +255,7 @@ class Dev(commands.Cog):
             )
         log.info(tag("DEV", f"disable  {b(comando)}"))
         await inter.response.send_message(
-            f"\U0001f6ab `/{comando}` **disabilitato**.\n*(Usa `/enable command` per riattivarlo)*",
+            f"\U0001f6ab `/{comando}` **disabilitato**.\n*(Usa `/enable_command` per riattivarlo)*",
             ephemeral=True,
         )
 
@@ -272,7 +272,7 @@ class Dev(commands.Cog):
         ]
         return [app_commands.Choice(name=n, value=n) for n in sorted(cmds)[:25]]
 
-    @app_commands.command(name="enable command", description=f"{_OWN} Riabilita un comando slash disabilitato")
+    @app_commands.command(name="enable_command", description=f"{_OWN} Riabilita un comando slash disabilitato")
     @app_commands.describe(comando="Comando da riabilitare")
     @dev_check
     async def enablecommand(self, inter: discord.Interaction, comando: str):
@@ -292,7 +292,7 @@ class Dev(commands.Cog):
         cmds = [n for n in disabled if current in self._norm_cmd_name(n)]
         return [app_commands.Choice(name=n, value=n) for n in sorted(cmds)[:25]]
 
-    @app_commands.command(name="command list", description=f"{_OWN} Panoramica comandi: abilitati, disabilitati e protetti")
+    @app_commands.command(name="command_list", description=f"{_OWN} Panoramica comandi: abilitati, disabilitati e protetti")
     @dev_check
     async def commandlist(self, inter: discord.Interaction):
         disabled_set = {self._norm_cmd_name(n) for n in cfg.disabled_commands}
@@ -319,25 +319,25 @@ class Dev(commands.Cog):
         embed.add_field(name=f"\U0001f6ab Disabilitati ({len(disabled_lines)})",                  value="\n".join(disabled_lines)  or "*Nessuno*", inline=False)
         embed.add_field(name=f"\U0001f512 Protetti \u2014 non disabilitabili ({len(protected_lines)})", value="\n".join(protected_lines) or "*Nessuno*", inline=False)
         embed.set_footer(text="Context menu contrassegnati con \U0001f4cb")
-        log.info(tag("DEV", f"command list  totale={len(all_cmds)}  disabilitati={len(disabled_lines)}"))
+        log.info(tag("DEV", f"command_list  totale={len(all_cmds)}  disabilitati={len(disabled_lines)}"))
         await inter.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="set log channel", description=f"{_OWN} Imposta il canale per gli errori del bot")
+    @app_commands.command(name="set_log_channel", description=f"{_OWN} Imposta il canale per gli errori del bot")
     @app_commands.describe(canale="Canale testo dove inviare gli errori (ometti per disattivare)")
     @dev_check
     async def setlogchannel(self, inter: discord.Interaction, canale: Optional[discord.TextChannel] = None):
         if canale is None:
             await cfg.set_log_channel(None)
-            log.info(tag("DEV", "set log channel \u2192 rimosso"))
+            log.info(tag("DEV", "set_log_channel \u2192 rimosso"))
             await inter.response.send_message("\U0001f515 Log channel **rimosso**.", ephemeral=True)
         else:
             await cfg.set_log_channel(canale.id)
-            log.info(tag("DEV", f"set log channel \u2192 #{canale.name} ({canale.id})"))
+            log.info(tag("DEV", f"set_log_channel \u2192 #{canale.name} ({canale.id})"))
             await inter.response.send_message(
                 f"\u2705 Errori del bot inviati in {canale.mention}", ephemeral=True
             )
 
-    @app_commands.command(name="tts volume", description=f"{_OWN} Cambia il volume del TTS (0.1 \u2013 3.0)")
+    @app_commands.command(name="tts_volume", description=f"{_OWN} Cambia il volume del TTS (0.1 \u2013 3.0)")
     @app_commands.describe(valore="Moltiplicatore volume: 1.0 = originale")
     @dev_check
     async def ttsvolume(self, inter: discord.Interaction, valore: app_commands.Range[float, 0.1, 3.0]):
@@ -554,7 +554,7 @@ class Dev(commands.Cog):
         log.info(tag("DEV", f"announce  \u2192 #{dest.name}  titolo={b(titolo)}"))
         await inter.response.send_message(f"\u2705 Annuncio inviato in {dest.mention}", ephemeral=True)
 
-    @app_commands.command(name="cog list", description=f"{_OWN} Lista di tutti i cog caricati")
+    @app_commands.command(name="cog_list", description=f"{_OWN} Lista di tutti i cog caricati")
     @dev_check
     async def coglist(self, inter: discord.Interaction):
         cogs = sorted(self.bot.cogs.keys())
@@ -566,20 +566,20 @@ class Dev(commands.Cog):
         )
         await inter.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="ai reset", description=f"{_OWN} Azzera la memoria conversazionale dell'AI")
+    @app_commands.command(name="ai_reset", description=f"{_OWN} Azzera la memoria conversazionale dell'AI")
     @app_commands.describe(canale="Canale da resettare (default: tutti)")
     @dev_check
     async def ai_reset(self, inter: discord.Interaction, canale: Optional[discord.TextChannel] = None):
         invalidate_prompt_cache()
         if canale:
             _ = clear_conversation_memory(canale.id)
-            log.info(tag("AI", f"ai reset  canale=#{canale.name}  da {user(str(inter.user))}"))
+            log.info(tag("AI", f"ai_reset  canale=#{canale.name}  da {user(str(inter.user))}"))
             await inter.response.send_message(
                 f"\U0001f9f9 Memoria AI resettata per {canale.mention}.", ephemeral=True
             )
         else:
             count = clear_conversation_memory()
-            log.info(tag("AI", f"ai reset  TUTTI ({count} canali)  da {user(str(inter.user))}"))
+            log.info(tag("AI", f"ai_reset  TUTTI ({count} canali)  da {user(str(inter.user))}"))
             await inter.response.send_message(
                 f"\U0001f9f9 Memoria AI resettata per **{count}** canali.", ephemeral=True
             )
