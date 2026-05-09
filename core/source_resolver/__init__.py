@@ -14,7 +14,6 @@ from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
 
 # ── Sub-module imports ────────────────────────────────────────────────────────
-# Scoring / math helpers (pure functions, no Config or I/O dependency)
 from core.source_resolver.scoring import (
     _MV_KEYWORDS,
     _VARIANT_KEYWORDS,
@@ -52,7 +51,6 @@ from core.source_resolver.scoring import (
     _compute_enrich_confidence,
 )
 
-# yt-dlp infrastructure helpers
 from core.source_resolver.ytdlp import (
     _YTDLP_QUERY_CACHE_TTL,
     _YTDLP_QUERY_CACHE_MAX,
@@ -64,7 +62,6 @@ from core.source_resolver.ytdlp import (
     _is_soundcloud_url,
 )
 
-# Spotify item helpers
 from core.source_resolver.spotify import (
     _SPOTIFY_BATCH_CONCURRENCY,
     _SPOTIFY_BATCH_MAX_CONCURRENCY,
@@ -211,8 +208,6 @@ def _extract_spotify_entity_id(url: str, entity: str) -> Optional[str]:
         return None
 
     parts = [p for p in parsed.path.split("/") if p]
-    # Spotify may include locale in the path
-    # (e.g., /it/album/... , /en-us/album/... , /intl-it/album/...).
     if (
         len(parts) >= 3
         and _SPOTIFY_LOCALE_SEGMENT.fullmatch(parts[0])
@@ -336,7 +331,6 @@ class SourceResolver:
             if exp <= now:
                 cls._ytdlp_query_cache.pop(key, None)
                 return None
-            # Move-to-end: keep LRU eviction using an ordered dict.
             cls._ytdlp_query_cache.pop(key, None)
             cls._ytdlp_query_cache[key] = (exp, tracks)
             return [_clone_track(t) for t in tracks]
@@ -362,7 +356,6 @@ class SourceResolver:
             if exp <= now:
                 cls._stream_url_cache.pop(webpage_url, None)
                 return None
-            # Move-to-end: keep LRU eviction using an ordered dict.
             cls._stream_url_cache.pop(webpage_url, None)
             cls._stream_url_cache[webpage_url] = (exp, url)
             return url
@@ -417,7 +410,6 @@ class SourceResolver:
     def _sp_search_track_meta_for_track(
         cls, original_query: str, track: "TrackInfo"
     ) -> tuple[Optional[dict], Optional[dict]]:
-        """Search Spotify metadata for a single YT track and return (meta, score_info)."""
         search_parts = [original_query]
         if track.title:
             search_parts.append(track.title)
@@ -464,14 +456,6 @@ class SourceResolver:
     def _enrich_with_spotify(
         cls, tracks: list["TrackInfo"], original_query: str
     ) -> list["TrackInfo"]:
-        """
-        Enrich YT tracks with Spotify metadata.
-
-        Per-track logic:
-        - full: update title/artist/thumbnail/spotify_url
-        - cover_only: update thumbnail/spotify_url
-        - skip: keep YT metadata
-        """
         if not Config.SPOTIFY_CLIENT_ID:
             return tracks
         for idx, track in enumerate(tracks, start=1):
@@ -482,10 +466,10 @@ class SourceResolver:
                 continue
 
             if not meta or not score:
-                enrich_log.debug(tag("SPOTIFY", f"enrich[{idx}]  {b(track.title)}  ❌ skip  reason=no_meta"))
+                enrich_log.info(tag("SPOTIFY", f"enrich[{idx}]  {b(track.title)}  skip  reason=no_meta"))
                 continue
             if not any(meta.get(k) for k in ("thumbnail", "title", "artist", "spotify_url")):
-                enrich_log.debug(tag("SPOTIFY", f"enrich[{idx}]  {b(track.title)}  ❌ skip  reason=empty_meta"))
+                enrich_log.info(tag("SPOTIFY", f"enrich[{idx}]  {b(track.title)}  skip  reason=empty_meta"))
                 continue
 
             decision = score["decision"]
@@ -506,15 +490,13 @@ class SourceResolver:
                     track.artist = sp_artist
 
             _dc = _BGRN if decision == "full" else (_BYEL if decision == "cover_only" else _BRED)
-            enrich_log.debug(tag(
+            enrich_log.info(tag(
                 "SPOTIFY",
-                f"enrich[{idx}]  {b(original_query)}  →  {b(sp_title)}\n"
-                f"          {'yt':<10} {b(yt_title_before)}\n"
-                f"          {'conf':<10} {score['confidence']:.2f}  "
-                f"q={score['query_sim']:.2f}  yt={score['yt_sim']:.2f}  "
+                f"enrich[{idx}]  query={b(original_query)}  sp={b(sp_title)}  yt={b(yt_title_before)}  "
+                f"conf={score['confidence']:.2f}  q={score['query_sim']:.2f}  yt_sim={score['yt_sim']:.2f}  "
                 f"art={score['artist_sim']:.2f}  dur={score['duration_sim']:.2f}  "
-                f"junk_pen={score['variant_penalty']:.2f}  nm={score['non_music_penalty']:.2f}  "
-                f"→ {hi(decision, _dc)}  {dim(score['reason'])}"
+                f"junk={score['variant_penalty']:.2f}  nm={score['non_music_penalty']:.2f}  "
+                f"decision={hi(decision, _dc)}  reason={dim(score['reason'])}"
             ))
         return tracks
 
@@ -540,23 +522,9 @@ class SourceResolver:
     async def resolve_choices(
         cls, query: str, requester: str, requester_id: int, n: int = 7
     ) -> list:
-        """Resolve a query into up to n candidate tracks.
-
-        For plain-text queries with n == 1 and Spotify available, Spotify-first
-        metadata is used to craft a canonical YouTube search query while the
-        original query remains available for enrichment.
-        """
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
 
-        # ── Spotify-first for direct /play text queries (n == 1) ────────────────
-        # For plain-text queries we ask Spotify first to obtain the canonical
-        # title + artist.  This corrects typos (Spotify's search engine is
-        # very tolerant) and replaces vague queries like "Fever" with a precise
-        # one like "Fever Elvis Presley", so YouTube returns the studio version
-        # instead of a live recording or an unrelated video.
-        # The original query is always preserved for the enrichment step so that
-        # metadata quality doesn't degrade.
         sp_meta_hint: Optional[dict] = None
         yt_query = query
         if n == 1 and not _is_url_like_query(query) and Config.SPOTIFY_CLIENT_ID:
@@ -570,7 +538,7 @@ class SourceResolver:
                 canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                 if canonical:
                     yt_query = canonical
-                    log.debug(tag("SPOTIFY", f"first  {b(query)}  →  {b(yt_query)}"))
+                    log.debug(tag("SPOTIFY", f"first  {b(query)}  \u2192  {b(yt_query)}"))
 
         search_n = max(n, _YT_CANDIDATES)
         results  = await loop.run_in_executor(
@@ -583,8 +551,6 @@ class SourceResolver:
                 best = _prefer_studio(results, sp_dur=sp_dur, user_query=query)
                 results = [best] if best else results[:1]
 
-            # Use the canonical query for enrichment when Spotify-first succeeded,
-            # so the confidence scores are computed against the correct metadata.
             enrich_query = yt_query if sp_meta_hint else query
             if _should_enrich_with_spotify(enrich_query, results):
                 results = await loop.run_in_executor(
@@ -592,7 +558,7 @@ class SourceResolver:
                 )
 
         elapsed = (time.perf_counter() - t0) * 1000
-        log.info(tag("RESOLVE", f"{b(query)}  →  {b(str(len(results)))} risultati  {ms(elapsed)}"))
+        log.info(tag("RESOLVE", f"{b(query)}  \u2192  {b(str(len(results)))} risultati  {ms(elapsed)}"))
         return results
 
     @classmethod
@@ -800,7 +766,7 @@ class SourceResolver:
         chosen.origin_query = query_with_artist
         chosen.spotify_url = sp_url
 
-        log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  →  {hi(chosen.webpage_url, _BBLU)}"))
+        log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  \u2192  {hi(chosen.webpage_url, _BBLU)}"))
         return chosen
 
     @classmethod

@@ -1,9 +1,9 @@
 import asyncio
+import io
 import logging
 import random
 from datetime import timedelta
 from typing import Optional
-import io
 
 import discord
 from discord import app_commands
@@ -84,9 +84,9 @@ async def citazione_context(inter: discord.Interaction, message: discord.Message
     log.info(tag("CMD", f"citazione_ctx {user(str(inter.user))} su msg di {user(nome)}"))
     await inter.response.defer()
     try:
-        img = await build_quote_card(testo, nome, avatar_url)
+        img_bytes = await build_quote_card(testo, nome, avatar_url)
         await inter.followup.send(
-            file=discord.File(fp=img, filename="citazione.png"),
+            file=discord.File(fp=io.BytesIO(img_bytes), filename="citazione.png"),
         )
     except Exception as e:
         log.error(tag("CMD", f"citazione_ctx errore: {e}"), exc_info=True)
@@ -142,9 +142,9 @@ class Fun(commands.Cog):
         log.info(tag("CMD", f"citazione {user(str(inter.user))} autore={nome}"))
         await inter.response.defer()
         try:
-            img = await build_quote_card(testo, nome, avatar_url)
+            img_bytes = await build_quote_card(testo, nome, avatar_url)
             await inter.followup.send(
-                file=discord.File(fp=img, filename="citazione.png")
+                file=discord.File(fp=io.BytesIO(img_bytes), filename="citazione.png")
             )
         except Exception as e:
             log.error(tag("CMD", f"citazione errore: {e}"), exc_info=True)
@@ -165,45 +165,12 @@ class Fun(commands.Cog):
             )
         else:
             embed = discord.Embed(
-                title="\U0001f389 Click!",
-                description=f"{inter.user.mention} ha premuto il grilletto... **Sei vivo!**\n\n{display}",
+                title="\U0001f4a8 Click.",
+                description=f"{inter.user.mention} ha premuto il grilletto... **camera vuota**.\n\n{display}",
                 color=0x2ecc71,
             )
-        log.info(tag("CMD", f"roulette {user(str(inter.user))} camera={chamber} morto={dead}"))
+        log.info(tag("CMD", f"roulette  {user(str(inter.user))}  chamber={chamber}  dead={dead}"))
         await inter.response.send_message(embed=embed)
-
-    # ── Poll ──────────────────────────────────────────────────────────────────
-
-    @app_commands.command(name="poll", description="\U0001f4ca Crea un sondaggio con fino a 4 opzioni")
-    @app_commands.describe(
-        domanda="La domanda del sondaggio",
-        opzione1="Prima opzione",
-        opzione2="Seconda opzione",
-        opzione3="Terza opzione (opzionale)",
-        opzione4="Quarta opzione (opzionale)",
-    )
-    async def poll(
-        self,
-        inter: discord.Interaction,
-        domanda: str,
-        opzione1: str,
-        opzione2: str,
-        opzione3: Optional[str] = None,
-        opzione4: Optional[str] = None,
-    ):
-        opzioni = [o for o in [opzione1, opzione2, opzione3, opzione4] if o]
-        desc = "\n".join(f"{_POLL_EMOJIS[i]} {o}" for i, o in enumerate(opzioni))
-        embed = discord.Embed(
-            title=f"\U0001f4ca {domanda}",
-            description=desc,
-            color=0x5865f2,
-        )
-        embed.set_footer(text=f"Sondaggio di {inter.user.display_name}")
-        await inter.response.send_message(embed=embed)
-        msg = await inter.original_response()
-        for i in range(len(opzioni)):
-            await msg.add_reaction(_POLL_EMOJIS[i])
-        log.info(tag("CMD", f"poll {user(str(inter.user))} opzioni={len(opzioni)}"))
 
 
 async def setup(bot: commands.Bot):
