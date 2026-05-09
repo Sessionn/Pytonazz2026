@@ -17,7 +17,6 @@ log = logging.getLogger("pitonazz.fun")
 _POLL_EMOJIS   = ["1\ufe0f\u20e3", "2\ufe0f\u20e3", "3\ufe0f\u20e3", "4\ufe0f\u20e3"]
 _MAX_QUOTE_LEN = 280
 
-# Camere roulette: numeri cerchiati aperti (estratta) e filled (chiuse)
 _CHAMBER_OPEN   = ["\u2460", "\u2461", "\u2462", "\u2463", "\u2464", "\u2465"]
 _CHAMBER_CLOSED = ["\u278a", "\u278b", "\u278c", "\u278d", "\u278e", "\u278f"]
 
@@ -68,7 +67,7 @@ _8BALL_LABELS = {
 _8BALL_OUTCOMES = ["si"] * 7 + ["no"] * 7 + ["vago"] * 7
 
 
-# Context menu definito a livello di modulo (non dentro la classe)
+# Context menu definito a livello di modulo
 @app_commands.context_menu(name="Citazione")
 async def citazione_context(inter: discord.Interaction, message: discord.Message):
     testo = message.content
@@ -105,7 +104,7 @@ class Fun(commands.Cog):
     def cog_unload(self):
         self.bot.tree.remove_command("Citazione", type=discord.AppCommandType.message)
 
-    # ── 8ball ─────────────────────────────────────────────────────────────────
+    # ── 8ball ───────────────────────────────────────────────────────────────────────
 
     @app_commands.command(name="8ball", description="\U0001f3b1 Fai una domanda all'8-Ball")
     @app_commands.describe(domanda="La domanda da porre")
@@ -119,27 +118,43 @@ class Fun(commands.Cog):
         )
         embed.set_author(name=f"{emoji} {label}")
         embed.add_field(name="Domanda", value=domanda, inline=False)
-        log.info(tag("CMD", f"8ball  {user(str(inter.user))}  →  {label}"))
+        log.info(tag("CMD", f"8ball  {user(str(inter.user))}  \u2192  {label}"))
         await inter.response.send_message(embed=embed)
 
-    # ── Citazione slash ───────────────────────────────────────────────────────
+    # ── Citazione slash ────────────────────────────────────────────────────────
 
     @app_commands.command(name="citazione", description="\U0001f4dc Genera una citazione in stile card")
     @app_commands.describe(
         testo="Testo della citazione",
-        autore="Nome dell'autore (default: il tuo)",
+        autore="Nome custom dell'autore (default: il tuo nome)",
+        utente="Usa avatar e nome di un utente Discord specifico",
+        immagine_url="URL di un'immagine custom da usare come avatar nella card",
     )
     async def citazione(
         self,
         inter: discord.Interaction,
         testo: str,
         autore: Optional[str] = None,
+        utente: Optional[discord.Member] = None,
+        immagine_url: Optional[str] = None,
     ):
         if len(testo) > _MAX_QUOTE_LEN:
             testo = testo[:_MAX_QUOTE_LEN] + "\u2026"
-        nome = autore or inter.user.display_name
-        avatar_url = inter.user.display_avatar.url if not autore else None
-        log.info(tag("CMD", f"citazione {user(str(inter.user))} autore={nome}"))
+
+        # Priorità: utente Discord > immagine_url custom > avatar invocante
+        if utente is not None:
+            nome = autore or utente.display_name
+            avatar_url = utente.display_avatar.url
+            log.info(tag("CMD", f"citazione {user(str(inter.user))} autore={nome} [utente Discord: {utente}]"))
+        elif immagine_url is not None:
+            nome = autore or inter.user.display_name
+            avatar_url = immagine_url
+            log.info(tag("CMD", f"citazione {user(str(inter.user))} autore={nome} [immagine custom]"))
+        else:
+            nome = autore or inter.user.display_name
+            avatar_url = inter.user.display_avatar.url if not autore else None
+            log.info(tag("CMD", f"citazione {user(str(inter.user))} autore={nome}"))
+
         await inter.response.defer()
         try:
             img_bytes = await build_quote_card(testo, nome, avatar_url)
@@ -150,7 +165,7 @@ class Fun(commands.Cog):
             log.error(tag("CMD", f"citazione errore: {e}"), exc_info=True)
             await inter.followup.send("\u274c Errore durante la generazione della citazione.", ephemeral=True)
 
-    # ── Roulette ──────────────────────────────────────────────────────────────
+    # ── Roulette ────────────────────────────────────────────────────────────────
 
     @app_commands.command(name="roulette", description="\U0001f52b Roulette russa: 1 colpo su 6")
     async def roulette(self, inter: discord.Interaction):
