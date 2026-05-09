@@ -76,7 +76,7 @@ class Fun(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ── /roulette ────────────────────────────────────────────────────────────
+    # ── /roulette ────────────────────────────────────────────────────────────────────
     @app_commands.command(
         name="roulette",
         description="\U0001f52b Roulette russa: 1/6 di probabilit\u00e0 di essere mutato per 5 minuti",
@@ -84,7 +84,7 @@ class Fun(commands.Cog):
     async def roulette(self, inter: discord.Interaction):
         if not inter.guild or not isinstance(inter.user, discord.Member):
             return await inter.response.send_message(
-                "❌ Questo comando è disponibile solo in un server.",
+                "\u274c Questo comando \u00e8 disponibile solo in un server.",
                 ephemeral=True,
             )
 
@@ -130,7 +130,7 @@ class Fun(commands.Cog):
             embed=_roulette_result_embed(inter.user, chamber, dead, forbidden)
         )
 
-    # ── /poll ─────────────────────────────────────────────────────────────────
+    # ── /poll ───────────────────────────────────────────────────────────────────────
     @app_commands.command(name="poll", description="\U0001f4ca Crea un sondaggio con 2-4 opzioni")
     @app_commands.describe(
         domanda="La domanda del sondaggio",
@@ -148,7 +148,6 @@ class Fun(commands.Cog):
         opzione3: Optional[str] = None,
         opzione4: Optional[str] = None,
     ):
-        # Verifica permessi prima di inviare il poll
         if inter.guild:
             me = inter.guild.me
             ch_perms = inter.channel.permissions_for(me)
@@ -170,7 +169,6 @@ class Fun(commands.Cog):
                 await msg.add_reaction(_POLL_EMOJIS[i])
             except discord.Forbidden:
                 log.warning(tag("WARN", f"poll reazione Forbidden ch={b(inter.channel_id)}"))
-                # Rimuovi il poll già pubblicato per evitare UI rotta
                 try:
                     await msg.delete()
                 except Exception:
@@ -187,12 +185,12 @@ class Fun(commands.Cog):
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException) as del_exc:
                     log.warning(tag("WARN", f"poll cleanup fallito: {del_exc}"))
                 await inter.followup.send(
-                    "⚠️ Errore durante l'aggiunta delle reazioni. Il sondaggio è stato rimosso.",
+                    "\u26a0\ufe0f Errore durante l'aggiunta delle reazioni. Il sondaggio \u00e8 stato rimosso.",
                     ephemeral=True,
                 )
                 return
 
-    # ── /8ball ────────────────────────────────────────────────────────────────
+    # ── /8ball ────────────────────────────────────────────────────────────────────────
     @app_commands.command(name="8ball", description="\U0001f3b1 Fai una domanda all'oracolo")
     @app_commands.describe(domanda="La tua domanda")
     async def eightball(self, inter: discord.Interaction, domanda: str):
@@ -204,10 +202,9 @@ class Fun(commands.Cog):
         embed.set_author(name="\U0001f3b1  La sfera ha parlato", icon_url=inter.user.display_avatar.url)
         embed.add_field(name="\U0001f4ac Domanda",  value=f"*{domanda}*",  inline=False)
         embed.add_field(name=f"{dot} {label}",     value=f"**{testo}**", inline=False)
-        embed.set_footer(text=f"chiesto da {inter.user.mention}")
         await inter.response.send_message(embed=embed)
 
-    # ── /citazione ────────────────────────────────────────────────────────────
+    # ── /citazione ────────────────────────────────────────────────────────────────────────
     @app_commands.command(name="citazione", description="Genera una card citazione elegante")
     @app_commands.describe(
         testo="La frase da citare",
@@ -223,72 +220,83 @@ class Fun(commands.Cog):
     ):
         if len(testo) > _MAX_QUOTE_LEN:
             return await inter.response.send_message(
-                f"\u274c Testo troppo lungo (max {_MAX_QUOTE_LEN} caratteri).",
-                ephemeral=True,
+                f"\u274c Testo troppo lungo (max {_MAX_QUOTE_LEN} caratteri).", ephemeral=True
             )
+        target  = utente or inter.user
+        nome    = autore.strip() or (target.display_name if hasattr(target, "display_name") else str(target))
+        av_url  = target.display_avatar.url if hasattr(target, "display_avatar") else None
         await inter.response.defer()
-        target      = utente or inter.user
-        author_name = autore or target.display_name
-        avatar_url  = str(target.display_avatar.with_format("png").with_size(1024))
-        server_name = inter.guild.name if inter.guild else ""
-        img_bytes   = await build_quote_card(
-            text=testo,
-            author=author_name,
-            avatar_url=avatar_url,
-            server_name=server_name,
-        )
-        log.info(tag("CMD", f"/citazione {b(author_name)} {len(testo)} car."))
-        await inter.followup.send(
-            file=discord.File(fp=io.BytesIO(img_bytes), filename="citazione.png")
-        )
+        try:
+            img = await asyncio.get_event_loop().run_in_executor(
+                None, build_quote_card, testo, nome, av_url
+            )
+            log.info(tag("CMD", f"citazione {user(str(inter.user))} autore={b(nome)}"))
+            await inter.followup.send(
+                file=discord.File(fp=img, filename="citazione.png")
+            )
+        except Exception as e:
+            log.exception(tag("CMD", f"citazione errore: {e}"))
+            await inter.followup.send("\u274c Errore nella generazione della card.", ephemeral=True)
+
+    # ── Context menu: Citazione ─────────────────────────────────────────────────────────
+    @app_commands.context_menu(name="Citazione")
+    async def citazione_context(self, inter: discord.Interaction, message: discord.Message):
+        testo = message.content
+        if not testo:
+            return await inter.response.send_message(
+                "\u274c Il messaggio non contiene testo da citare.", ephemeral=True
+            )
+        if len(testo) > _MAX_QUOTE_LEN:
+            testo = testo[:_MAX_QUOTE_LEN] + "\u2026"
+        utente = message.author
+        avatar_url = utente.display_avatar.url if hasattr(utente, "display_avatar") else None
+        nome = utente.display_name if hasattr(utente, "display_name") else str(utente)
+        await inter.response.defer(ephemeral=False)
+        try:
+            img = await asyncio.get_event_loop().run_in_executor(
+                None, build_quote_card, testo, nome, avatar_url
+            )
+            log.info(tag("CMD", f"citazione_ctx {user(str(inter.user))} su msg di {user(str(utente))}"))
+            await inter.followup.send(
+                file=discord.File(fp=img, filename="citazione.png"),
+            )
+        except Exception as e:
+            log.exception(tag("CMD", f"citazione_ctx errore: {e}"))
+            await inter.followup.send("\u274c Errore nella generazione della card.", ephemeral=True)
 
 
-# ── Helper embed roulette ─────────────────────────────────────────────────────
 def _roulette_result_embed(
-    member: discord.Member | discord.User,
+    member: discord.Member,
     chamber: int,
     dead: bool,
     forbidden: bool,
 ) -> discord.Embed:
-    cylinder = _cylinder_display(chamber, dead)
-    if dead and not forbidden:
-        embed = discord.Embed(
-            title="\U0001f4a5  BANG!",
-            description=(
-                f"{member.mention} ha premuto il grilletto...\n"
-                f"La camera **#{chamber}** era carica.\n\n"
-                f"{cylinder}\n\n"
-                f"\U0001f507 **Mutato per 5 minuti.**"
-            ),
-            color=0xe74c3c,
-        )
-        embed.set_footer(text="Meglio non tentare la fortuna...")
-    elif dead and forbidden:
-        embed = discord.Embed(
-            title="\U0001f4a5  BANG! (mancanza di permessi)",
-            description=(
-                f"{member.mention} ha premuto il grilletto...\n"
-                f"La camera **#{chamber}** era carica.\n\n"
-                f"{cylinder}\n\n"
-                "\u26a0\ufe0f Non ho i permessi per applicare il timeout."
-            ),
-            color=0xe67e22,
-        )
-        embed.set_footer(text="Avresti dovuto essere mutato, ma sono le mie mani a essere legate.")
+    display = _cylinder_display(chamber, dead)
+    if dead:
+        if forbidden:
+            title = "\U0001f4a5  BANG! (ma sono impotente)"
+            desc  = (
+                f"{member.mention} ha preso la pallottola \u2014 "
+                "ma non ho i permessi per mutarlo.\n"
+                f"Camera: **{chamber}**"
+            )
+            color = 0xe67e22
+        else:
+            title = "\U0001f4a5  BANG!"
+            desc  = (
+                f"{member.mention} ha preso la pallottola e \u00e8 stato mutato per **5 minuti**.\n"
+                f"Camera: **{chamber}**"
+            )
+            color = 0xe74c3c
     else:
-        embed = discord.Embed(
-            title="\U0001f995  Click.",
-            description=(
-                f"{member.mention} ha premuto il grilletto...\n"
-                f"La camera **#{chamber}** era vuota.\n\n"
-                f"{cylinder}\n\n"
-                "\U0001f7e2 **Sei salvo.**"
-            ),
-            color=0x2ecc71,
-        )
-        embed.set_footer(text="Sei salvo. Per ora.")
+        title = "\U0001f7e2  Click."
+        desc  = f"{member.mention} ha la fortuna di un gatto.\nCamera: **{chamber}**"
+        color = 0x2ecc71
+    embed = discord.Embed(title=title, description=f"{display}\n\n{desc}", color=color)
     return embed
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Fun(bot))
+    cog = Fun(bot)
+    await bot.add_cog(cog)
+    bot.tree.add_command(cog.citazione_context)
