@@ -465,7 +465,6 @@ class SourceResolver:
                 enrich_log.debug(tag("SPOTIFY", f"enrich skip: {e}"))
                 continue
 
-            # Casi anomali: rimangono INFO perché utili da monitorare sempre
             if not meta or not score:
                 enrich_log.info(tag("SPOTIFY", f"enrich[{idx}]  {b(track.title)}  skip  reason=no_meta"))
                 continue
@@ -492,23 +491,23 @@ class SourceResolver:
 
             _dc = _BGRN if decision == "full" else (_BYEL if decision == "cover_only" else _BRED)
 
-            # ── Log DEBUG con formattazione a colonne ─────────────────────────────────
-            conf_pct  = int(score['confidence'] * 100)
-            q_pct     = int(score['query_sim']  * 100)
-            yt_pct    = int(score['yt_sim']     * 100)
-            art_pct   = int(score['artist_sim'] * 100)
-            dur_pct   = int(score['duration_sim'] * 100)
-            junk_pct  = int(score['variant_penalty'] * 100)
-            nm_pct    = int(score['non_music_penalty'] * 100)
-            enrich_log.debug(
+            conf_pct = int(score["confidence"]      * 100)
+            q_pct    = int(score["query_sim"]        * 100)
+            yt_pct   = int(score["yt_sim"]           * 100)
+            art_pct  = int(score["artist_sim"]       * 100)
+            dur_pct  = int(score["duration_sim"]     * 100)
+            junk_pct = int(score["variant_penalty"]  * 100)
+            nm_pct   = int(score["non_music_penalty"] * 100)
+
+            enrich_log.info(
                 tag("SPOTIFY",
                     f"enrich[{idx}]\n"
                     f"  query  : {b(original_query)}\n"
                     f"  sp     : {b(sp_title)}  ({b(sp_artist)})\n"
                     f"  yt     : {b(yt_title_before)}\n"
-                    f"  conf   : {hi(f'{conf_pct:3d}%', _dc)}  "
-                    f"q={q_pct:3d}%  yt={yt_pct:3d}%  art={art_pct:3d}%  "
-                    f"dur={dur_pct:3d}%  junk={junk_pct:3d}%  nm={nm_pct:3d}%\n"
+                    f"  conf   : {hi(f'{conf_pct:3d}%', _dc)}"
+                    f"  q={q_pct:3d}%  yt={yt_pct:3d}%  art={art_pct:3d}%"
+                    f"  dur={dur_pct:3d}%  junk={junk_pct:3d}%  nm={nm_pct:3d}%\n"
                     f"  result : {hi(decision, _dc)}  ({dim(score['reason'])})"
                 )
             )
