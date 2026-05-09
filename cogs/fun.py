@@ -68,6 +68,33 @@ _8BALL_LABELS = {
 _8BALL_OUTCOMES = ["si"] * 7 + ["no"] * 7 + ["vago"] * 7
 
 
+# Context menu definito a livello di modulo (non dentro la classe)
+@app_commands.context_menu(name="Citazione")
+async def citazione_context(inter: discord.Interaction, message: discord.Message):
+    testo = message.content
+    if not testo:
+        return await inter.response.send_message(
+            "\u274c Il messaggio non contiene testo da citare.", ephemeral=True
+        )
+    if len(testo) > _MAX_QUOTE_LEN:
+        testo = testo[:_MAX_QUOTE_LEN] + "\u2026"
+    utente = message.author
+    avatar_url = utente.display_avatar.url if hasattr(utente, "display_avatar") else None
+    nome = utente.display_name if hasattr(utente, "display_name") else str(utente)
+    await inter.response.defer(ephemeral=False)
+    try:
+        img = await asyncio.get_event_loop().run_in_executor(
+            None, build_quote_card, testo, nome, avatar_url
+        )
+        log.info(tag("CMD", f"citazione_ctx {user(str(inter.user))} su msg di {user(str(utente))}"))
+        await inter.followup.send(
+            file=discord.File(fp=img, filename="citazione.png"),
+        )
+    except Exception as e:
+        log.exception(tag("CMD", f"citazione_ctx errore: {e}"))
+        await inter.followup.send("\u274c Errore nella generazione della card.", ephemeral=True)
+
+
 class Fun(commands.Cog):
     COG_ICON  = "\U0001f3b2"
     COG_LABEL = "Divertimento"
@@ -76,7 +103,7 @@ class Fun(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ── /roulette ────────────────────────────────────────────────────────────────────
+    # ── /roulette ───────────────────────────────────────────────────────────────────────
     @app_commands.command(
         name="roulette",
         description="\U0001f52b Roulette russa: 1/6 di probabilit\u00e0 di essere mutato per 5 minuti",
@@ -130,7 +157,7 @@ class Fun(commands.Cog):
             embed=_roulette_result_embed(inter.user, chamber, dead, forbidden)
         )
 
-    # ── /poll ───────────────────────────────────────────────────────────────────────
+    # ── /poll ─────────────────────────────────────────────────────────────────────────
     @app_commands.command(name="poll", description="\U0001f4ca Crea un sondaggio con 2-4 opzioni")
     @app_commands.describe(
         domanda="La domanda del sondaggio",
@@ -190,7 +217,7 @@ class Fun(commands.Cog):
                 )
                 return
 
-    # ── /8ball ────────────────────────────────────────────────────────────────────────
+    # ── /8ball ──────────────────────────────────────────────────────────────────────────
     @app_commands.command(name="8ball", description="\U0001f3b1 Fai una domanda all'oracolo")
     @app_commands.describe(domanda="La tua domanda")
     async def eightball(self, inter: discord.Interaction, domanda: str):
@@ -204,7 +231,7 @@ class Fun(commands.Cog):
         embed.add_field(name=f"{dot} {label}",     value=f"**{testo}**", inline=False)
         await inter.response.send_message(embed=embed)
 
-    # ── /citazione ────────────────────────────────────────────────────────────────────────
+    # ── /citazione ──────────────────────────────────────────────────────────────────────────
     @app_commands.command(name="citazione", description="Genera una card citazione elegante")
     @app_commands.describe(
         testo="La frase da citare",
@@ -236,32 +263,6 @@ class Fun(commands.Cog):
             )
         except Exception as e:
             log.exception(tag("CMD", f"citazione errore: {e}"))
-            await inter.followup.send("\u274c Errore nella generazione della card.", ephemeral=True)
-
-    # ── Context menu: Citazione ─────────────────────────────────────────────────────────
-    @app_commands.context_menu(name="Citazione")
-    async def citazione_context(self, inter: discord.Interaction, message: discord.Message):
-        testo = message.content
-        if not testo:
-            return await inter.response.send_message(
-                "\u274c Il messaggio non contiene testo da citare.", ephemeral=True
-            )
-        if len(testo) > _MAX_QUOTE_LEN:
-            testo = testo[:_MAX_QUOTE_LEN] + "\u2026"
-        utente = message.author
-        avatar_url = utente.display_avatar.url if hasattr(utente, "display_avatar") else None
-        nome = utente.display_name if hasattr(utente, "display_name") else str(utente)
-        await inter.response.defer(ephemeral=False)
-        try:
-            img = await asyncio.get_event_loop().run_in_executor(
-                None, build_quote_card, testo, nome, avatar_url
-            )
-            log.info(tag("CMD", f"citazione_ctx {user(str(inter.user))} su msg di {user(str(utente))}"))
-            await inter.followup.send(
-                file=discord.File(fp=img, filename="citazione.png"),
-            )
-        except Exception as e:
-            log.exception(tag("CMD", f"citazione_ctx errore: {e}"))
             await inter.followup.send("\u274c Errore nella generazione della card.", ephemeral=True)
 
 
@@ -299,4 +300,4 @@ def _roulette_result_embed(
 async def setup(bot: commands.Bot):
     cog = Fun(bot)
     await bot.add_cog(cog)
-    bot.tree.add_command(cog.citazione_context)
+    bot.tree.add_command(citazione_context)
