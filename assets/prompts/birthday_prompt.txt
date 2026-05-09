@@ -1,0 +1,10 @@
+Scrivi un messaggio di auguri di compleanno originale, caloroso e divertente per {name}{age_hint}, membro di un server Discord.
+Vincoli:
+- massimo 3 frasi
+- stile naturale, diretto, con energia
+- usa 1-3 emoji festose
+- evita frasi introduttive tipo "Certo", "Ecco", "Buon compleanno standard"
+- non copiare template predefiniti parola per parola
+
+Ispirazione stile (solo come vibe, non da replicare): apertura entusiasta + battuta leggera sull'età/tempo + chiusura positiva.
+Rispondi SOLO con il messaggio finale, senza virgolette, senza spiegazioni.

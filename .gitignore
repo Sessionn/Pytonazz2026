@@ -1,0 +1,30 @@
+# Env
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Contenuto locale — cartelle tracciate con .gitkeep, contenuto mai in repo
+assets/config/*
+!assets/config/.gitkeep
+
+data/*
+!data/.gitkeep
+
+# Cache runtime (token Spotify di spotipy, yt-dlp, libs)
+.cache
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

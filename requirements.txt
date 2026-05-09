@@ -1,0 +1,36 @@
+# Libreria Discord — versione 2.x con supporto slash commands e ui
+discord.py>=2.3.2
+
+# Scaricatore audio — fork ATTIVO di youtube-dl
+yt-dlp>=2024.12.1
+
+# Spotify API — solo per risolvere metadati (non streaming diretto)
+spotipy>=2.24.0
+
+# Variabili d'ambiente
+python-dotenv>=1.0.1
+
+# Watchdog per hot-reload dei cog
+watchdog>=4.0.0
+
+# Crittografia voice Discord
+PyNaCl>=1.5.0
+
+# Discord DAVE (E2EE audio/video) — richiesto in alcuni deploy server
+davey
+
+# AI — Groq API (free tier, modelli llama) — tenuto per rollback rapido
+groq>=0.13.0
+
+# AI — Google Gemini — libreria ufficiale attuale (sostituisce google-generativeai deprecata)
+google-genai>=1.0.0
+
+# HTTP asincrono (avatar fetch per quote card + download immagini welcome/goodbye)
+httpx>=0.27.0
+aiohttp>=3.9.0
+
+# Generazione immagini (quote card)
+Pillow>=10.0.0
+
+# TTS — Microsoft Edge Neural Voices (gratuito, nessuna API key)
+edge-tts>=6.1.9
