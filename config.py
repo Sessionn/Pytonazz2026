@@ -101,6 +101,13 @@ class Config:
     # Manteniamo _cookies per compatibilità con YDL_OPTIONS
     _cookies: str = EFFECTIVE_COOKIE_FILE
 
+    # ── Query Cache ──────────────────────────────────────────────────────────────────────────
+    # QUERY_CACHE_ENABLED=true in .env per attivare il sistema di cache persistente.
+    # Il DB SQLite viene creato automaticamente al primo avvio se non esiste.
+    _qc_enabled_raw: str = os.getenv("QUERY_CACHE_ENABLED", "").strip().lower()
+    QUERY_CACHE_ENABLED: bool = _qc_enabled_raw in ("true", "1", "yes", "on")
+    QUERY_CACHE_DB_PATH: str = os.getenv("QUERY_CACHE_DB_PATH", "data/query_cache.db")
+
     # ── Audio ────────────────────────────────────────────────────────────────────────────────
     FFMPEG_OPTIONS = {
         "before_options": (
