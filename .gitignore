@@ -30,4 +30,5 @@ Thumbs.db
 .idea/
 
 # database
-.database/*
+*.db
+*.sqlite
