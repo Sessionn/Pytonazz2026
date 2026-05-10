@@ -13,7 +13,7 @@ import yt_dlp
 from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
 
-# ── Sub-module imports ───────────────────────────────────────────────────────────────────
+# ── Sub-module imports ────────────────────────────────────────────────────────────────────────────
 from core.source_resolver.scoring import (
     _MV_KEYWORDS,
     _VARIANT_KEYWORDS,
@@ -305,6 +305,49 @@ def _should_enrich_with_spotify(query: str, tracks: list["TrackInfo"]) -> bool:
     return True
 
 
+# ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
+_qc_instance: Optional[object] = None
+_qc_lock = threading.Lock()
+
+
+def _get_query_cache():
+    """Restituisce il singleton QueryCache oppure None se la cache non e' abilitata."""
+    global _qc_instance
+    if not Config.QUERY_CACHE_ENABLED:
+        return None
+    if _qc_instance is None:
+        with _qc_lock:
+            if _qc_instance is None:
+                try:
+                    from cache_db import QueryCache
+                    _qc_instance = QueryCache(
+                        db_path=Config.QUERY_CACHE_DB_PATH,
+                        enabled=True,
+                    )
+                except Exception as e:
+                    log.warning(tag("CACHE", f"impossibile inizializzare QueryCache: {e}"))
+                    _qc_instance = None
+    return _qc_instance
+
+
+def _cache_hit_to_track(
+    hit: dict, requester: str, requester_id: int, stream_url: str = ""
+) -> "TrackInfo":
+    """Converte una riga del DB in TrackInfo pronta per la riproduzione."""
+    return TrackInfo(
+        title        = hit.get("title") or "Senza titolo",
+        webpage_url  = hit.get("webpage_url") or "",
+        duration     = int(hit.get("duration") or 0),
+        thumbnail    = hit.get("thumbnail") or "",
+        requester    = requester,
+        requester_id = requester_id,
+        source       = hit.get("source") or "youtube",
+        stream_url   = stream_url,
+        artist       = hit.get("artist") or "",
+        spotify_url  = hit.get("spotify_url") or "",
+    )
+
+
 class SourceResolver:
     _sp = None
     _cache_lock = threading.Lock()
@@ -538,6 +581,25 @@ class SourceResolver:
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
 
+        # ── READ PATH: cache-first lookup (solo per n==1, query testuale) ────────────────────────
+        if n == 1 and not _is_url_like_query(query):
+            try:
+                qc = _get_query_cache()
+                if qc is not None:
+                    hit = qc.lookup(query)
+                    if hit and hit.get("webpage_url"):
+                        stream_url = await loop.run_in_executor(
+                            None, cls._fetch_stream_url, hit["webpage_url"]
+                        )
+                        if stream_url:
+                            track = _cache_hit_to_track(hit, requester, requester_id, stream_url)
+                            elapsed = (time.perf_counter() - t0) * 1000
+                            log.info(tag("CACHE", f"{b(query)}  \u2192  cache hit  {ms(elapsed)}"))
+                            return [track]
+            except Exception as _ce:
+                log.debug(tag("CACHE", f"read path error (ignorato): {_ce}"))
+        # ─────────────────────────────────────────────────────────────────────────────────────
+
         sp_meta_hint: Optional[dict] = None
         yt_query = query
         if n == 1 and not _is_url_like_query(query) and Config.SPOTIFY_CLIENT_ID:
@@ -569,6 +631,16 @@ class SourceResolver:
                 results = await loop.run_in_executor(
                     None, cls._enrich_with_spotify, results, enrich_query
                 )
+
+        # ── WRITE PATH: salva il risultato in cache ───────────────────────────────────────────────
+        if n == 1 and results and not _is_url_like_query(query):
+            try:
+                qc = _get_query_cache()
+                if qc is not None:
+                    qc.store(query, results[0])
+            except Exception as _we:
+                log.debug(tag("CACHE", f"write path error (ignorato): {_we}"))
+        # ─────────────────────────────────────────────────────────────────────────────────────
 
         elapsed = (time.perf_counter() - t0) * 1000
         log.info(tag("RESOLVE", f"{b(query)}  \u2192  {b(str(len(results)))} risultati  {ms(elapsed)}"))
@@ -780,6 +852,19 @@ class SourceResolver:
         chosen.spotify_url = sp_url
 
         log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  \u2192  {hi(chosen.webpage_url, _BBLU)}"))
+
+        # ── WRITE PATH Spotify: collega sp_url alla entry in cache ──────────────────────────────
+        if sp_url:
+            try:
+                qc = _get_query_cache()
+                if qc is not None:
+                    from cache_db.engine import normalize as _cache_normalize
+                    canonical_key, variant_tag = _cache_normalize(query_with_artist)
+                    qc.link_spotify(sp_url, canonical_key, variant_tag)
+            except Exception:
+                pass
+        # ─────────────────────────────────────────────────────────────────────────────────────
+
         return chosen
 
     @classmethod
