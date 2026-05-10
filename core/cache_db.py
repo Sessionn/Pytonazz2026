@@ -5,12 +5,13 @@ Cache persistente SQLite per le query musicali.
 Abilitata solo se CACHE_ENABLED=true nel .env.
 
 API pubblica:
-    init()            -> crea le tabelle se non esistono
-    get(query)        -> dict | None
-    put(query, track) -> None
-    invalidate(query) -> None
-    stats()           -> dict
-    clear()           -> int  (numero righe eliminate)
+    init_db(db_path, enabled) -> None   (alias per main.py)
+    init()                    -> None   (forza init DB)
+    get(query)                -> dict | None
+    put(query, track)         -> None
+    invalidate(query)         -> None
+    stats()                   -> dict
+    clear()                   -> int  (numero righe eliminate)
 """
 
 import hashlib
@@ -19,7 +20,8 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 from config import Config
 
@@ -118,6 +120,27 @@ def _ttl_cutoff() -> int:
 def init() -> None:
     """Forza l'inizializzazione del DB (chiamata all'avvio se CACHE_ENABLED)."""
     _get_conn()
+
+
+def init_db(
+    db_path: Union[str, Path, None] = None,
+    enabled: bool = True,
+) -> None:
+    """
+    Entry-point chiamato da main.py all'avvio.
+
+    Parametri
+    ---------
+    db_path : percorso opzionale al file SQLite; se fornito sovrascrive
+              Config.DB_PATH prima di aprire la connessione.
+    enabled : se False la cache e' disabilitata e la funzione e' un no-op.
+    """
+    if not enabled:
+        log.info("[CACHE_DB] cache disabilitata (CACHE_ENABLED=false)")
+        return
+    if db_path is not None:
+        Config.DB_PATH = str(db_path)
+    init()
 
 
 def get(query: str) -> Optional[dict]:
