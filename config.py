@@ -2,6 +2,7 @@ import logging
 import os
 import socket
 import threading
+from pathlib import Path
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
 from core.log_colors import tag, b, hi
@@ -16,6 +17,8 @@ _CLR_WARN = "\033[93m"
 _CLR_GRAY = "\033[90m"
 _UNCONFIGURED_PROXY = "(non configurata in env)"
 _UNCONFIGURED_COOKIE = "(non configurato in env)"
+
+_DB_PATH_DEFAULT = "data/database/cache.db"
 
 
 def _is_http_proxy_url(value: str) -> bool:
@@ -61,13 +64,23 @@ def _probe_proxy(proxy_url: str, timeout: float = 2.0) -> bool:
         return False
 
 
+def _resolve_db_path(raw: str) -> str:
+    """
+    Restituisce il path assoluto del DB SQLite.
+    Se raw e' vuoto usa il default. Crea le directory intermedie se necessario.
+    """
+    path = Path(raw.strip() if raw.strip() else _DB_PATH_DEFAULT)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
 class Config:
     DISCORD_TOKEN:         str = os.getenv("DISCORD_TOKEN", "")
     SPOTIFY_CLIENT_ID:     str = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
 
-    # ── Permessi ───────────────────────────────────────────────────────────────────────────────────
+    # ── Permessi ────────────────────────────────────────────────────────────────────────────────────────
     _owner_raw: str = os.getenv("OWNER_ID") or os.getenv("DEV_ID") or ""
     OWNER_ID: int | None = int(_owner_raw) if _owner_raw.strip().isdigit() else None
 
@@ -81,13 +94,13 @@ class Config:
     _gids = os.getenv("GUILD_IDS", "")
     GUILD_IDS: list[int] = [int(g.strip()) for g in _gids.split(",") if g.strip().isdigit()]
 
-    # ── Proxy (opzionale) ───────────────────────────────────────────────────────────────────────
+    # ── Proxy (opzionale) ──────────────────────────────────────────────────────────────────────────
     _proxy: str = os.getenv("YTDLP_PROXY", "")
     _raw_ffmpeg_proxy: str = os.getenv("FFMPEG_PROXY", "")
     _has_http_fallback: bool = _is_http_proxy_url(_proxy)
     _ffmpeg_proxy: str = _raw_ffmpeg_proxy or (_proxy if _has_http_fallback else "")
 
-    # ── Cookies ────────────────────────────────────────────────────────────────────────────
+    # ── Cookies ────────────────────────────────────────────────────────────────────────────────
     _cookies_raw: str = os.getenv("COOKIE_FILE", "")
     _cookies_enabled_raw: str = os.getenv("COOKIES_ENABLED", "").strip().lower()
     COOKIES_ENABLED: bool = (
@@ -101,10 +114,10 @@ class Config:
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper().strip()
     SHOW_BANNER: bool = os.getenv("SHOW_BANNER", "true").strip().lower() not in ("false", "0", "no", "off")
 
-    # ── Song Cache DB ────────────────────────────────────────────────────────────────────────
+    # ── Song Cache DB ──────────────────────────────────────────────────────────────────────
     _cache_enabled_raw: str = os.getenv("CACHE_ENABLED", "false").strip().lower()
     CACHE_ENABLED: bool      = _cache_enabled_raw in ("true", "1", "yes", "on")
-    DB_PATH: str             = os.getenv("DB_PATH", "cache.db")
+    DB_PATH: str             = _resolve_db_path(os.getenv("DB_PATH", ""))
     CACHE_TTL_DAYS: int      = int(os.getenv("CACHE_TTL_DAYS",    "30"))
     CACHE_MAX_ENTRIES: int   = int(os.getenv("CACHE_MAX_ENTRIES", "500"))
 
