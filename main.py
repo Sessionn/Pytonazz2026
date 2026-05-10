@@ -24,7 +24,8 @@ from core.constants import TYPE_MAP, STAT_MAP
 from core.constants import command_slug
 from core.log_colors import (
     fmt_sync_guild,
-    tag, b,
+    tag, b, hi, dim,
+    _BGRN, _BYEL, _BRED, _GRY, _BCYN, _TEAL, _R, _BOLD, _DIM,
 )
 
 print_banner()           # <-- banner prima di qualsiasi log
@@ -102,37 +103,47 @@ async def check_ytdlp_update() -> None:
 # ---------------------------------------------------------------------------
 
 def _log_cache_boot_status() -> None:
-    """Stampa una riga di log che riassume lo stato del sistema di cache."""
+    """Riga di log che riassume lo stato del sistema di cache al boot."""
     enabled = Config.QUERY_CACHE_ENABLED
-    db_path = Config.QUERY_CACHE_DB_PATH or "—"
+    db_path = Config.QUERY_CACHE_DB_PATH or "(non impostato)"
     ttl     = Config.QUERY_CACHE_TTL_DAYS
     maxe    = Config.QUERY_CACHE_MAX_ENTRIES
 
+    # Icona + label stato
+    _ON  = f"{_BOLD}{_BGRN}ON{_R}"
+    _OFF = f"{_BOLD}{_BRED}OFF{_R}"
+
     if not enabled:
-        log.info(tag("CACHE", f"\u23f8\ufe0f  disabilitata  (imposta QUERY_CACHE_ENABLED=true per attivarla)"))
+        log.info(
+            tag("CACHE",
+                f"{_OFF}  {_GRY}imposta QUERY_CACHE_ENABLED=true per attivarla{_R}")
+        )
         return
 
-    # Prova a inizializzare il DB per verificare che sia raggiungibile
     try:
         from core.source_resolver import _get_query_cache
         qc = _get_query_cache()
         if qc is None:
             raise RuntimeError("QueryCache init ha restituito None")
-        stats = qc.stats()
-        total = stats.get("total_entries", 0)
-        hits  = stats.get("total_hits", 0)
-        log.info(tag(
-            "CACHE",
-            f"\u2705  attiva  db={b(db_path)}  "
-            f"ttl={ttl}d  max={maxe}  "
-            f"entries={b(str(total))}  hit_totali={b(str(hits))}"
-        ))
+        s      = qc.stats()
+        total  = s.get("total_entries", 0)
+        hits   = s.get("total_hits", 0)
+        path_s = f"{_DIM}{db_path}{_R}"
+        ttl_s  = f"{_BOLD}{ttl}d{_R}"
+        max_s  = f"{_BOLD}{maxe:,}{_R}"
+        ent_s  = f"{_BOLD}{_BCYN}{total}{_R}"
+        hit_s  = f"{_BOLD}{_TEAL}{hits}{_R}"
+        log.info(
+            tag("CACHE",
+                f"{_ON}  {path_s}  ttl={ttl_s}  max={max_s}  entries={ent_s}  hits={hit_s}")
+        )
     except Exception as e:
-        log.warning(tag(
-            "CACHE",
-            f"\u26a0\ufe0f  abilitata ma DB non raggiungibile: {e}\n"
-            f"          Controlla QUERY_CACHE_DB_PATH={b(db_path)} e i permessi."
-        ))
+        log.warning(
+            tag("CACHE",
+                f"\u26a0\ufe0f  {_BOLD}{_BYEL}abilitata ma DB non raggiungibile{_R}  "
+                f"{_GRY}{e}{_R}\n"
+                f"          controlla QUERY_CACHE_DB_PATH={b(db_path)}")
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +165,6 @@ class CogReloadHandler(FileSystemEventHandler):
             return
         self._last[str(path)] = now
 
-        # Calcola il nome del modulo dal path
         try:
             rel = path.relative_to(Path.cwd())
         except ValueError:
@@ -233,7 +243,6 @@ class Pitonazz(commands.Bot):
         asyncio.create_task(check_ytdlp_update())
 
     async def _sync_commands(self):
-        # Chiamato da on_ready: la guild cache è già popolata qui
         if Config.GUILD_IDS:
             self._guild_sync_counts.clear()
             for gid in Config.GUILD_IDS:
@@ -252,15 +261,11 @@ class Pitonazz(commands.Bot):
 
     async def on_ready(self):
         log.info(tag("READY", f"{b(str(self.user))}  online  ID: {self.user.id}"))
-
-        # Sync qui: guild cache disponibile
         await self._sync_commands()
-
         for gid, count in self._guild_sync_counts.items():
             guild_obj = self.get_guild(gid)
             name = guild_obj.name if guild_obj else str(gid)
             log.info(fmt_sync_guild(gid, name, count))
-
         self.cycle_status.start()
 
     @tasks.loop(seconds=300)

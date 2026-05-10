@@ -33,6 +33,36 @@ if TYPE_CHECKING:
 log = logging.getLogger("pitonazz.cache_db")
 
 # ---------------------------------------------------------------------------
+# Colori (stessa palette di core/log_colors.py — nessun import circolare)
+# ---------------------------------------------------------------------------
+_R    = "\033[0m"
+_BOLD = "\033[1m"
+_DIM  = "\033[2m"
+_GRN  = "\033[32m"
+_BGRN = "\033[92m"
+_YEL  = "\033[33m"
+_BYEL = "\033[93m"
+_BRED = "\033[91m"
+_CYN  = "\033[36m"
+_BCYN = "\033[96m"
+_GRY  = "\033[90m"
+_TEAL = "\033[38;5;80m"
+_BLU  = "\033[34m"
+_WHT  = "\033[97m"
+
+def _b(t):    return f"{_BOLD}{t}{_R}"
+def _dim(t):  return f"{_DIM}{t}{_R}"
+def _grn(t):  return f"{_BGRN}{t}{_R}"
+def _cyn(t):  return f"{_BCYN}{t}{_R}"
+def _yel(t):  return f"{_BYEL}{t}{_R}"
+def _gry(t):  return f"{_GRY}{t}{_R}"
+def _teal(t): return f"{_TEAL}{t}{_R}"
+
+# Tag [DB] colorato, usato in tutti i log del motore
+_TAG_DB   = f"{_BOLD}{_BLU}[DB]{_R}"
+_TAG_CACHE= f"{_BOLD}{_BGRN}[CACHE]{_R}"
+
+# ---------------------------------------------------------------------------
 # Costanti
 # ---------------------------------------------------------------------------
 _FUZZY_TOP_N       = 300
@@ -141,35 +171,53 @@ def _combined_sim(a: str, b: str) -> float:
 # Logging DB helpers
 # ---------------------------------------------------------------------------
 
+def _trunc(s: str, n: int) -> str:
+    s = str(s or "")
+    return s if len(s) <= n else s[:n - 1] + "\u2026"
+
+
 def _log_db_hit(query_raw: str, title: str, step: str) -> None:
-    """Brano trovato nel DB (query identica — exact/url hit)."""
+    """Brano trovato nel DB — cache hit."""
+    step_col = _cyn(f"{step:<5}")
     log.info(
-        "\U0001f7e2 [DB] HIT      %-6s | %-40s => %s",
-        step, _trunc(query_raw, 40), _trunc(title, 50),
+        "%s HIT   %s  %s  %s  %s",
+        _TAG_DB,
+        step_col,
+        _gry(_trunc(query_raw, 36)),
+        _gry("=>"),
+        _b(_teal(_trunc(title, 45))),
     )
 
 
 def _log_db_alias(query_raw: str, canonical: str, title: str, score: float = 0.0) -> None:
-    """Brano trovato nel DB tramite corrispondenza fuzzy/alias (query diversa)."""
-    score_str = f"  sim={score:.2f}" if score else ""
+    """Brano trovato tramite fuzzy/alias."""
+    score_str = _gry(f"sim={score:.0%}") if score else ""
     log.info(
-        "\U0001f7e1 [DB] ALIAS   %-40s ~> %-30s => %s%s",
-        _trunc(query_raw, 40), _trunc(canonical, 30), _trunc(title, 40), score_str,
+        "%s ALIAS  %s  %s  %s  %s",
+        _TAG_DB,
+        _gry(_trunc(query_raw, 32)),
+        _gry("~>"),
+        _b(_teal(_trunc(title, 40))),
+        score_str,
     )
 
 
 def _log_db_store(query_raw: str, title: str, updated: bool) -> None:
     """Brano aggiunto o aggiornato nel DB."""
-    verb = "UPDATE" if updated else "INSERT"
+    if updated:
+        verb   = _yel("UPDATE")
+        arrow  = _gry("<=>")  
+    else:
+        verb   = _grn("INSERT")
+        arrow  = _gry(" =>")
     log.info(
-        "\U0001f535 [DB] %-6s  %-40s => %s",
-        verb, _trunc(query_raw, 40), _trunc(title, 50),
+        "%s %s  %s  %s  %s",
+        _TAG_DB,
+        verb,
+        _gry(_trunc(query_raw, 36)),
+        arrow,
+        _b(_trunc(title, 45)),
     )
-
-
-def _trunc(s: str, n: int) -> str:
-    s = str(s or "")
-    return s if len(s) <= n else s[:n - 1] + "\u2026"
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +245,16 @@ class QueryCache:
             entries = self._count_entries()
             hits    = self._count_hits()
             log.info(
-                "\u2705  %-8s db=%-28s  ttl=%dd  max=%-6d  entries=%-5d  hit_totali=%d",
-                "[CACHE]", db_path, ttl_days, max_entries, entries, hits,
+                "%s  %s  ttl=%s  max=%s  entries=%s  hits=%s",
+                _TAG_CACHE,
+                _gry(db_path),
+                _b(f"{ttl_days}d"),
+                _b(str(max_entries)),
+                _b(_grn(str(entries))),
+                _b(_cyn(str(hits))),
             )
         else:
-            log.info("\u26d4  [CACHE]  disabilitata")
+            log.info("%s  %s", _TAG_CACHE, _yel("disabilitata"))
 
     # ------------------------------------------------------------------
     # Connessione per-thread
@@ -217,6 +270,15 @@ class QueryCache:
             conn.execute("PRAGMA foreign_keys=ON")
             self._local.conn = conn
         return self._local.conn
+
+    def _new_conn(self) -> sqlite3.Connection:
+        """Apre una connessione fresca e indipendente (per thread figli)."""
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
 
     # ------------------------------------------------------------------
     # Inizializzazione schema
@@ -315,11 +377,6 @@ class QueryCache:
     # ------------------------------------------------------------------
 
     def lookup(self, query: str) -> Optional[dict]:
-        """Cerca una corrispondenza per `query`.
-
-        Ritorna un dict con i metadati del brano (stessa struttura di song_cache)
-        oppure None se non trovato / stale / disabilitata.
-        """
         if not self.enabled:
             return None
 
@@ -349,7 +406,7 @@ class QueryCache:
                                  (canonical_key, variant_tag))
                     conn.commit()
 
-            # Step 2 — Alias hit (query diversa mappata allo stesso canonical)
+            # Step 2 — Alias hit
             alias_row = conn.execute("""
                 SELECT canonical_key, variant_tag FROM query_alias
                 WHERE alias_key = ?
@@ -402,7 +459,7 @@ class QueryCache:
                         _log_db_hit(query, d.get("title", ""), "url")
                         return d
 
-            # Step 5 — Fuzzy scan sui top-N per hit_count
+            # Step 5 — Fuzzy scan top-N
             rows = conn.execute("""
                 SELECT * FROM song_cache
                 WHERE is_valid = 1
@@ -423,7 +480,6 @@ class QueryCache:
                 if not self._is_stale(d.get("last_used", "")):
                     ck, vt = d["canonical_key"], d["variant_tag"]
                     self._touch(conn, ck, vt)
-                    # Alias persistente: velocizza il prossimo lookup identico
                     try:
                         conn.execute("""
                             INSERT OR IGNORE INTO query_alias(alias_key, canonical_key, variant_tag)
@@ -442,21 +498,6 @@ class QueryCache:
     # ------------------------------------------------------------------
 
     def store(self, query: str, track: "TrackInfo", force_alias: Optional[str] = None) -> None:
-        """Salva o aggiorna l'associazione query -> brano.
-
-        Se la chiave esiste gia', aggiorna i metadati e incrementa hit_count.
-        Se non esiste, inserisce una nuova riga.
-
-        force_alias: se fornito, viene salvato come alias aggiuntivo esplicito
-        che punta alla stessa entry (usato quando si sa gia' che una query
-        diversa deve puntare allo stesso brano).
-
-        NOTA sugli alias automatici:
-        Gli alias vengono creati SOLO dal motore di lookup (step 2 e step 5)
-        quando una query diversa produce un match fuzzy/alias sul DB esistente.
-        store() di per se' NON crea alias: salva solo la query normalizzata
-        come chiave primaria. Cosi' una query errata non inquina il DB.
-        """
         if not self.enabled:
             return
 
@@ -537,7 +578,6 @@ class QueryCache:
     # ------------------------------------------------------------------
 
     def link_spotify(self, spotify_url: str, canonical_key: str, variant_tag: str) -> None:
-        """Associa uno Spotify URL a una entry gia' presente in cache."""
         if not self.enabled or not spotify_url or not canonical_key:
             return
         with self._lock:
@@ -548,14 +588,13 @@ class QueryCache:
                 WHERE canonical_key = ? AND variant_tag = ? AND is_valid = 1
             """, (spotify_url, canonical_key, variant_tag))
             conn.commit()
-        log.debug("[DB] link_spotify  key=%r  url=%r", canonical_key, spotify_url)
+        log.debug("%s link_spotify  key=%r  url=%r", _TAG_DB, canonical_key, spotify_url)
 
     # ------------------------------------------------------------------
     # Statistiche
     # ------------------------------------------------------------------
 
     def stats(self) -> dict:
-        """Ritorna statistiche sul database."""
         if not self.enabled:
             return {"enabled": False}
         with self._lock:
@@ -584,11 +623,38 @@ class QueryCache:
         }
 
     # ------------------------------------------------------------------
+    # inspect — lookup raw di una query (usato da !dev cache inspect)
+    # ------------------------------------------------------------------
+
+    def inspect(self, query: str) -> dict:
+        """Restituisce info diagnostiche su una query: normalizzazione, hit, dati raw."""
+        canonical_key, variant_tag = normalize(query)
+        result = {
+            "query_raw":    query,
+            "canonical_key": canonical_key,
+            "variant_tag":   variant_tag,
+            "found":         False,
+            "row":           None,
+        }
+        if not self.enabled or not canonical_key:
+            return result
+        with self._lock:
+            conn = self._conn()
+            row = conn.execute("""
+                SELECT * FROM song_cache
+                WHERE canonical_key = ? AND variant_tag = ? AND is_valid = 1
+                LIMIT 1
+            """, (canonical_key, variant_tag)).fetchone()
+            if row:
+                result["found"] = True
+                result["row"] = dict(row)
+        return result
+
+    # ------------------------------------------------------------------
     # Clear
     # ------------------------------------------------------------------
 
     def clear(self) -> int:
-        """Svuota l'intera cache. Ritorna il numero di righe cancellate."""
         if not self.enabled:
             return 0
         with self._lock:
@@ -596,11 +662,11 @@ class QueryCache:
             deleted = conn.execute("DELETE FROM song_cache").rowcount
             conn.execute("DELETE FROM query_alias")
             conn.commit()
-        log.info("[DB] clear  %d righe eliminate", deleted)
+        log.info("%s clear  %s righe eliminate", _TAG_DB, _b(str(deleted)))
         return deleted
 
     # ------------------------------------------------------------------
-    # Pruning LRU
+    # Pruning LRU — FIX: usa connessione propria per il thread figlio
     # ------------------------------------------------------------------
 
     def _maybe_prune(self) -> None:
@@ -608,31 +674,36 @@ class QueryCache:
         _threading.Thread(target=self._prune_lru, daemon=True).start()
 
     def _prune_lru(self) -> None:
-        with self._lock:
-            conn = self._conn()
-            total = conn.execute("SELECT COUNT(*) FROM song_cache").fetchone()[0]
-            if total <= self.max_entries:
-                return
-            to_delete = total - self.max_entries
-            conn.execute("""
-                DELETE FROM song_cache
-                WHERE id IN (
-                    SELECT id FROM song_cache
-                    ORDER BY last_used ASC
-                    LIMIT ?
-                )
-            """, (to_delete,))
-            conn.execute("""
-                DELETE FROM query_alias
-                WHERE canonical_key NOT IN (
-                    SELECT canonical_key FROM song_cache
-                )
-            """)
-            conn.commit()
-            log.info("[DB] prune LRU  eliminati %d record", to_delete)
+        # Connessione indipendente: il thread figlio non ha _local.conn
+        conn = self._new_conn()
+        try:
+            with self._lock:
+                total = conn.execute("SELECT COUNT(*) FROM song_cache").fetchone()[0]
+                if total <= self.max_entries:
+                    return
+                to_delete = total - self.max_entries
+                conn.execute("""
+                    DELETE FROM song_cache
+                    WHERE id IN (
+                        SELECT id FROM song_cache
+                        ORDER BY last_used ASC
+                        LIMIT ?
+                    )
+                """, (to_delete,))
+                conn.execute("""
+                    DELETE FROM query_alias
+                    WHERE canonical_key NOT IN (
+                        SELECT canonical_key FROM song_cache
+                    )
+                """)
+                conn.commit()
+                log.info("%s prune LRU  %s record rimossi", _TAG_DB, _b(str(to_delete)))
+        except Exception as exc:
+            log.warning("%s prune LRU fallito: %s", _TAG_DB, exc)
+        finally:
+            conn.close()
 
     def prune_stale(self) -> int:
-        """Invalida tutte le righe il cui last_used supera il TTL."""
         if not self.enabled:
             return 0
         with self._lock:
@@ -650,5 +721,5 @@ class QueryCache:
                     stale_ids,
                 )
                 conn.commit()
-        log.info("[DB] prune_stale  invalidati %d record", len(stale_ids))
+        log.info("%s prune_stale  %s record invalidati", _TAG_DB, _b(str(len(stale_ids))))
         return len(stale_ids)
