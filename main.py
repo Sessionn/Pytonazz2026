@@ -24,8 +24,7 @@ from core.constants import TYPE_MAP, STAT_MAP
 from core.constants import command_slug
 from core.log_colors import (
     fmt_sync_guild,
-    tag, b, hi, dim,
-    _BGRN, _BYEL, _BRED, _GRY, _BCYN, _TEAL, _R, _BOLD, _DIM,
+    tag, b,
 )
 
 print_banner()           # <-- banner prima di qualsiasi log
@@ -43,6 +42,14 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 validate_config()
 start_proxy_startup_check()
 start_cookie_startup_check()
+
+# ── Song Cache DB ─────────────────────────────────────────────────────────────
+from core.cache_db import init_db as _init_cache_db
+_init_cache_db(
+    db_path=Path(Config.DB_PATH),
+    enabled=Config.CACHE_ENABLED,
+)
+# ─────────────────────────────────────────────────────────────────────────────
 
 COGS_DIR = Path("cogs")
 
@@ -99,54 +106,6 @@ async def check_ytdlp_update() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Log stato cache al boot
-# ---------------------------------------------------------------------------
-
-def _log_cache_boot_status() -> None:
-    """Riga di log che riassume lo stato del sistema di cache al boot."""
-    enabled = Config.QUERY_CACHE_ENABLED
-    db_path = Config.QUERY_CACHE_DB_PATH or "(non impostato)"
-    ttl     = Config.QUERY_CACHE_TTL_DAYS
-    maxe    = Config.QUERY_CACHE_MAX_ENTRIES
-
-    # Icona + label stato
-    _ON  = f"{_BOLD}{_BGRN}ON{_R}"
-    _OFF = f"{_BOLD}{_BRED}OFF{_R}"
-
-    if not enabled:
-        log.info(
-            tag("CACHE",
-                f"{_OFF}  {_GRY}imposta QUERY_CACHE_ENABLED=true per attivarla{_R}")
-        )
-        return
-
-    try:
-        from core.source_resolver import _get_query_cache
-        qc = _get_query_cache()
-        if qc is None:
-            raise RuntimeError("QueryCache init ha restituito None")
-        s      = qc.stats()
-        total  = s.get("total_entries", 0)
-        hits   = s.get("total_hits", 0)
-        path_s = f"{_DIM}{db_path}{_R}"
-        ttl_s  = f"{_BOLD}{ttl}d{_R}"
-        max_s  = f"{_BOLD}{maxe:,}{_R}"
-        ent_s  = f"{_BOLD}{_BCYN}{total}{_R}"
-        hit_s  = f"{_BOLD}{_TEAL}{hits}{_R}"
-        log.info(
-            tag("CACHE",
-                f"{_ON}  {path_s}  ttl={ttl_s}  max={max_s}  entries={ent_s}  hits={hit_s}")
-        )
-    except Exception as e:
-        log.warning(
-            tag("CACHE",
-                f"\u26a0\ufe0f  {_BOLD}{_BYEL}abilitata ma DB non raggiungibile{_R}  "
-                f"{_GRY}{e}{_R}\n"
-                f"          controlla QUERY_CACHE_DB_PATH={b(db_path)}")
-        )
-
-
-# ---------------------------------------------------------------------------
 # Hot-reload watchdog
 # ---------------------------------------------------------------------------
 
@@ -165,6 +124,7 @@ class CogReloadHandler(FileSystemEventHandler):
             return
         self._last[str(path)] = now
 
+        # Calcola il nome del modulo dal path
         try:
             rel = path.relative_to(Path.cwd())
         except ValueError:
@@ -220,10 +180,6 @@ class Pitonazz(commands.Bot):
 
     async def setup_hook(self):
         self.reload_status_list()
-
-        # Log stato cache prima di caricare i cog
-        _log_cache_boot_status()
-
         for cog in COGS:
             try:
                 await self.load_extension(cog)
@@ -243,6 +199,7 @@ class Pitonazz(commands.Bot):
         asyncio.create_task(check_ytdlp_update())
 
     async def _sync_commands(self):
+        # Chiamato da on_ready: la guild cache è già popolata qui
         if Config.GUILD_IDS:
             self._guild_sync_counts.clear()
             for gid in Config.GUILD_IDS:
@@ -261,11 +218,15 @@ class Pitonazz(commands.Bot):
 
     async def on_ready(self):
         log.info(tag("READY", f"{b(str(self.user))}  online  ID: {self.user.id}"))
+
+        # Sync qui: guild cache disponibile
         await self._sync_commands()
+
         for gid, count in self._guild_sync_counts.items():
             guild_obj = self.get_guild(gid)
             name = guild_obj.name if guild_obj else str(gid)
             log.info(fmt_sync_guild(gid, name, count))
+
         self.cycle_status.start()
 
     @tasks.loop(seconds=300)

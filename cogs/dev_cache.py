@@ -1,237 +1,207 @@
 """
-cogs/dev_cache.py
-
-Comando sviluppatore per gestire la Query Cache a runtime.
-
-Utilizzo (prefix !dev cache <sub>):
-  on        — abilita la cache a runtime
-  off       — disabilita la cache a runtime
-  status    — stato attuale + variabili ENV
-  stats     — statistiche dettagliate sul DB
-  clear     — svuota il database (con conferma)
-  prune     — invalida righe scadute (TTL)
-  inspect   — mostra come viene normalizzata una query e se ha un hit in DB
-
-Riservato ai DEV_IDS configurati in Config.
+dev_cache.py — Comandi dev per gestire il song cache DB.
+Accessibili solo all'owner. Comandi slash: /cache-status, /cache-stats,
+/cache-prune, /cache-invalidate, /cache-clear.
 """
+import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
-from config import Config
+from core.log_colors import tag, b, user
+from core.permissions import owner_check
+import core.cache_db as cache_db
 
+log = logging.getLogger("pitonazz.dev_cache")
 
-def _get_qc():
-    """Accede al singleton QueryCache tramite il resolver (lazy init)."""
-    try:
-        from core.source_resolver import _get_query_cache
-        return _get_query_cache()
-    except Exception:
-        return None
+_C_OK     = 0x2ECC71
+_C_WARN   = 0xF39C12
+_C_ERR    = 0xE74C3C
+_C_INFO   = 0x3498DB
+_C_PURPLE = 0x9B59B6
+_OWN = "\U0001f5c4\ufe0f"
 
 
 class DevCache(commands.Cog):
-    def __init__(self, bot: commands.Bot) -> None:
+    """Comandi owner per il song cache database."""
+
+    COG_ICON  = "\U0001f5c4\ufe0f"
+    COG_LABEL = "Cache DB"
+    COG_TYPE  = "dev"
+
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def _is_authorized(self, ctx: commands.Context) -> bool:
-        dev_ids = getattr(Config, "DEV_IDS", []) or []
-        return ctx.author.id in dev_ids
-
-    # ------------------------------------------------------------------ group
-    @commands.group(name="dev", invoke_without_command=True)
-    async def dev(self, ctx: commands.Context) -> None:
-        await ctx.send_help(ctx.command)
-
-    @dev.group(name="cache", invoke_without_command=True)
-    async def dev_cache(self, ctx: commands.Context) -> None:
-        if not self._is_authorized(ctx):
-            await ctx.reply("\u26d4 Non autorizzato.", mention_author=False)
-            return
-        await ctx.reply(
-            "**Sottocomandi disponibili:**\n"
-            "`on` `off` `status` `stats` `clear` `prune` `inspect <query>`",
-            mention_author=False,
-        )
-
-    # ------------------------------------------------------------------ on
-    @dev_cache.command(name="on")
-    async def cache_on(self, ctx: commands.Context) -> None:
-        if not self._is_authorized(ctx):
-            await ctx.reply("\u26d4 Non autorizzato.", mention_author=False)
-            return
-
-        db_path = getattr(Config, "QUERY_CACHE_DB_PATH", "")
-        if not db_path:
-            await ctx.reply(
-                "\u274c `QUERY_CACHE_DB_PATH` non impostato nell'env.",
-                mention_author=False,
-            )
-            return
-
-        qc = _get_qc()
-        if qc is None:
-            Config.QUERY_CACHE_ENABLED = True
-            import core.source_resolver as _sr
-            _sr._qc_instance = None
-            qc = _get_qc()
-
-        if qc is not None:
-            qc.enabled = True
-            await ctx.reply("\u2705 Query Cache **abilitata**.", mention_author=False)
+    async def cog_app_command_error(
+        self, inter: discord.Interaction, error: app_commands.AppCommandError
+    ):
+        if isinstance(error, app_commands.CheckFailure):
+            if not inter.response.is_done():
+                await inter.response.send_message(
+                    "\u274c Solo il proprietario pu\u00f2 usare questo comando.", ephemeral=True
+                )
         else:
-            await ctx.reply(
-                "\u274c Impossibile inizializzare la cache. Controlla i log.",
-                mention_author=False,
-            )
+            log.error(tag("DEV_CACHE", f"command error \u2192 {error}"))
 
-    # ------------------------------------------------------------------ off
-    @dev_cache.command(name="off")
-    async def cache_off(self, ctx: commands.Context) -> None:
-        if not self._is_authorized(ctx):
-            await ctx.reply("\u26d4 Non autorizzato.", mention_author=False)
-            return
-        qc = _get_qc()
-        if qc is not None:
-            qc.enabled = False
-        Config.QUERY_CACHE_ENABLED = False
-        await ctx.reply("\u23f8\ufe0f Query Cache **disabilitata**.", mention_author=False)
-
-    # ------------------------------------------------------------------ status
-    @dev_cache.command(name="status")
-    async def cache_status(self, ctx: commands.Context) -> None:
-        if not self._is_authorized(ctx):
-            await ctx.reply("\u26d4 Non autorizzato.", mention_author=False)
-            return
-
-        db_path = getattr(Config, "QUERY_CACHE_DB_PATH", "") or "(non impostato)"
-        enabled = getattr(Config, "QUERY_CACHE_ENABLED", False)
-        ttl     = getattr(Config, "QUERY_CACHE_TTL_DAYS", 30)
-        max_e   = getattr(Config, "QUERY_CACHE_MAX_ENTRIES", 10_000)
-        qc      = _get_qc()
-        running = qc is not None and qc.enabled
-
-        color = 0x57F287 if running else 0xED4245
-        embed = discord.Embed(title="\U0001f4be Query Cache — Status", color=color)
-        embed.add_field(
-            name="Config (ENV)",
-            value="\u2705 abilitata" if enabled else "\u274c disabilitata",
-            inline=True,
-        )
-        embed.add_field(
-            name="Runtime",
-            value="\U0001f7e2 attiva" if running else "\U0001f534 non attiva",
-            inline=True,
-        )
-        embed.add_field(name="DB Path",     value=f"`{db_path}`",    inline=False)
-        embed.add_field(name="TTL",         value=f"{ttl} giorni",  inline=True)
-        embed.add_field(name="Max entries", value=f"{max_e:,}",      inline=True)
-        await ctx.reply(embed=embed, mention_author=False)
-
-    # ------------------------------------------------------------------ stats
-    @dev_cache.command(name="stats")
-    async def cache_stats(self, ctx: commands.Context) -> None:
-        if not self._is_authorized(ctx):
-            await ctx.reply("\u26d4 Non autorizzato.", mention_author=False)
-            return
-        qc = _get_qc()
-        if qc is None or not qc.enabled:
-            await ctx.reply("\u274c Cache non attiva.", mention_author=False)
-            return
-
-        s   = qc.stats()
-        top = s.get("top_song")
-        top_str = f"{top['title']} ({top['hit_count']} hit)" if top else "N/A"
-
-        embed = discord.Embed(title="\U0001f4be Query Cache — Stats", color=0x5865F2)
-        embed.add_field(name="Entries totali", value=f"{s['total_entries']:,}", inline=True)
-        embed.add_field(name="Entries valide", value=f"{s['valid_entries']:,}", inline=True)
-        embed.add_field(name="Alias",          value=f"{s['aliases']:,}",       inline=True)
-        embed.add_field(name="Hit totali",     value=f"{s['total_hits']:,}",    inline=True)
-        embed.add_field(name="DB size",        value=f"{s['db_size_kb']} KB",  inline=True)
-        embed.add_field(name="TTL",            value=f"{s['ttl_days']}d",       inline=True)
-        embed.add_field(name="Canzone top",    value=top_str,                   inline=False)
-        embed.set_footer(text=s["db_path"])
-        await ctx.reply(embed=embed, mention_author=False)
-
-    # ------------------------------------------------------------------ clear
-    @dev_cache.command(name="clear")
-    async def cache_clear(self, ctx: commands.Context) -> None:
-        if not self._is_authorized(ctx):
-            await ctx.reply("\u26d4 Non autorizzato.", mention_author=False)
-            return
-        qc = _get_qc()
-        if qc is None or not qc.enabled:
-            await ctx.reply("\u274c Cache non attiva.", mention_author=False)
-            return
-        deleted = qc.clear()
-        await ctx.reply(
-            f"\U0001f5d1\ufe0f Cache svuotata — **{deleted}** righe eliminate.",
-            mention_author=False,
-        )
-
-    # ------------------------------------------------------------------ prune
-    @dev_cache.command(name="prune")
-    async def cache_prune(self, ctx: commands.Context) -> None:
-        if not self._is_authorized(ctx):
-            await ctx.reply("\u26d4 Non autorizzato.", mention_author=False)
-            return
-        qc = _get_qc()
-        if qc is None or not qc.enabled:
-            await ctx.reply("\u274c Cache non attiva.", mention_author=False)
-            return
-        invalidated = qc.prune_stale()
-        await ctx.reply(
-            f"\u23f3 Pruning completato — **{invalidated}** righe scadute invalidate.",
-            mention_author=False,
-        )
-
-    # ------------------------------------------------------------------ inspect
-    @dev_cache.command(name="inspect")
-    async def cache_inspect(self, ctx: commands.Context, *, query: str = "") -> None:
-        """Mostra come viene normalizzata una query e se esiste un hit in DB."""
-        if not self._is_authorized(ctx):
-            await ctx.reply("\u26d4 Non autorizzato.", mention_author=False)
-            return
-        if not query:
-            await ctx.reply("Uso: `!dev cache inspect <query>`", mention_author=False)
-            return
-        qc = _get_qc()
-        if qc is None or not qc.enabled:
-            await ctx.reply("\u274c Cache non attiva.", mention_author=False)
-            return
-
-        info = qc.inspect(query)
-        found = info["found"]
-        row   = info.get("row") or {}
-
-        color = 0x57F287 if found else 0xFEE75C
+    @app_commands.command(
+        name="cache-status",
+        description=f"{_OWN} Mostra lo stato del song cache DB",
+    )
+    @owner_check
+    async def cache_status(self, inter: discord.Interaction):
+        enabled = cache_db.is_enabled()
+        color   = _C_OK if enabled else _C_WARN
+        icon    = "\u2705" if enabled else "\u26a0\ufe0f"
+        state   = "**Abilitato**" if enabled else "**Disabilitato**"
         embed = discord.Embed(
-            title=f"\U0001f50e Cache Inspect",
+            title=f"{_OWN} Song Cache \u2014 Stato",
             color=color,
+            description=f"{icon} Cache: {state}",
         )
-        embed.add_field(name="Query raw",      value=f"`{info['query_raw']}`",     inline=False)
-        embed.add_field(name="Canonical key",  value=f"`{info['canonical_key']}`", inline=True)
-        embed.add_field(name="Variant tag",    value=f"`{info['variant_tag'] or '(nessuno)'}`", inline=True)
-        embed.add_field(name="Hit in DB",      value="\u2705 Si" if found else "\u274c No", inline=True)
-
-        if found:
-            duration = row.get("duration", 0)
-            mm, ss = divmod(duration, 60)
-            embed.add_field(name="Titolo",     value=row.get("title", "N/A"),   inline=True)
-            embed.add_field(name="Artista",    value=row.get("artist", "N/A"),  inline=True)
-            embed.add_field(name="Durata",     value=f"{mm}:{ss:02d}",          inline=True)
-            embed.add_field(name="Source",     value=row.get("source", "N/A"),  inline=True)
-            embed.add_field(name="Hit count",  value=str(row.get("hit_count", 0)), inline=True)
-            embed.add_field(name="Last used",  value=row.get("last_used", "N/A"), inline=True)
+        if not enabled:
             embed.add_field(
-                name="URL",
-                value=f"[link]({row.get('webpage_url', '')})",
+                name="Come abilitare",
+                value="Aggiungi `CACHE_ENABLED=true` nel `.env` e riavvia il bot.",
                 inline=False,
             )
+        await inter.response.send_message(embed=embed, ephemeral=True)
+        log.info(tag("DEV_CACHE", f"status  by={user(str(inter.user))}"))
 
-        await ctx.reply(embed=embed, mention_author=False)
+    @app_commands.command(
+        name="cache-stats",
+        description=f"{_OWN} Statistiche del song cache DB",
+    )
+    @owner_check
+    async def cache_stats(self, inter: discord.Interaction):
+        s = cache_db.stats()
+        if not s.get("enabled"):
+            await inter.response.send_message(
+                embed=discord.Embed(
+                    title=f"{_OWN} Cache Stats",
+                    description="\u26a0\ufe0f Cache disabilitata.",
+                    color=_C_WARN,
+                ),
+                ephemeral=True,
+            )
+            return
+        if "error" in s:
+            await inter.response.send_message(
+                embed=discord.Embed(
+                    title="\u274c Errore lettura stats",
+                    description=f"`{s['error']}`",
+                    color=_C_ERR,
+                ),
+                ephemeral=True,
+            )
+            return
+        top = s.get("top_query")
+        top_str = (
+            f"`{top['query_raw']}` \u2014 {top['hit_count']} hits"
+            if top else "N/D"
+        )
+        embed = discord.Embed(
+            title=f"{_OWN} Song Cache \u2014 Statistiche",
+            color=_C_PURPLE,
+        )
+        embed.add_field(name="\U0001f4e6 Entry totali",  value=str(s["total"]),      inline=True)
+        embed.add_field(name="\u2705 Entry valide",       value=str(s["valid"]),      inline=True)
+        embed.add_field(name="\U0001f517 Alias",          value=str(s["aliases"]),    inline=True)
+        embed.add_field(name="\U0001f3af Hits totali",    value=str(s["hits_total"]), inline=True)
+        embed.add_field(name="\U0001f4be Dimensione DB",  value=f"{s['size_kb']} KB", inline=True)
+        embed.add_field(name="\U0001f3c6 Query top",      value=top_str,              inline=False)
+        embed.set_footer(text=f"Path: {s['db_path']}")
+        await inter.response.send_message(embed=embed, ephemeral=True)
+        log.info(tag("DEV_CACHE", f"stats  by={user(str(inter.user))}"))
+
+    @app_commands.command(
+        name="cache-prune",
+        description=f"{_OWN} Rimuovi entry scadute o in eccesso dal DB",
+    )
+    @app_commands.describe(
+        max_entries="Numero massimo di entry da mantenere (default 500)",
+        ttl_days="Giorni prima che una entry scada (default 30)",
+    )
+    @owner_check
+    async def cache_prune(
+        self,
+        inter: discord.Interaction,
+        max_entries: app_commands.Range[int, 10, 10000] = 500,
+        ttl_days:    app_commands.Range[int, 1,  365]   = 30,
+    ):
+        removed = cache_db.prune_lru(max_entries=max_entries, ttl_days=ttl_days)
+        color = _C_WARN if removed else _C_OK
+        desc  = (
+            f"\U0001f5d1\ufe0f Rimosse **{removed}** entry."
+            if removed
+            else "\u2705 Nessuna entry da rimuovere."
+        )
+        embed = discord.Embed(
+            title=f"{_OWN} Cache \u2014 Prune",
+            description=desc,
+            color=color,
+        )
+        embed.set_footer(text=f"max_entries={max_entries}  ttl={ttl_days}d")
+        await inter.response.send_message(embed=embed, ephemeral=True)
+        log.info(tag("DEV_CACHE",
+            f"prune  removed={b(str(removed))}  "
+            f"max={max_entries}  ttl={ttl_days}d  "
+            f"by={user(str(inter.user))}"
+        ))
+
+    @app_commands.command(
+        name="cache-invalidate",
+        description=f"{_OWN} Invalida una singola entry della cache per query",
+    )
+    @app_commands.describe(query="La query da invalidare (es: 'Time in a Bottle')")
+    @owner_check
+    async def cache_invalidate(self, inter: discord.Interaction, query: str):
+        ok = cache_db.invalidate(query)
+        if ok:
+            embed = discord.Embed(
+                title=f"{_OWN} Cache \u2014 Invalidata",
+                description=f"\u2705 Entry per `{query}` segnata come non valida.",
+                color=_C_OK,
+            )
+        else:
+            embed = discord.Embed(
+                title=f"{_OWN} Cache \u2014 Non trovata",
+                description=f"\u26a0\ufe0f Nessuna entry trovata per `{query}`.",
+                color=_C_WARN,
+            )
+        await inter.response.send_message(embed=embed, ephemeral=True)
+        log.info(tag("DEV_CACHE",
+            f"invalidate  {b(query)}  ok={ok}  by={user(str(inter.user))}"
+        ))
+
+    @app_commands.command(
+        name="cache-clear",
+        description=f"{_OWN} Svuota COMPLETAMENTE il song cache DB",
+    )
+    @app_commands.describe(confirm="Scrivi 'CONFERMA' per procedere")
+    @owner_check
+    async def cache_clear(self, inter: discord.Interaction, confirm: str):
+        if confirm.strip().upper() != "CONFERMA":
+            await inter.response.send_message(
+                embed=discord.Embed(
+                    title="\u274c Operazione annullata",
+                    description="Scrivi esattamente `CONFERMA` per svuotare il DB.",
+                    color=_C_ERR,
+                ),
+                ephemeral=True,
+            )
+            return
+        removed = cache_db.clear_all()
+        embed = discord.Embed(
+            title=f"{_OWN} Cache \u2014 Svuotata",
+            description=f"\U0001f5d1\ufe0f Eliminate **{removed}** entry dal DB.",
+            color=_C_ERR,
+        )
+        await inter.response.send_message(embed=embed, ephemeral=True)
+        log.warning(tag("DEV_CACHE",
+            f"CLEAR ALL  removed={b(str(removed))}  by={user(str(inter.user))}"
+        ))
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot: commands.Bot):
     await bot.add_cog(DevCache(bot))
