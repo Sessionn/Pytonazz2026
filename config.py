@@ -11,11 +11,11 @@ load_dotenv()
 
 log = logging.getLogger("pitonazz.config")
 
-_CLR_ON = "\033[92m"
-_CLR_OFF = "\033[91m"
+_CLR_ON   = "\033[92m"
+_CLR_OFF  = "\033[91m"
 _CLR_WARN = "\033[93m"
 _CLR_GRAY = "\033[90m"
-_UNCONFIGURED_PROXY = "(non configurata in env)"
+_UNCONFIGURED_PROXY  = "(non configurata in env)"
 _UNCONFIGURED_COOKIE = "(non configurato in env)"
 
 _DB_PATH_DEFAULT = "data/database/cache.db"
@@ -29,8 +29,8 @@ def _is_http_proxy_url(value: str) -> bool:
 def _default_port_for_scheme(scheme: str) -> int | None:
     scheme = (scheme or "").lower()
     defaults = {
-        "http": 80,
-        "https": 443,
+        "http":   80,
+        "https":  443,
         "socks5": 1080,
         "socks5h": 1080,
         "socks4": 1080,
@@ -66,7 +66,7 @@ def _probe_proxy(proxy_url: str, timeout: float = 2.0) -> bool:
 
 def _resolve_db_path(raw: str) -> str:
     """
-    Restituisce il path assoluto del DB SQLite.
+    Restituisce il path del DB SQLite.
     Se raw e' vuoto usa il default. Crea le directory intermedie se necessario.
     """
     path = Path(raw.strip() if raw.strip() else _DB_PATH_DEFAULT)
@@ -80,7 +80,7 @@ class Config:
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
 
-    # ── Permessi ────────────────────────────────────────────────────────────────────────────────────────
+    # ── Permessi ─────────────────────────────────────────────────────────────────────────────────────
     _owner_raw: str = os.getenv("OWNER_ID") or os.getenv("DEV_ID") or ""
     OWNER_ID: int | None = int(_owner_raw) if _owner_raw.strip().isdigit() else None
 
@@ -94,60 +94,190 @@ class Config:
     _gids = os.getenv("GUILD_IDS", "")
     GUILD_IDS: list[int] = [int(g.strip()) for g in _gids.split(",") if g.strip().isdigit()]
 
-    # ── Proxy (opzionale) ──────────────────────────────────────────────────────────────────────────
-    _proxy: str = os.getenv("YTDLP_PROXY", "")
-    _raw_ffmpeg_proxy: str = os.getenv("FFMPEG_PROXY", "")
+    # ── Proxy (opzionale) ─────────────────────────────────────────────────────────────────────
+    _proxy: str             = os.getenv("YTDLP_PROXY", "")
+    _raw_ffmpeg_proxy: str  = os.getenv("FFMPEG_PROXY", "")
     _has_http_fallback: bool = _is_http_proxy_url(_proxy)
-    _ffmpeg_proxy: str = _raw_ffmpeg_proxy or (_proxy if _has_http_fallback else "")
+    _ffmpeg_proxy: str      = _raw_ffmpeg_proxy or (_proxy if _has_http_fallback else "")
 
     # ── Cookies ────────────────────────────────────────────────────────────────────────────────
-    _cookies_raw: str = os.getenv("COOKIE_FILE", "")
-    _cookies_enabled_raw: str = os.getenv("COOKIES_ENABLED", "").strip().lower()
+    _cookies_raw: str          = os.getenv("COOKIE_FILE", "")
+    _cookies_enabled_raw: str  = os.getenv("COOKIES_ENABLED", "").strip().lower()
     COOKIES_ENABLED: bool = (
         (_cookies_enabled_raw not in ("false", "0", "no", "off"))
         if _cookies_enabled_raw
         else bool(_cookies_raw)
     )
-    COOKIE_FILE: str = _cookies_raw
+    EFFECTIVE_COOKIE_FILE: str = _cookies_raw if COOKIES_ENABLED else ""
+    COOKIE_FILE: str           = _cookies_raw   # alias di compatibilita'
+    _cookies: str              = EFFECTIVE_COOKIE_FILE
 
-    # ── Log / misc ───────────────────────────────────────────────────────────────────────────
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper().strip()
+    # ── Audio ──────────────────────────────────────────────────────────────────────────────────
+    FFMPEG_OPTIONS: dict = {
+        "before_options": (
+            (f"-http_proxy {_ffmpeg_proxy} " if _ffmpeg_proxy else "")
+            + "-reconnect 1 "
+              "-reconnect_streamed 1 "
+              "-reconnect_delay_max 5 "
+              "-protocol_whitelist file,http,https,tcp,tls,crypto,httpproxy "
+              "-nostdin"
+        ),
+        "options": "-vn -bufsize 64k",
+    }
+
+    YDL_OPTIONS: dict = {
+        "format": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+        "cookiefile": _cookies if _cookies else None,
+        "noplaylist": False,
+        "nocheckcertificate": True,
+        "ignoreerrors": True,
+        "logtostderr": False,
+        "quiet": True,
+        "no_warnings": True,
+        "default_search": "ytsearch",
+        "source_address": "0.0.0.0",
+        "skip_download": True,
+        "extract_flat": False,
+        **({
+            "proxy": _proxy} if _proxy else {}),
+    }
+
+    # ── Timing ───────────────────────────────────────────────────────────────────────────────
+    IDLE_TIMEOUT: int     = 600
+    EMPTY_CH_TIMEOUT: int = 600
+
+    # ── Limiti ───────────────────────────────────────────────────────────────────────────────
+    MAX_QUEUE: int        = 200
+    MAX_RETRY_DEPTH: int  = 5
+    DEFAULT_VOLUME: float = 0.5
+    MAX_VOLUME: float     = 1.0
+
+    # ── Log / misc ─────────────────────────────────────────────────────────────────────────
+    LOG_LEVEL: str  = os.getenv("LOG_LEVEL", "INFO").upper().strip()
     SHOW_BANNER: bool = os.getenv("SHOW_BANNER", "true").strip().lower() not in ("false", "0", "no", "off")
 
-    # ── Song Cache DB ──────────────────────────────────────────────────────────────────────
-    _cache_enabled_raw: str = os.getenv("CACHE_ENABLED", "false").strip().lower()
-    CACHE_ENABLED: bool      = _cache_enabled_raw in ("true", "1", "yes", "on")
-    DB_PATH: str             = _resolve_db_path(os.getenv("DB_PATH", ""))
-    CACHE_TTL_DAYS: int      = int(os.getenv("CACHE_TTL_DAYS",    "30"))
-    CACHE_MAX_ENTRIES: int   = int(os.getenv("CACHE_MAX_ENTRIES", "500"))
+    # ── AI ────────────────────────────────────────────────────────────────────────────────────
+    AI_COOLDOWN_SECONDS: int = 5
 
+    # ── Song Cache DB ───────────────────────────────────────────────────────────────────
+    _cache_enabled_raw: str = os.getenv("CACHE_ENABLED", "false").strip().lower()
+    CACHE_ENABLED: bool     = _cache_enabled_raw in ("true", "1", "yes", "on")
+    DB_PATH: str            = _resolve_db_path(os.getenv("DB_PATH", ""))
+    CACHE_TTL_DAYS: int     = int(os.getenv("CACHE_TTL_DAYS",    "30"))
+    CACHE_MAX_ENTRIES: int  = int(os.getenv("CACHE_MAX_ENTRIES", "500"))
+
+
+# ────────────────────────────────────────────────────────────────────────────────────────
 
 def validate_config() -> None:
     if not Config.DISCORD_TOKEN:
-        raise RuntimeError("DISCORD_TOKEN non configurato nel .env")
+        raise RuntimeError(
+            "DISCORD_TOKEN non trovato nel .env — impossibile avviare il bot."
+        )
+    if not Config.GROQ_API_KEY:
+        log.warning(
+            "GROQ_API_KEY non configurata: il cog AI non funzioner\u00e0."
+        )
+    if not Config.SPOTIFY_CLIENT_ID or not Config.SPOTIFY_CLIENT_SECRET:
+        log.warning(
+            "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET mancanti: "
+            "le ricerche Spotify non funzioneranno."
+        )
+
+
+def _validate_cookie_file(path: str) -> tuple[bool, str]:
+    """Verifica esistenza, leggibilita' e formato Netscape del file cookie.
+
+    Returns
+    -------
+    (ok: bool, messaggio: str)
+    """
+    import os as _os
+    if not path:
+        return False, "nessun path specificato"
+    if not _os.path.exists(path):
+        return False, f"file non trovato: {path}"
+    if not _os.access(path, _os.R_OK):
+        return False, f"file non leggibile (permessi): {path}"
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            first_line = f.readline().strip()
+            if not first_line.startswith("# Netscape HTTP Cookie File") and \
+               not first_line.startswith("# HTTP Cookie File"):
+                return False, f"header Netscape mancante (prima riga: {first_line[:60]!r})"
+            data_lines = sum(1 for line in f if line.strip() and not line.startswith("#"))
+        return True, f"OK \u2014 {data_lines} righe dati"
+    except Exception as e:
+        return False, f"errore lettura: {e}"
 
 
 def start_proxy_startup_check() -> None:
-    proxy = Config._proxy
-    if not proxy:
-        return
-    def _check():
-        ok = _probe_proxy(proxy)
-        if ok:
-            log.info(tag("PROXY", f"{_CLR_ON}OK{_CLR_GRAY[0:]}  {proxy}\033[0m"))
-        else:
-            log.warning(tag("PROXY", f"{_CLR_WARN}IRRAGGIUNGIBILE{_CLR_GRAY[0:]}  {proxy}\033[0m"))
-    threading.Thread(target=_check, daemon=True).start()
+    """Esegue un controllo proxy in background e logga lo stato startup."""
+    ytdlp_proxy  = (Config._proxy or "").strip()
+    ffmpeg_proxy = (Config._ffmpeg_proxy or "").strip()
+    proxy_log    = logging.getLogger("pitonazz")
+
+    def _fmt(text: str, color: str, *, bolded: bool = False) -> str:
+        value = hi(text, color)
+        return b(value) if bolded else value
+
+    def _status_label(enabled: bool) -> str:
+        return _fmt("ON", _CLR_ON, bolded=True) if enabled else _fmt("OFF", _CLR_OFF, bolded=True)
+
+    def _endpoint_label(proxy_url: str) -> str:
+        endpoint = _proxy_endpoint(proxy_url)
+        if endpoint is None:
+            return _fmt("(URL non valida)", _CLR_GRAY)
+        host, port = endpoint
+        return _fmt(f"({host}:{port})", _CLR_GRAY)
+
+    def _check_and_log() -> None:
+        try:
+            if ytdlp_proxy:
+                ok    = _probe_proxy(ytdlp_proxy)
+                state = _status_label(ok)
+                proxy_log.info(tag("PROXY", f"{state} ytdlp {_endpoint_label(ytdlp_proxy)}"))
+            else:
+                proxy_log.info(tag("PROXY", f"{_status_label(False)} ytdlp {_fmt(_UNCONFIGURED_PROXY, _CLR_GRAY)}"))
+
+            if ffmpeg_proxy:
+                ok    = _probe_proxy(ffmpeg_proxy)
+                state = _status_label(ok)
+                proxy_log.info(tag("PROXY", f"{state} ffmpeg {_endpoint_label(ffmpeg_proxy)}"))
+            else:
+                proxy_log.info(tag("PROXY", f"{_status_label(False)} ffmpeg {_fmt(_UNCONFIGURED_PROXY, _CLR_GRAY)}"))
+        except Exception:
+            proxy_log.exception("Errore durante il proxy startup check in background.")
+
+    threading.Thread(target=_check_and_log, name="proxy-startup-check", daemon=True).start()
 
 
 def start_cookie_startup_check() -> None:
-    if not Config.COOKIES_ENABLED:
-        return
-    cookie_file = Config.COOKIE_FILE
-    def _check():
-        import os as _os
-        if cookie_file and _os.path.isfile(cookie_file):
-            log.info(tag("COOKIE", f"{_CLR_ON}OK{_CLR_GRAY[0:]}  {cookie_file}\033[0m"))
-        else:
-            log.warning(tag("COOKIE", f"{_CLR_WARN}FILE NON TROVATO{_CLR_GRAY[0:]}  {cookie_file or _UNCONFIGURED_COOKIE}\033[0m"))
-    threading.Thread(target=_check, daemon=True).start()
+    """Verifica il file cookie in background e logga lo stato startup."""
+    cookie_log = logging.getLogger("pitonazz")
+    enabled    = Config.COOKIES_ENABLED
+    path       = (Config.EFFECTIVE_COOKIE_FILE or "").strip()
+
+    def _fmt(text: str, color: str, *, bolded: bool = False) -> str:
+        value = hi(text, color)
+        return b(value) if bolded else value
+
+    def _status_label(on: bool) -> str:
+        return _fmt("ON", _CLR_ON, bolded=True) if on else _fmt("OFF", _CLR_OFF, bolded=True)
+
+    def _check_and_log() -> None:
+        try:
+            state = _status_label(enabled)
+            if not enabled:
+                cookie_log.info(tag("COOKIE", f"{state} {_fmt(_UNCONFIGURED_COOKIE, _CLR_GRAY)}"))
+                return
+            ok, msg = _validate_cookie_file(path)
+            detail  = _fmt(msg, _CLR_ON if ok else _CLR_OFF)
+            icon    = "\u2705" if ok else "\u26a0\ufe0f"
+            cookie_log.info(tag("COOKIE", f"{state} {icon} {detail}"))
+            if not ok:
+                cookie_log.warning(tag("COOKIE", f"Cookie disabilitati di fatto \u2014 {msg}"))
+        except Exception:
+            cookie_log.exception("Errore durante il cookie startup check in background.")
+
+    threading.Thread(target=_check_and_log, name="cookie-startup-check", daemon=True).start()
