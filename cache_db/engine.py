@@ -5,8 +5,8 @@ Motore SQLite per la cache persistente delle query musicali.
 Zero dipendenze esterne: sqlite3 e' stdlib Python.
 
 Schema:
-  song_cache   — una riga per coppia (canonical_key, variant_tag)
-  query_alias  — alias alternativi che puntano a un canonical_key
+  song_cache   - una riga per coppia (canonical_key, variant_tag)
+  query_alias  - alias alternativi che puntano a un canonical_key
 
 Lookup in 5 step (dal piu' economico al piu' costoso):
   1. Exact hit   su song_cache  (O log n, ~0.1 ms)
@@ -14,6 +14,8 @@ Lookup in 5 step (dal piu' economico al piu' costoso):
   3. Spotify URL hit            (O log n, ~0.1 ms)
   4. webpage_url hit            (O log n, ~0.1 ms)
   5. Fuzzy scan  top-300 per hit_count, soglia jaccard >= 0.82
+     NB: il fuzzy NON salva alias automaticamente.
+         L'alias viene promosso solo dopo store() esplicita.
 """
 
 from __future__ import annotations
@@ -30,10 +32,12 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from core.source_resolver import TrackInfo
 
+from core.log_colors import tag as _tag, b as _b, dim as _dim
+
 log = logging.getLogger("pitonazz.cache_db")
 
 # ---------------------------------------------------------------------------
-# Colori (stessa palette di core/log_colors.py — nessun import circolare)
+# Colori locali (per le parti del messaggio DENTRO il tag, non per il tag stesso)
 # ---------------------------------------------------------------------------
 _R    = "\033[0m"
 _BOLD = "\033[1m"
@@ -50,17 +54,12 @@ _TEAL = "\033[38;5;80m"
 _BLU  = "\033[34m"
 _WHT  = "\033[97m"
 
-def _b(t):    return f"{_BOLD}{t}{_R}"
-def _dim(t):  return f"{_DIM}{t}{_R}"
 def _grn(t):  return f"{_BGRN}{t}{_R}"
 def _cyn(t):  return f"{_BCYN}{t}{_R}"
 def _yel(t):  return f"{_BYEL}{t}{_R}"
+def _red(t):  return f"{_BRED}{t}{_R}"
 def _gry(t):  return f"{_GRY}{t}{_R}"
 def _teal(t): return f"{_TEAL}{t}{_R}"
-
-# Tag [DB] colorato, usato in tutti i log del motore
-_TAG_DB   = f"{_BOLD}{_BLU}[DB]{_R}"
-_TAG_CACHE= f"{_BOLD}{_BGRN}[CACHE]{_R}"
 
 # ---------------------------------------------------------------------------
 # Costanti
@@ -168,7 +167,7 @@ def _combined_sim(a: str, b: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Logging DB helpers
+# Logging helpers — tutto sotto il tag CACHE_DB
 # ---------------------------------------------------------------------------
 
 def _trunc(s: str, n: int) -> str:
@@ -176,47 +175,63 @@ def _trunc(s: str, n: int) -> str:
     return s if len(s) <= n else s[:n - 1] + "\u2026"
 
 
-def _log_db_hit(query_raw: str, title: str, step: str) -> None:
-    """Brano trovato nel DB — cache hit."""
-    step_col = _cyn(f"{step:<5}")
+def _log_hit(query_raw: str, title: str, step: str) -> None:
+    """\u2705 Traccia trovata nel DB (query identica)."""
     log.info(
-        "%s HIT   %s  %s  %s  %s",
-        _TAG_DB,
-        step_col,
-        _gry(_trunc(query_raw, 36)),
-        _gry("=>"),
-        _b(_teal(_trunc(title, 45))),
+        _tag("CACHE_DB",
+             f"\u2705 HIT      {_cyn(f'{step:<5}')}  "
+             f"{_gry(_trunc(query_raw, 36))}  \u2192  "
+             f"{_b(_teal(_trunc(title, 45)))}"),
     )
 
 
-def _log_db_alias(query_raw: str, canonical: str, title: str, score: float = 0.0) -> None:
-    """Brano trovato tramite fuzzy/alias."""
+def _log_alias(query_raw: str, title: str, score: float = 0.0) -> None:
+    """\U0001f501 Traccia trovata tramite alias (query diversa, stesso brano)."""
     score_str = _gry(f"sim={score:.0%}") if score else ""
     log.info(
-        "%s ALIAS  %s  %s  %s  %s",
-        _TAG_DB,
-        _gry(_trunc(query_raw, 32)),
-        _gry("~>"),
-        _b(_teal(_trunc(title, 40))),
-        score_str,
+        _tag("CACHE_DB",
+             f"\U0001f501 ALIAS     "
+             f"{_gry(_trunc(query_raw, 32))}  \u007e\u003e  "
+             f"{_b(_teal(_trunc(title, 40)))}  {score_str}"),
     )
 
 
-def _log_db_store(query_raw: str, title: str, updated: bool) -> None:
-    """Brano aggiunto o aggiornato nel DB."""
+def _log_add(query_raw: str, title: str, updated: bool) -> None:
+    """\u2795 Traccia aggiunta nel DB (INSERT) oppure aggiornata (UPDATE)."""
     if updated:
-        verb   = _yel("UPDATE")
-        arrow  = _gry("<=>")  
+        icon  = "\U0001f504"
+        verb  = _yel("UPDATE")
+        arrow = _gry("<=>")
     else:
-        verb   = _grn("INSERT")
-        arrow  = _gry(" =>")
+        icon  = "\u2795"
+        verb  = _grn("INSERT")
+        arrow = _gry(" =>")
     log.info(
-        "%s %s  %s  %s  %s",
-        _TAG_DB,
-        verb,
-        _gry(_trunc(query_raw, 36)),
-        arrow,
-        _b(_trunc(title, 45)),
+        _tag("CACHE_DB",
+             f"{icon} {verb}    "
+             f"{_gry(_trunc(query_raw, 36))}  {arrow}  "
+             f"{_b(_trunc(title, 45))}"),
+    )
+
+
+def _log_fuzzy_candidate(query_raw: str, title: str, score: float) -> None:
+    """\u26a0\ufe0f  Match fuzzy trovato ma alias NON salvato (in attesa di conferma)."""
+    log.info(
+        _tag("CACHE_DB",
+             f"\u26a0\ufe0f  FUZZY     "
+             f"{_gry(_trunc(query_raw, 32))}  \u007e\u003e  "
+             f"{_b(_teal(_trunc(title, 40)))}  "
+             f"{_gry(f'sim={score:.0%}')}"),
+    )
+
+
+def _log_alias_promoted(query_raw: str, title: str) -> None:
+    """\U0001f4cc Alias confermato e salvato nel DB dopo store() esplicita."""
+    log.info(
+        _tag("CACHE_DB",
+             f"\U0001f4cc ALIAS+    "
+             f"{_gry(_trunc(query_raw, 32))}  \u2192  "
+             f"{_b(_teal(_trunc(title, 40)))}"),
     )
 
 
@@ -229,6 +244,11 @@ class QueryCache:
 
     Thread-safe: un lock globale + check_same_thread=False.
     Abilitabile/disabilitabile a runtime tramite self.enabled.
+
+    Alias policy:
+      - Gli alias NON vengono mai salvati automaticamente dal fuzzy lookup.
+      - Vengono promossi SOLO da store() quando canonical_key della nuova
+        query differisce da quello gia' in DB per la stessa traccia.
     """
 
     def __init__(self, db_path: str, enabled: bool = True,
@@ -245,16 +265,16 @@ class QueryCache:
             entries = self._count_entries()
             hits    = self._count_hits()
             log.info(
-                "%s  %s  ttl=%s  max=%s  entries=%s  hits=%s",
-                _TAG_CACHE,
-                _gry(db_path),
-                _b(f"{ttl_days}d"),
-                _b(str(max_entries)),
-                _b(_grn(str(entries))),
-                _b(_cyn(str(hits))),
+                _tag("CACHE_DB",
+                     f"\U0001f5c4\ufe0f  avviata  "
+                     f"{_gry(db_path)}  "
+                     f"ttl={_b(f'{ttl_days}d')}  "
+                     f"max={_b(str(max_entries))}  "
+                     f"entries={_b(_grn(str(entries)))}  "
+                     f"hits={_b(_cyn(str(hits)))}"),
             )
         else:
-            log.info("%s  %s", _TAG_CACHE, _yel("disabilitata"))
+            log.info(_tag("CACHE_DB", f"\u23f8\ufe0f  {_yel('disabilitata')}"))
 
     # ------------------------------------------------------------------
     # Connessione per-thread
@@ -272,7 +292,6 @@ class QueryCache:
         return self._local.conn
 
     def _new_conn(self) -> sqlite3.Connection:
-        """Apre una connessione fresca e indipendente (per thread figli)."""
         os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -377,6 +396,11 @@ class QueryCache:
     # ------------------------------------------------------------------
 
     def lookup(self, query: str) -> Optional[dict]:
+        """
+        Cerca la query nel DB in 5 step.
+        Il fuzzy (step 5) restituisce il candidato ma NON salva alias:
+        l'alias viene promosso solo da store() dopo conferma della traccia.
+        """
         if not self.enabled:
             return None
 
@@ -399,7 +423,7 @@ class QueryCache:
                 if not self._is_stale(d.get("last_used", "")):
                     self._touch(conn, canonical_key, variant_tag)
                     conn.commit()
-                    _log_db_hit(query, d.get("title", ""), "exact")
+                    _log_hit(query, d.get("title", ""), "exact")
                     return d
                 else:
                     conn.execute("UPDATE song_cache SET is_valid=0 WHERE canonical_key=? AND variant_tag=?",
@@ -425,7 +449,7 @@ class QueryCache:
                     if not self._is_stale(d.get("last_used", "")):
                         self._touch(conn, ck, vt)
                         conn.commit()
-                        _log_db_alias(query, ck, d.get("title", ""))
+                        _log_alias(query, d.get("title", ""))
                         return d
 
             # Step 3 — Spotify URL hit
@@ -441,7 +465,7 @@ class QueryCache:
                     if not self._is_stale(d.get("last_used", "")):
                         self._touch(conn, d["canonical_key"], d["variant_tag"])
                         conn.commit()
-                        _log_db_hit(query, d.get("title", ""), "sptfy")
+                        _log_hit(query, d.get("title", ""), "sptfy")
                         return d
 
             # Step 4 — webpage_url hit
@@ -456,10 +480,13 @@ class QueryCache:
                     if not self._is_stale(d.get("last_used", "")):
                         self._touch(conn, d["canonical_key"], d["variant_tag"])
                         conn.commit()
-                        _log_db_hit(query, d.get("title", ""), "url")
+                        _log_hit(query, d.get("title", ""), "url")
                         return d
 
             # Step 5 — Fuzzy scan top-N
+            # NOTA: nessun alias viene salvato qui.
+            # Il risultato viene restituito come candidato;
+            # l'alias verra' promosso da store() se la traccia e' confermata corretta.
             rows = conn.execute("""
                 SELECT * FROM song_cache
                 WHERE is_valid = 1
@@ -480,15 +507,14 @@ class QueryCache:
                 if not self._is_stale(d.get("last_used", "")):
                     ck, vt = d["canonical_key"], d["variant_tag"]
                     self._touch(conn, ck, vt)
-                    try:
-                        conn.execute("""
-                            INSERT OR IGNORE INTO query_alias(alias_key, canonical_key, variant_tag)
-                            VALUES(?, ?, ?)
-                        """, (canonical_key, ck, vt))
-                    except Exception:
-                        pass
                     conn.commit()
-                    _log_db_alias(query, ck, d.get("title", ""), best_score)
+                    # Segnala il candidato fuzzy nel log ma NON salva l'alias
+                    _log_fuzzy_candidate(query, d.get("title", ""), best_score)
+                    # Passa il canonical_key trovato nel dict cosi' store() sa
+                    # a quale entry fare riferimento per promuovere l'alias.
+                    d["_fuzzy_source_key"] = ck
+                    d["_fuzzy_source_tag"] = vt
+                    d["_query_canonical"]  = canonical_key
                     return d
 
         return None
@@ -498,6 +524,16 @@ class QueryCache:
     # ------------------------------------------------------------------
 
     def store(self, query: str, track: "TrackInfo", force_alias: Optional[str] = None) -> None:
+        """
+        Salva la traccia nel DB.
+
+        Promozione alias:
+          - Se force_alias e' fornito, viene registrato come alias esplicito.
+          - Se la traccia era stata trovata via fuzzy (lookup ha aggiunto
+            _query_canonical nel dict), e il canonical della query corrente
+            coincide con quello del lookup fuzzy, l'alias viene promosso ORA
+            che la traccia e' confermata corretta.
+        """
         if not self.enabled:
             return
 
@@ -516,6 +552,11 @@ class QueryCache:
         thumbnail   = (getattr(track, "thumbnail",   "") or "").strip()
         source      = (getattr(track, "source",      "youtube") or "youtube").strip()
         spotify_url = (getattr(track, "spotify_url", "") or "").strip()
+
+        # Controlla se il lookup fuzzy aveva gia' trovato questa traccia
+        fuzzy_source_ck = getattr(track, "_fuzzy_source_key", None)
+        fuzzy_source_vt = getattr(track, "_fuzzy_source_tag", None)
+        fuzzy_query_ck  = getattr(track, "_query_canonical",  None)
 
         with self._lock:
             conn = self._conn()
@@ -545,7 +586,7 @@ class QueryCache:
                     now,
                     canonical_key, variant_tag,
                 ))
-                _log_db_store(query, title, updated=True)
+                _log_add(query, title, updated=True)
             else:
                 conn.execute("""
                     INSERT INTO song_cache
@@ -556,8 +597,25 @@ class QueryCache:
                     canonical_key, variant_tag, webpage_url, title, artist,
                     duration, thumbnail, source, spotify_url, now, now,
                 ))
-                _log_db_store(query, title, updated=False)
+                _log_add(query, title, updated=False)
 
+            # Promozione alias da fuzzy confermato
+            if (
+                fuzzy_source_ck
+                and fuzzy_query_ck
+                and fuzzy_query_ck != canonical_key
+                and fuzzy_source_ck == canonical_key
+            ):
+                try:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO query_alias(alias_key, canonical_key, variant_tag)
+                        VALUES(?, ?, ?)
+                    """, (fuzzy_query_ck, canonical_key, variant_tag))
+                    _log_alias_promoted(query, title)
+                except Exception:
+                    pass
+
+            # Alias esplicito (force_alias)
             if force_alias:
                 alias_key, _ = normalize(force_alias)
                 if alias_key and alias_key != canonical_key:
@@ -588,7 +646,7 @@ class QueryCache:
                 WHERE canonical_key = ? AND variant_tag = ? AND is_valid = 1
             """, (spotify_url, canonical_key, variant_tag))
             conn.commit()
-        log.debug("%s link_spotify  key=%r  url=%r", _TAG_DB, canonical_key, spotify_url)
+        log.debug(_tag("CACHE_DB", f"link_spotify  key={canonical_key!r}  url={spotify_url!r}"))
 
     # ------------------------------------------------------------------
     # Statistiche
@@ -623,14 +681,14 @@ class QueryCache:
         }
 
     # ------------------------------------------------------------------
-    # inspect — lookup raw di una query (usato da !dev cache inspect)
+    # inspect
     # ------------------------------------------------------------------
 
     def inspect(self, query: str) -> dict:
-        """Restituisce info diagnostiche su una query: normalizzazione, hit, dati raw."""
+        """Info diagnostiche su una query: normalizzazione, hit, dati raw."""
         canonical_key, variant_tag = normalize(query)
         result = {
-            "query_raw":    query,
+            "query_raw":     query,
             "canonical_key": canonical_key,
             "variant_tag":   variant_tag,
             "found":         False,
@@ -662,11 +720,11 @@ class QueryCache:
             deleted = conn.execute("DELETE FROM song_cache").rowcount
             conn.execute("DELETE FROM query_alias")
             conn.commit()
-        log.info("%s clear  %s righe eliminate", _TAG_DB, _b(str(deleted)))
+        log.info(_tag("CACHE_DB", f"\U0001f5d1\ufe0f  clear  {_b(str(deleted))} righe eliminate"))
         return deleted
 
     # ------------------------------------------------------------------
-    # Pruning LRU — FIX: usa connessione propria per il thread figlio
+    # Pruning LRU
     # ------------------------------------------------------------------
 
     def _maybe_prune(self) -> None:
@@ -674,7 +732,6 @@ class QueryCache:
         _threading.Thread(target=self._prune_lru, daemon=True).start()
 
     def _prune_lru(self) -> None:
-        # Connessione indipendente: il thread figlio non ha _local.conn
         conn = self._new_conn()
         try:
             with self._lock:
@@ -697,9 +754,9 @@ class QueryCache:
                     )
                 """)
                 conn.commit()
-                log.info("%s prune LRU  %s record rimossi", _TAG_DB, _b(str(to_delete)))
+                log.info(_tag("CACHE_DB", f"\U0001f9f9 prune LRU  {_b(str(to_delete))} record rimossi"))
         except Exception as exc:
-            log.warning("%s prune LRU fallito: %s", _TAG_DB, exc)
+            log.warning(_tag("CACHE_DB", f"\u274c prune LRU fallito: {exc}"))
         finally:
             conn.close()
 
@@ -721,5 +778,5 @@ class QueryCache:
                     stale_ids,
                 )
                 conn.commit()
-        log.info("%s prune_stale  %s record invalidati", _TAG_DB, _b(str(len(stale_ids))))
+        log.info(_tag("CACHE_DB", f"\U0001f9f9 prune_stale  {_b(str(len(stale_ids)))} record invalidati"))
         return len(stale_ids)
