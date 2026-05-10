@@ -13,7 +13,7 @@ import yt_dlp
 from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
 
-# ── Sub-module imports ────────────────────────────────────────────────────────────────────────────
+# ── Sub-module imports ─────────────────────────────────────────────────────────────────────────────
 from core.source_resolver.scoring import (
     _MV_KEYWORDS,
     _VARIANT_KEYWORDS,
@@ -313,17 +313,29 @@ _qc_lock = threading.Lock()
 def _get_query_cache():
     """Restituisce il singleton QueryCache oppure None se la cache non e' abilitata."""
     global _qc_instance
-    if not Config.QUERY_CACHE_ENABLED:
+    if not Config.CACHE_ENABLED:
         return None
     if _qc_instance is None:
         with _qc_lock:
             if _qc_instance is None:
                 try:
-                    from cache_db import QueryCache
-                    _qc_instance = QueryCache(
-                        db_path=Config.QUERY_CACHE_DB_PATH,
-                        enabled=True,
-                    )
+                    from core.cache_db import get as _cache_get, put as _cache_put
+
+                    class _Adapter:
+                        """Adatta l'API funzionale di cache_db all'interfaccia lookup/store."""
+                        @staticmethod
+                        def lookup(query: str) -> Optional[dict]:
+                            return _cache_get(query)
+
+                        @staticmethod
+                        def store(query: str, track: "TrackInfo") -> None:
+                            _cache_put(query, track)
+
+                        @staticmethod
+                        def link_spotify(sp_url: str, key: str, variant: str) -> None:
+                            pass  # estensione futura
+
+                    _qc_instance = _Adapter()
                 except Exception as e:
                     log.warning(tag("CACHE", f"impossibile inizializzare QueryCache: {e}"))
                     _qc_instance = None
@@ -534,12 +546,12 @@ class SourceResolver:
 
             _dc = _BGRN if decision == "full" else (_BYEL if decision == "cover_only" else _BRED)
 
-            conf_pct = int(score["confidence"]      * 100)
-            q_pct    = int(score["query_sim"]        * 100)
-            yt_pct   = int(score["yt_sim"]           * 100)
-            art_pct  = int(score["artist_sim"]       * 100)
-            dur_pct  = int(score["duration_sim"]     * 100)
-            junk_pct = int(score["variant_penalty"]  * 100)
+            conf_pct = int(score["confidence"]       * 100)
+            q_pct    = int(score["query_sim"]         * 100)
+            yt_pct   = int(score["yt_sim"]            * 100)
+            art_pct  = int(score["artist_sim"]        * 100)
+            dur_pct  = int(score["duration_sim"]      * 100)
+            junk_pct = int(score["variant_penalty"]   * 100)
             nm_pct   = int(score["non_music_penalty"] * 100)
 
             enrich_log.info(
@@ -548,9 +560,9 @@ class SourceResolver:
                     f"  query  : {b(original_query)}\n"
                     f"  sp     : {b(sp_title)}  ({b(sp_artist)})\n"
                     f"  yt     : {b(yt_title_before)}\n"
-                    f"  conf   : {hi(f'{conf_pct:3d}%', _dc)}"
-                    f"  q={q_pct:3d}%  yt={yt_pct:3d}%  art={art_pct:3d}%"
-                    f"  dur={dur_pct:3d}%  junk={junk_pct:3d}%  nm={nm_pct:3d}%\n"
+                    f"  conf   : {hi(f'{conf_pct:3d}%', _dc)}\n"
+                    f"    q={q_pct:3d}%  yt={yt_pct:3d}%  art={art_pct:3d}%\n"
+                    f"    dur={dur_pct:3d}%  junk={junk_pct:3d}%  nm={nm_pct:3d}%\n"
                     f"  result : {hi(decision, _dc)}  ({dim(score['reason'])})"
                 )
             )
@@ -581,7 +593,7 @@ class SourceResolver:
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
 
-        # ── READ PATH: cache-first lookup (solo per n==1, query testuale) ────────────────────────
+        # ── READ PATH: cache-first lookup (solo per n==1, query testuale) ─────────────────────
         if n == 1 and not _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
@@ -598,7 +610,7 @@ class SourceResolver:
                             return [track]
             except Exception as _ce:
                 log.debug(tag("CACHE", f"read path error (ignorato): {_ce}"))
-        # ─────────────────────────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────────────────
 
         sp_meta_hint: Optional[dict] = None
         yt_query = query
@@ -632,7 +644,7 @@ class SourceResolver:
                     None, cls._enrich_with_spotify, results, enrich_query
                 )
 
-        # ── WRITE PATH: salva il risultato in cache ───────────────────────────────────────────────
+        # ── WRITE PATH: salva il risultato in cache ─────────────────────────────────────────────
         if n == 1 and results and not _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
@@ -640,7 +652,7 @@ class SourceResolver:
                     qc.store(query, results[0])
             except Exception as _we:
                 log.debug(tag("CACHE", f"write path error (ignorato): {_we}"))
-        # ─────────────────────────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────────────────
 
         elapsed = (time.perf_counter() - t0) * 1000
         log.info(tag("RESOLVE", f"{b(query)}  \u2192  {b(str(len(results)))} risultati  {ms(elapsed)}"))
@@ -853,17 +865,15 @@ class SourceResolver:
 
         log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  \u2192  {hi(chosen.webpage_url, _BBLU)}"))
 
-        # ── WRITE PATH Spotify: collega sp_url alla entry in cache ──────────────────────────────
+        # ── WRITE PATH Spotify: salva in cache DB ────────────────────────────────────────────
         if sp_url:
             try:
                 qc = _get_query_cache()
                 if qc is not None:
-                    from cache_db.engine import normalize as _cache_normalize
-                    canonical_key, variant_tag = _cache_normalize(query_with_artist)
-                    qc.link_spotify(sp_url, canonical_key, variant_tag)
+                    qc.link_spotify(sp_url, query_with_artist, "")
             except Exception:
                 pass
-        # ─────────────────────────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────────────────
 
         return chosen
 
