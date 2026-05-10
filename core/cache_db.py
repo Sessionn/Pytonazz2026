@@ -52,7 +52,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 @contextmanager
- def _cursor():
+def _cursor():
     conn = _get_conn()
     with _lock, conn:
         cur = conn.cursor()
