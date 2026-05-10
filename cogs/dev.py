@@ -42,6 +42,8 @@ _MAX_RESTORE_BYTES = 10 * 1024 * 1024  # 10 MB
 _OWN = "\U0001f527"
 _CTX_ICON = "\U0001f4cb"
 
+_DEFAULT_DB_PATH = Path("data") / "database" / "cache.db"
+
 
 def _load_custom() -> list:
     if not CUSTOM_STATUSES_PATH.exists():
@@ -59,16 +61,14 @@ def _save_custom(data: list):
 
 
 def _get_cache_db_path() -> Optional[Path]:
-    """Restituisce il Path al database SQLite della cache, se configurato."""
+    """Restituisce il Path al database SQLite della cache, se presente."""
     db_path_str = os.getenv("DB_PATH", "").strip()
     if db_path_str:
         p = Path(db_path_str)
         if p.exists():
             return p
-    # Fallback: cerca .database/cache.db relativo alla root del bot
-    fallback = Path(".database") / "cache.db"
-    if fallback.exists():
-        return fallback
+    if _DEFAULT_DB_PATH.exists():
+        return _DEFAULT_DB_PATH
     return None
 
 
@@ -195,16 +195,6 @@ class Dev(commands.Cog):
             db_path = _get_cache_db_path()
             if db_path:
                 try:
-                    # Copia sicura tramite SQLite backup API (evita pagine sporche WAL)
-                    db_buf = io.BytesIO()
-                    src_conn = sqlite3.connect(str(db_path))
-                    dst_conn = sqlite3.connect(":memory:")
-                    src_conn.backup(dst_conn)
-                    src_conn.close()
-                    for line in dst_conn.iterdump():
-                        pass  # iterdump non ci serve, usiamo backup su file temporaneo
-                    dst_conn.close()
-                    # Strategia piu' semplice: leggi i byte del file dopo aver forzato WAL checkpoint
                     wal_conn = sqlite3.connect(str(db_path))
                     wal_conn.execute("PRAGMA wal_checkpoint(FULL)")
                     wal_conn.close()
@@ -275,9 +265,8 @@ class Dev(commands.Cog):
                 db_arc = next((n for n in names if n.startswith("cache_db/") and n.endswith(".db")), None)
                 if db_arc:
                     db_bytes = zf.read(db_arc)
-                    # Determina destinazione: DB_PATH env oppure fallback
-                    db_dest_str = os.getenv("DB_PATH", "").strip() or str(Path(".database") / "cache.db")
-                    db_dest = Path(db_dest_str)
+                    db_dest_str = os.getenv("DB_PATH", "").strip()
+                    db_dest = Path(db_dest_str) if db_dest_str else _DEFAULT_DB_PATH
                     db_dest.parent.mkdir(parents=True, exist_ok=True)
                     db_dest.write_bytes(db_bytes)
                     restored.append(db_arc)

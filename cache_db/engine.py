@@ -41,6 +41,8 @@ _FUZZY_STR_WEIGHT  = 0.35
 _TTL_DAYS_DEFAULT  = 30
 _MAX_ENTRIES       = 10_000
 
+_DEFAULT_DB_PATH   = os.path.join("data", "database", "cache.db")
+
 _VARIANT_KW_CACHE: Optional[set] = None
 
 
@@ -167,7 +169,7 @@ def _log_db_store(query_raw: str, title: str, updated: bool) -> None:
 
 def _trunc(s: str, n: int) -> str:
     s = str(s or "")
-    return s if len(s) <= n else s[:n - 1] + "…"
+    return s if len(s) <= n else s[:n - 1] + "\u2026"
 
 
 # ---------------------------------------------------------------------------
