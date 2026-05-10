@@ -106,7 +106,7 @@ class Config:
     # Il DB SQLite viene creato automaticamente al primo avvio se non esiste.
     _qc_enabled_raw: str = os.getenv("QUERY_CACHE_ENABLED", "").strip().lower()
     QUERY_CACHE_ENABLED: bool = _qc_enabled_raw in ("true", "1", "yes", "on")
-    QUERY_CACHE_DB_PATH: str = os.getenv("QUERY_CACHE_DB_PATH", "./cache.db")
+    QUERY_CACHE_DB_PATH: str = os.getenv("QUERY_CACHE_DB_PATH", "./data/database/cache.db")
     QUERY_CACHE_TTL_DAYS: int = int(os.getenv("QUERY_CACHE_TTL_DAYS", "365"))
     QUERY_CACHE_MAX_ENTRIES: int = int(os.getenv("QUERY_CACHE_MAX_ENTRIES", "20000"))
 
