@@ -35,30 +35,32 @@ _SRC_DSC = f"{_BOLD}{_BBLU}DISCORD {_R}"
 _SRC_EXT = f"{_BOLD}{_GRY}EXTERNAL{_R}"
 
 TAG = {
-    "SYNC"   : ("SYNC",    _BCYN),
-    "BOOT"   : ("BOOT",    _BGRN),
-    "PROXY"  : ("PROXY",   _ORG),
-    "READY"  : ("READY",   _BGRN),
-    "WATCH"  : ("WATCH",   _BLU),
-    "RELOAD" : ("RELOAD",  _BLU),
-    "PLAYER" : ("PLAYER",  _GRN),
-    "STREAM" : ("STREAM",  _CYN),
-    "FILTER" : ("FILTER",  _MAG),
-    "QUEUE"  : ("QUEUE",   _YEL),
-    "RESOLVE": ("RESOLVE", _BCYN),
-    "SPOTIFY": ("SPOTIFY", _BGRN),
-    "WARN"   : ("WARN",    _BYEL),
-    "ERR"    : ("ERR",     _BRED),
-    "AI"     : ("AI",      _BMAG),
-    "CMD"    : ("CMD",     _WHT),
-    "JOIN"   : ("JOIN",    _TEAL),
-    "TTS"    : ("TTS",     _BMAG),
-    "DEV"    : ("DEV",     _ORG),
-    "STATUS" : ("STATUS",  _BYEL),
-    "VOICE"  : ("VOICE",   _TEAL),
-    "DISC"   : ("DISC",    _GRY),
-    "MOD"    : ("MOD",     _BRED),
-    "GATEWAY": ("GATEWAY", _BCYN),
+    "SYNC"    : ("SYNC",     _BCYN),
+    "BOOT"    : ("BOOT",     _BGRN),
+    "PROXY"   : ("PROXY",    _ORG),
+    "READY"   : ("READY",    _BGRN),
+    "WATCH"   : ("WATCH",    _BLU),
+    "RELOAD"  : ("RELOAD",   _BLU),
+    "PLAYER"  : ("PLAYER",   _GRN),
+    "STREAM"  : ("STREAM",   _CYN),
+    "FILTER"  : ("FILTER",   _MAG),
+    "QUEUE"   : ("QUEUE",    _YEL),
+    "RESOLVE" : ("RESOLVE",  _BCYN),
+    "SPOTIFY" : ("SPOTIFY",  _BGRN),
+    "WARN"    : ("WARN",     _BYEL),
+    "ERR"     : ("ERR",      _BRED),
+    "AI"      : ("AI",       _BMAG),
+    "CMD"     : ("CMD",      _WHT),
+    "JOIN"    : ("JOIN",     _TEAL),
+    "TTS"     : ("TTS",      _BMAG),
+    "DEV"     : ("DEV",      _ORG),
+    "STATUS"  : ("STATUS",   _BYEL),
+    "VOICE"   : ("VOICE",    _TEAL),
+    "DISC"    : ("DISC",     _GRY),
+    "MOD"     : ("MOD",      _BRED),
+    "GATEWAY" : ("GATEWAY",  _BCYN),
+    "CACHE_DB": ("CACHE_DB", _BLU),
+    "COOKIE"  : ("COOKIE",   _BYEL),
 }
 
 _FMT  = "%(ts)s  %(levelname)s  %(source)s  %(logger_name)s  %(message)s"
@@ -112,9 +114,6 @@ class ColorFormatter(logging.Formatter):
 
 
 # ── Gateway filter ────────────────────────────────────────────────────────────
-# Intercetta i log di discord.gateway e li riscrive nel tuo stile.
-# Ogni pattern mappa un regex sul messaggio grezzo → una funzione che
-# produce il messaggio riformattato usando tag() e i tuoi colori.
 
 _GW_CONNECTED   = re.compile(r"Shard ID (\S+) has connected to Gateway \(Session ID: ([a-f0-9]+)\)")
 _GW_RESUMED     = re.compile(r"Shard ID (\S+) has sent the RESUME payload")
@@ -125,9 +124,6 @@ _GW_RATELIMIT   = re.compile(r"WebSocket in shard ID (\S+) is ratelimited")
 
 
 def _fmt_gateway(msg: str) -> str | None:
-    """Riscrive un messaggio grezzo di discord.gateway.
-    Ritorna None se il messaggio non è riconosciuto (pass-through)."""
-
     if m := _GW_CONNECTED.search(msg):
         shard, sid = m.group(1), m.group(2)
         shard_label = dim(f"shard {shard}") if shard != "None" else dim("single shard")
@@ -153,22 +149,17 @@ def _fmt_gateway(msg: str) -> str | None:
         shard = m.group(1)
         return tag("GATEWAY", f"{_BRED}Rate limit WebSocket{_R}  {dim(f'shard {shard}')}")
 
-    return None  # messaggio non riconosciuto: lascia passare invariato
+    return None
 
 
 class GatewayFilter(logging.Filter):
-    """Filtra discord.gateway riscrivendo i messaggi nel tuo stile.
-    Restituisce sempre True (il record passa comunque),
-    ma ne modifica il msg prima che il formatter lo veda."""
-
     def filter(self, record: logging.LogRecord) -> bool:
         if record.name != "discord.gateway":
             return True
         formatted = _fmt_gateway(record.getMessage())
         if formatted is not None:
             record.msg  = formatted
-            record.args = ()  # evita double-format
-            # rimappa il nome logger su "pitonazz.gateway" per coerenza visiva
+            record.args = ()
             record.name = "pitonazz.gateway"
         return True
 
@@ -176,39 +167,30 @@ class GatewayFilter(logging.Filter):
 # ── Helpers base ─────────────────────────────────────────────────────
 
 def b(text) -> str:
-    """Grassetto."""
     return f"{_BOLD}{text}{_R}"
 
 def hi(text, color: str = _CYN) -> str:
-    """Testo colorato."""
     return f"{color}{text}{_R}"
 
 def ms(val: float) -> str:
-    """Millisecondi in giallo grassetto."""
     return f"{_BOLD}{_BYEL}{val:.0f}ms{_R}"
 
 def title(text: str) -> str:
-    """Titolo traccia in grassetto bianco."""
     return f"{_BOLD}{_WHT}{text}{_R}"
 
 def guild(text: str) -> str:
-    """Nome server in teal."""
     return f"{_TEAL}{text}{_R}"
 
 def user(text: str) -> str:
-    """Nome utente in grigio."""
     return f"{_GRY}{text}{_R}"
 
 def ch(text: str) -> str:
-    """Nome canale in cyan."""
     return f"{_BCYN}#{text}{_R}"
 
 def dim(text: str) -> str:
-    """Testo attenuato."""
     return f"{_DIM}{text}{_R}"
 
 def tag(label: str, msg: str) -> str:
-    """Tag colorato + messaggio."""
     t, c = TAG.get(label, (label, _GRY))
     return f"{_BOLD}{c}{t:<8}{_R} {msg}"
 
@@ -272,7 +254,7 @@ def fmt_botconfig_loaded(data: dict) -> str:
 def setup_logging(level: int = logging.INFO) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(ColorFormatter())
-    handler.addFilter(GatewayFilter())      # riformatta discord.gateway
+    handler.addFilter(GatewayFilter())
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers.clear()
