@@ -24,6 +24,7 @@ import re
 import sqlite3
 import threading
 import unicodedata
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -40,9 +41,6 @@ _FUZZY_STR_WEIGHT  = 0.35   # peso _str_sim nella combinazione con jaccard
 _TTL_DAYS_DEFAULT  = 30     # giorni prima che un URL venga considerato stale
 _MAX_ENTRIES       = 10_000 # limite soft: oltre questa soglia si fa pruning LRU
 
-# Parole/varianti che distinguono versioni diverse della stessa canzone.
-# Importate da scoring.py a runtime per non creare dipendenza circolare al
-# momento dell'import del package.
 _VARIANT_KW_CACHE: Optional[set] = None
 
 
@@ -81,16 +79,13 @@ def _nfc(s: str) -> str:
 def normalize(query: str) -> tuple[str, str]:
     """Restituisce (canonical_key, variant_tag) dalla query grezza.
 
-    - canonical_key: query normalizzata senza variant keywords, senza
-      punteggiatura, senza noise words, token ordinati alfabeticamente
-      per rendere 'max gazze una musica puo fare' == 'una musica puo fare max gazze'
-    - variant_tag:   stringa vuota per la versione studio, altrimenti
-      la prima keyword variante trovata (es. 'speed up', 'live', 'cover')
+    canonical_key: token ordinati alfabeticamente, senza noise words,
+                   senza punteggiatura, senza variant keywords.
+    variant_tag:   prima keyword variante trovata, oppure stringa vuota.
     """
     raw = _nfc((query or "").strip().lower())
     variant_kw = _get_variant_keywords()
 
-    # Individua e rimuovi variant keyword (piu' lunghe prima)
     found_variant = ""
     for kw in sorted(variant_kw, key=len, reverse=True):
         if kw in raw:
@@ -98,11 +93,9 @@ def normalize(query: str) -> tuple[str, str]:
                 found_variant = kw
             raw = raw.replace(kw, " ")
 
-    # Rimuovi punteggiatura e normalizza spazi
     raw = _RE_PUNCT.sub(" ", raw)
     raw = _RE_SPACES.sub(" ", raw).strip()
 
-    # Tokenizza, rimuovi noise words, ordina (rende query bag-of-words)
     tokens = [t for t in raw.split() if t and t not in _NOISE_WORDS]
     canonical = " ".join(sorted(tokens))
 
@@ -110,7 +103,7 @@ def normalize(query: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Similarity helpers (riusa scoring.py se disponibile, fallback inline)
+# Similarity helpers
 # ---------------------------------------------------------------------------
 
 def _jaccard(a: str, b: str) -> float:
@@ -154,30 +147,32 @@ def _combined_sim(a: str, b: str) -> float:
 class QueryCache:
     """Cache persistente SQLite per le query musicali.
 
-    Thread-safe: usa un lock + una connessione per thread (check_same_thread=False).
-    La cache puo' essere abilitata/disabilitata a runtime tramite il toggle
-    `enabled` senza riavviare il bot.
+    Thread-safe: un lock globale + check_same_thread=False.
+    Abilitabile/disabilitabile a runtime tramite self.enabled.
     """
 
-    def __init__(self, db_path: str, enabled: bool = True) -> None:
-        self.db_path = db_path
-        self.enabled = enabled
-        self._lock = threading.Lock()
-        self._local = threading.local()
+    def __init__(self, db_path: str, enabled: bool = True,
+                 ttl_days: int = _TTL_DAYS_DEFAULT,
+                 max_entries: int = _MAX_ENTRIES) -> None:
+        self.db_path    = db_path
+        self.enabled    = enabled
+        self.ttl_days   = ttl_days
+        self.max_entries = max_entries
+        self._lock      = threading.Lock()
+        self._local     = threading.local()
         if enabled:
             self._init_db()
-            log.info(f"[CACHE] avviata  db={db_path}")
+            log.info(f"[CACHE] avviata  db={db_path}  ttl={ttl_days}d  max={max_entries}")
         else:
-            log.info("[CACHE] disabilitata (QUERY_CACHE_ENABLED non impostato)")
+            log.info("[CACHE] disabilitata")
 
     # ------------------------------------------------------------------
-    # DB init
+    # Connessione per-thread
     # ------------------------------------------------------------------
 
     def _conn(self) -> sqlite3.Connection:
-        """Connessione per-thread, lazy init."""
         if not hasattr(self._local, "conn") or self._local.conn is None:
-            os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+            os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
@@ -185,6 +180,10 @@ class QueryCache:
             conn.execute("PRAGMA foreign_keys=ON")
             self._local.conn = conn
         return self._local.conn
+
+    # ------------------------------------------------------------------
+    # Inizializzazione schema
+    # ------------------------------------------------------------------
 
     def _init_db(self) -> None:
         with self._lock:
@@ -199,12 +198,12 @@ class QueryCache:
                     artist        TEXT    NOT NULL DEFAULT '',
                     duration      INTEGER NOT NULL DEFAULT 0,
                     thumbnail     TEXT    NOT NULL DEFAULT '',
-                    spotify_url   TEXT    NOT NULL DEFAULT '',
                     source        TEXT    NOT NULL DEFAULT 'youtube',
+                    spotify_url   TEXT    NOT NULL DEFAULT '',
+                    created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                    last_used     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
                     hit_count     INTEGER NOT NULL DEFAULT 1,
-                    last_hit      TEXT    NOT NULL DEFAULT (datetime('now')),
-                    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-                    confidence    REAL    NOT NULL DEFAULT 1.0,
+                    is_valid      INTEGER NOT NULL DEFAULT 1,
                     UNIQUE(canonical_key, variant_tag)
                 );
 
@@ -212,263 +211,318 @@ class QueryCache:
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
                     alias_key     TEXT    NOT NULL UNIQUE,
                     canonical_key TEXT    NOT NULL,
-                    variant_tag   TEXT    NOT NULL DEFAULT ''
+                    variant_tag   TEXT    NOT NULL DEFAULT '',
+                    created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_sc_canonical
                     ON song_cache(canonical_key, variant_tag);
                 CREATE INDEX IF NOT EXISTS idx_sc_spotify
-                    ON song_cache(spotify_url)
-                    WHERE spotify_url != '';
+                    ON song_cache(spotify_url) WHERE spotify_url != '';
                 CREATE INDEX IF NOT EXISTS idx_sc_webpage
                     ON song_cache(webpage_url);
-                CREATE INDEX IF NOT EXISTS idx_sc_hits
+                CREATE INDEX IF NOT EXISTS idx_sc_last_used
+                    ON song_cache(last_used);
+                CREATE INDEX IF NOT EXISTS idx_sc_hit_count
                     ON song_cache(hit_count DESC);
-                CREATE INDEX IF NOT EXISTS idx_alias_key
+                CREATE INDEX IF NOT EXISTS idx_qa_alias
                     ON query_alias(alias_key);
+                CREATE INDEX IF NOT EXISTS idx_qa_canonical
+                    ON query_alias(canonical_key, variant_tag);
             """)
             conn.commit()
 
     # ------------------------------------------------------------------
-    # Lookup — 5 step
+    # Helpers interni
+    # ------------------------------------------------------------------
+
+    def _now_iso(self) -> str:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _is_stale(self, last_used_iso: str) -> bool:
+        try:
+            lu = datetime.strptime(last_used_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            delta = datetime.now(timezone.utc) - lu
+            return delta.days >= self.ttl_days
+        except Exception:
+            return False
+
+    def _touch(self, conn: sqlite3.Connection, canonical_key: str, variant_tag: str) -> None:
+        conn.execute("""
+            UPDATE song_cache
+            SET last_used = ?, hit_count = hit_count + 1
+            WHERE canonical_key = ? AND variant_tag = ?
+        """, (self._now_iso(), canonical_key, variant_tag))
+
+    def _row_to_dict(self, row) -> dict:
+        return dict(row) if row else {}
+
+    # ------------------------------------------------------------------
+    # lookup
     # ------------------------------------------------------------------
 
     def lookup(self, query: str) -> Optional[dict]:
         """Cerca una corrispondenza per `query`.
 
-        Restituisce un dict con i campi di song_cache se trovato,
-        None altrimenti. Aggiorna hit_count e last_hit automaticamente.
+        Ritorna un dict con i metadati del brano (stessa struttura di song_cache)
+        oppure None se non trovato / stale / disabilitata.
         """
         if not self.enabled:
             return None
-        try:
-            return self._lookup_inner(query)
-        except Exception as e:
-            log.debug(f"[CACHE] lookup error: {e}")
+
+        canonical_key, variant_tag = normalize(query)
+        if not canonical_key:
             return None
 
-    def _lookup_inner(self, query: str) -> Optional[dict]:
-        canonical, variant = normalize(query)
-        conn = self._conn()
+        with self._lock:
+            conn = self._conn()
 
-        # Step 1 — exact hit
-        row = conn.execute(
-            "SELECT * FROM song_cache WHERE canonical_key=? AND variant_tag=?",
-            (canonical, variant),
-        ).fetchone()
-        if row:
-            self._bump(conn, row["id"])
-            return dict(row)
+            # Step 1 — Exact hit
+            row = conn.execute("""
+                SELECT * FROM song_cache
+                WHERE canonical_key = ? AND variant_tag = ? AND is_valid = 1
+                LIMIT 1
+            """, (canonical_key, variant_tag)).fetchone()
 
-        # Step 2 — alias hit
-        alias_row = conn.execute(
-            "SELECT canonical_key, variant_tag FROM query_alias WHERE alias_key=?",
-            (canonical,),
-        ).fetchone()
-        if alias_row:
-            row = conn.execute(
-                "SELECT * FROM song_cache WHERE canonical_key=? AND variant_tag=?",
-                (alias_row["canonical_key"], alias_row["variant_tag"]),
-            ).fetchone()
             if row:
-                self._bump(conn, row["id"])
-                return dict(row)
+                d = self._row_to_dict(row)
+                if not self._is_stale(d.get("last_used", "")):
+                    self._touch(conn, canonical_key, variant_tag)
+                    conn.commit()
+                    log.debug(f"[CACHE] step1 exact  key={canonical_key!r}")
+                    return d
+                else:
+                    conn.execute("UPDATE song_cache SET is_valid=0 WHERE canonical_key=? AND variant_tag=?",
+                                 (canonical_key, variant_tag))
+                    conn.commit()
 
-        # Step 3 — Spotify URL hit (se la query sembra un link Spotify)
-        q_strip = query.strip()
-        if "spotify" in q_strip.lower():
-            row = conn.execute(
-                "SELECT * FROM song_cache WHERE spotify_url=?",
-                (q_strip,),
-            ).fetchone()
-            if row:
-                self._bump(conn, row["id"])
-                return dict(row)
+            # Step 2 — Alias hit
+            alias_row = conn.execute("""
+                SELECT canonical_key, variant_tag FROM query_alias
+                WHERE alias_key = ?
+                LIMIT 1
+            """, (canonical_key,)).fetchone()
 
-        # Step 4 — webpage_url hit (se la query e' un link YouTube diretto)
-        if "youtube.com/watch" in q_strip or "youtu.be/" in q_strip:
-            row = conn.execute(
-                "SELECT * FROM song_cache WHERE webpage_url=?",
-                (q_strip,),
-            ).fetchone()
-            if row:
-                self._bump(conn, row["id"])
-                return dict(row)
+            if alias_row:
+                ck, vt = alias_row["canonical_key"], alias_row["variant_tag"]
+                row = conn.execute("""
+                    SELECT * FROM song_cache
+                    WHERE canonical_key = ? AND variant_tag = ? AND is_valid = 1
+                    LIMIT 1
+                """, (ck, vt)).fetchone()
+                if row:
+                    d = self._row_to_dict(row)
+                    if not self._is_stale(d.get("last_used", "")):
+                        self._touch(conn, ck, vt)
+                        conn.commit()
+                        log.debug(f"[CACHE] step2 alias  key={canonical_key!r} -> {ck!r}")
+                        return d
 
-        # Step 5 — fuzzy scan top-300
-        rows = conn.execute(
-            "SELECT * FROM song_cache ORDER BY hit_count DESC LIMIT ?",
-            (_FUZZY_TOP_N,),
-        ).fetchall()
+            # Step 3 — Spotify URL hit (la query e' un link Spotify)
+            q_stripped = (query or "").strip()
+            if "spotify" in q_stripped.lower():
+                row = conn.execute("""
+                    SELECT * FROM song_cache
+                    WHERE spotify_url = ? AND is_valid = 1
+                    LIMIT 1
+                """, (q_stripped,)).fetchone()
+                if row:
+                    d = self._row_to_dict(row)
+                    if not self._is_stale(d.get("last_used", "")):
+                        self._touch(conn, d["canonical_key"], d["variant_tag"])
+                        conn.commit()
+                        log.debug(f"[CACHE] step3 spotify_url  {q_stripped!r}")
+                        return d
 
-        best_score = 0.0
-        best_row   = None
-        for r in rows:
-            # Il variant_tag deve corrispondere esattamente:
-            # 'breathe u in speed up' non deve mai matchare 'breathe u in' studio
-            if r["variant_tag"] != variant:
-                continue
-            score = _combined_sim(canonical, r["canonical_key"])
-            if score > best_score:
-                best_score = score
-                best_row = r
+            # Step 4 — webpage_url hit (la query e' un link YouTube/SoundCloud)
+            if q_stripped.startswith("http"):
+                row = conn.execute("""
+                    SELECT * FROM song_cache
+                    WHERE webpage_url = ? AND is_valid = 1
+                    LIMIT 1
+                """, (q_stripped,)).fetchone()
+                if row:
+                    d = self._row_to_dict(row)
+                    if not self._is_stale(d.get("last_used", "")):
+                        self._touch(conn, d["canonical_key"], d["variant_tag"])
+                        conn.commit()
+                        log.debug(f"[CACHE] step4 webpage_url  {q_stripped!r}")
+                        return d
 
-        if best_row and best_score >= _FUZZY_THRESHOLD:
-            # Salva il canonical corrente come alias per velocizzare lookup futuri
-            self._add_alias(conn, canonical, best_row["canonical_key"], variant)
-            self._bump(conn, best_row["id"])
-            log.debug(f"[CACHE] fuzzy hit  score={best_score:.3f}  '{canonical}' -> '{best_row['canonical_key']}'")
-            return dict(best_row)
+            # Step 5 — Fuzzy scan sui top-N per hit_count
+            rows = conn.execute("""
+                SELECT * FROM song_cache
+                WHERE is_valid = 1
+                ORDER BY hit_count DESC
+                LIMIT ?
+            """, (_FUZZY_TOP_N,)).fetchall()
+
+            best_score = 0.0
+            best_row   = None
+            for r in rows:
+                score = _combined_sim(canonical_key, r["canonical_key"])
+                if score > best_score:
+                    best_score = score
+                    best_row   = r
+
+            if best_row and best_score >= _FUZZY_THRESHOLD:
+                d = self._row_to_dict(best_row)
+                if not self._is_stale(d.get("last_used", "")):
+                    ck, vt = d["canonical_key"], d["variant_tag"]
+                    self._touch(conn, ck, vt)
+                    # Salva alias per velocizzare lookup futuro
+                    try:
+                        conn.execute("""
+                            INSERT OR IGNORE INTO query_alias(alias_key, canonical_key, variant_tag)
+                            VALUES(?, ?, ?)
+                        """, (canonical_key, ck, vt))
+                    except Exception:
+                        pass
+                    conn.commit()
+                    log.debug(f"[CACHE] step5 fuzzy  score={best_score:.3f}  key={canonical_key!r} -> {ck!r}")
+                    return d
 
         return None
 
-    def _bump(self, conn: sqlite3.Connection, row_id: int) -> None:
-        with self._lock:
-            conn.execute(
-                "UPDATE song_cache SET hit_count=hit_count+1, last_hit=datetime('now') WHERE id=?",
-                (row_id,),
-            )
-            conn.commit()
-
-    def _add_alias(self, conn: sqlite3.Connection, alias_key: str, canonical_key: str, variant_tag: str) -> None:
-        try:
-            with self._lock:
-                conn.execute(
-                    "INSERT OR IGNORE INTO query_alias(alias_key, canonical_key, variant_tag) VALUES(?,?,?)",
-                    (alias_key, canonical_key, variant_tag),
-                )
-                conn.commit()
-        except Exception:
-            pass
-
     # ------------------------------------------------------------------
-    # Store
+    # store
     # ------------------------------------------------------------------
 
-    def store(self, query: str, track: "TrackInfo", confidence: float = 1.0) -> None:
-        """Salva (o aggiorna) una entry per `query` con i dati di `track`."""
+    def store(self, query: str, track: "TrackInfo") -> None:
+        """Salva o aggiorna l'associazione query -> brano.
+
+        Se la chiave esiste gia', aggiorna i metadati e incrementa hit_count.
+        Se non esiste, inserisce una nuova riga.
+        Ogni query_raw distinta dalla canonical viene aggiunta a query_alias.
+        """
         if not self.enabled:
             return
-        try:
-            self._store_inner(query, track, confidence)
-        except Exception as e:
-            log.debug(f"[CACHE] store error: {e}")
 
-    def _store_inner(self, query: str, track: "TrackInfo", confidence: float) -> None:
-        canonical, variant = normalize(query)
-        if not canonical or not getattr(track, "webpage_url", ""):
+        webpage_url = (getattr(track, "webpage_url", "") or "").strip()
+        if not webpage_url:
             return
 
-        conn = self._conn()
+        canonical_key, variant_tag = normalize(query)
+        if not canonical_key:
+            return
+
+        now = self._now_iso()
+        title       = (getattr(track, "title",       "") or "").strip()
+        artist      = (getattr(track, "artist",      "") or "").strip()
+        duration    = int(getattr(track, "duration",  0)  or 0)
+        thumbnail   = (getattr(track, "thumbnail",   "") or "").strip()
+        source      = (getattr(track, "source",      "youtube") or "youtube").strip()
+        spotify_url = (getattr(track, "spotify_url", "") or "").strip()
+
         with self._lock:
-            conn.execute("""
-                INSERT INTO song_cache
-                    (canonical_key, variant_tag, webpage_url, title, artist,
-                     duration, thumbnail, spotify_url, source, confidence)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(canonical_key, variant_tag) DO UPDATE SET
-                    webpage_url = excluded.webpage_url,
-                    title       = excluded.title,
-                    artist      = excluded.artist,
-                    duration    = excluded.duration,
-                    thumbnail   = excluded.thumbnail,
-                    spotify_url = CASE WHEN excluded.spotify_url != '' THEN excluded.spotify_url ELSE song_cache.spotify_url END,
-                    hit_count   = song_cache.hit_count + 1,
-                    last_hit    = datetime('now'),
-                    confidence  = excluded.confidence
-            """, (
-                canonical,
-                variant,
-                track.webpage_url,
-                getattr(track, "title", "") or "",
-                getattr(track, "artist", "") or "",
-                getattr(track, "duration", 0) or 0,
-                getattr(track, "thumbnail", "") or "",
-                getattr(track, "spotify_url", "") or "",
-                getattr(track, "source", "youtube") or "youtube",
-                confidence,
-            ))
+            conn = self._conn()
+            existing = conn.execute("""
+                SELECT id, hit_count FROM song_cache
+                WHERE canonical_key = ? AND variant_tag = ?
+                LIMIT 1
+            """, (canonical_key, variant_tag)).fetchone()
+
+            if existing:
+                conn.execute("""
+                    UPDATE song_cache
+                    SET webpage_url   = ?,
+                        title         = ?,
+                        artist        = ?,
+                        duration      = ?,
+                        thumbnail     = ?,
+                        source        = ?,
+                        spotify_url   = CASE WHEN ? != '' THEN ? ELSE spotify_url END,
+                        last_used     = ?,
+                        hit_count     = hit_count + 1,
+                        is_valid      = 1
+                    WHERE canonical_key = ? AND variant_tag = ?
+                """, (
+                    webpage_url, title, artist, duration, thumbnail, source,
+                    spotify_url, spotify_url,
+                    now,
+                    canonical_key, variant_tag,
+                ))
+                log.debug(f"[CACHE] store update  key={canonical_key!r}")
+            else:
+                conn.execute("""
+                    INSERT INTO song_cache
+                        (canonical_key, variant_tag, webpage_url, title, artist,
+                         duration, thumbnail, source, spotify_url, created_at, last_used, hit_count, is_valid)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)
+                """, (
+                    canonical_key, variant_tag, webpage_url, title, artist,
+                    duration, thumbnail, source, spotify_url, now, now,
+                ))
+                log.debug(f"[CACHE] store insert  key={canonical_key!r}")
+
+            # Salva alias se la canonical_key normalizzata differisce dalla query grezza normalizzata
+            raw_key = _nfc((query or "").strip().lower())
+            if raw_key and raw_key != canonical_key:
+                try:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO query_alias(alias_key, canonical_key, variant_tag)
+                        VALUES(?, ?, ?)
+                    """, (canonical_key, canonical_key, variant_tag))
+                except Exception:
+                    pass
+
             conn.commit()
 
-        # Se la query grezza non coincide col canonical, salva come alias
-        raw_stripped = _RE_SPACES.sub(" ", _RE_PUNCT.sub(" ", _nfc(query.lower()))).strip()
-        raw_canonical, _ = normalize(raw_stripped)
-        if raw_canonical and raw_canonical != canonical:
-            self._add_alias(conn, raw_canonical, canonical, variant)
+        # Pruning asincrono se sopra soglia
+        self._maybe_prune()
 
-        self._maybe_prune(conn)
-        log.debug(f"[CACHE] stored  '{canonical}'  variant='{variant}'  url={track.webpage_url}")
+    # ------------------------------------------------------------------
+    # link_spotify
+    # ------------------------------------------------------------------
 
-    def link_spotify(self, spotify_url: str, canonical_key: str, variant_tag: str = "") -> None:
-        """Collega un URL Spotify a una entry esistente nel DB."""
+    def link_spotify(self, spotify_url: str, canonical_key: str, variant_tag: str) -> None:
+        """Associa uno Spotify URL a una entry gia' presente in cache.
+
+        Utile quando il resolver trova il link Spotify dopo aver gia' cachato il brano.
+        """
         if not self.enabled or not spotify_url or not canonical_key:
             return
-        try:
-            conn = self._conn()
-            with self._lock:
-                conn.execute(
-                    "UPDATE song_cache SET spotify_url=? WHERE canonical_key=? AND variant_tag=? AND spotify_url=''",
-                    (spotify_url, canonical_key, variant_tag),
-                )
-                conn.commit()
-        except Exception as e:
-            log.debug(f"[CACHE] link_spotify error: {e}")
-
-    # ------------------------------------------------------------------
-    # Pruning LRU
-    # ------------------------------------------------------------------
-
-    def _maybe_prune(self, conn: sqlite3.Connection) -> None:
-        count = conn.execute("SELECT COUNT(*) FROM song_cache").fetchone()[0]
-        if count <= _MAX_ENTRIES:
-            return
-        to_delete = count - int(_MAX_ENTRIES * 0.9)
         with self._lock:
+            conn = self._conn()
             conn.execute("""
-                DELETE FROM song_cache WHERE id IN (
-                    SELECT id FROM song_cache ORDER BY last_hit ASC LIMIT ?
-                )
-            """, (to_delete,))
+                UPDATE song_cache
+                SET spotify_url = ?
+                WHERE canonical_key = ? AND variant_tag = ? AND is_valid = 1
+            """, (spotify_url, canonical_key, variant_tag))
             conn.commit()
-        log.info(f"[CACHE] prune: rimossi {to_delete} record LRU")
+        log.debug(f"[CACHE] link_spotify  key={canonical_key!r}  url={spotify_url!r}")
 
     # ------------------------------------------------------------------
-    # Stats
+    # Statistiche
     # ------------------------------------------------------------------
 
     def stats(self) -> dict:
-        """Restituisce statistiche aggregate della cache."""
+        """Ritorna statistiche sul database."""
         if not self.enabled:
             return {"enabled": False}
-        try:
+        with self._lock:
             conn = self._conn()
-            total      = conn.execute("SELECT COUNT(*) FROM song_cache").fetchone()[0]
-            aliases    = conn.execute("SELECT COUNT(*) FROM query_alias").fetchone()[0]
-            total_hits = conn.execute("SELECT SUM(hit_count) FROM song_cache").fetchone()[0] or 0
-            top10      = conn.execute(
-                "SELECT title, artist, hit_count FROM song_cache ORDER BY hit_count DESC LIMIT 10"
-            ).fetchall()
-            return {
-                "enabled":    True,
-                "total":      total,
-                "aliases":    aliases,
-                "total_hits": total_hits,
-                "top10":      [dict(r) for r in top10],
-                "db_path":    self.db_path,
-            }
-        except Exception as e:
-            return {"enabled": True, "error": str(e)}
-
-    def inspect(self, query: str) -> dict:
-        """Simula un lookup senza aggiornare hit_count. Solo per debug."""
-        canonical, variant = normalize(query)
-        result = self.lookup(query)
+            total = conn.execute("SELECT COUNT(*) FROM song_cache").fetchone()[0]
+            valid = conn.execute("SELECT COUNT(*) FROM song_cache WHERE is_valid=1").fetchone()[0]
+            aliases = conn.execute("SELECT COUNT(*) FROM query_alias").fetchone()[0]
+            top_row = conn.execute("""
+                SELECT title, hit_count FROM song_cache
+                WHERE is_valid=1
+                ORDER BY hit_count DESC LIMIT 1
+            """).fetchone()
+            total_hits = conn.execute("SELECT SUM(hit_count) FROM song_cache WHERE is_valid=1").fetchone()[0] or 0
+            db_size_bytes = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
         return {
-            "query":         query,
-            "canonical_key": canonical,
-            "variant_tag":   variant,
-            "hit":           result is not None,
-            "match":         result,
+            "enabled":       True,
+            "total_entries": total,
+            "valid_entries": valid,
+            "aliases":       aliases,
+            "total_hits":    total_hits,
+            "top_song":      dict(top_row) if top_row else None,
+            "db_size_kb":    round(db_size_bytes / 1024, 1),
+            "db_path":       self.db_path,
+            "ttl_days":      self.ttl_days,
+            "max_entries":   self.max_entries,
         }
 
     # ------------------------------------------------------------------
@@ -476,18 +530,68 @@ class QueryCache:
     # ------------------------------------------------------------------
 
     def clear(self) -> int:
-        """Svuota completamente la cache. Restituisce il numero di righe rimosse."""
+        """Svuota l'intera cache. Ritorna il numero di righe cancellate."""
         if not self.enabled:
             return 0
-        try:
+        with self._lock:
             conn = self._conn()
-            with self._lock:
-                n = conn.execute("SELECT COUNT(*) FROM song_cache").fetchone()[0]
-                conn.execute("DELETE FROM song_cache")
-                conn.execute("DELETE FROM query_alias")
-                conn.commit()
-            log.warning(f"[CACHE] svuotata manualmente: {n} record rimossi")
-            return n
-        except Exception as e:
-            log.error(f"[CACHE] clear error: {e}")
+            deleted = conn.execute("DELETE FROM song_cache").rowcount
+            conn.execute("DELETE FROM query_alias")
+            conn.commit()
+        log.info(f"[CACHE] clear  {deleted} righe eliminate")
+        return deleted
+
+    # ------------------------------------------------------------------
+    # Pruning LRU
+    # ------------------------------------------------------------------
+
+    def _maybe_prune(self) -> None:
+        """Esegue pruning LRU in un thread separato se il db e' sopra soglia."""
+        import threading as _threading
+        _threading.Thread(target=self._prune_lru, daemon=True).start()
+
+    def _prune_lru(self) -> None:
+        with self._lock:
+            conn = self._conn()
+            total = conn.execute("SELECT COUNT(*) FROM song_cache").fetchone()[0]
+            if total <= self.max_entries:
+                return
+            to_delete = total - self.max_entries
+            conn.execute("""
+                DELETE FROM song_cache
+                WHERE id IN (
+                    SELECT id FROM song_cache
+                    ORDER BY last_used ASC
+                    LIMIT ?
+                )
+            """, (to_delete,))
+            conn.execute("""
+                DELETE FROM query_alias
+                WHERE canonical_key NOT IN (
+                    SELECT canonical_key FROM song_cache
+                )
+            """)
+            conn.commit()
+            log.info(f"[CACHE] prune LRU  eliminati {to_delete} record")
+
+    def prune_stale(self) -> int:
+        """Invalida tutte le righe il cui last_used supera il TTL."""
+        if not self.enabled:
             return 0
+        with self._lock:
+            conn = self._conn()
+            rows = conn.execute(
+                "SELECT id, last_used FROM song_cache WHERE is_valid=1"
+            ).fetchall()
+            stale_ids = [
+                r["id"] for r in rows
+                if self._is_stale(r["last_used"])
+            ]
+            if stale_ids:
+                conn.execute(
+                    f"UPDATE song_cache SET is_valid=0 WHERE id IN ({','.join('?' * len(stale_ids))})",
+                    stale_ids,
+                )
+                conn.commit()
+        log.info(f"[CACHE] prune_stale  invalidati {len(stale_ids)} record")
+        return len(stale_ids)
