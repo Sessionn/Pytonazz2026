@@ -98,6 +98,44 @@ async def check_ytdlp_update() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Log stato cache al boot
+# ---------------------------------------------------------------------------
+
+def _log_cache_boot_status() -> None:
+    """Stampa una riga di log che riassume lo stato del sistema di cache."""
+    enabled = Config.QUERY_CACHE_ENABLED
+    db_path = Config.QUERY_CACHE_DB_PATH or "—"
+    ttl     = Config.QUERY_CACHE_TTL_DAYS
+    maxe    = Config.QUERY_CACHE_MAX_ENTRIES
+
+    if not enabled:
+        log.info(tag("CACHE", f"\u23f8\ufe0f  disabilitata  (imposta QUERY_CACHE_ENABLED=true per attivarla)"))
+        return
+
+    # Prova a inizializzare il DB per verificare che sia raggiungibile
+    try:
+        from core.source_resolver import _get_query_cache
+        qc = _get_query_cache()
+        if qc is None:
+            raise RuntimeError("QueryCache init ha restituito None")
+        stats = qc.stats()
+        total = stats.get("total_entries", 0)
+        hits  = stats.get("total_hits", 0)
+        log.info(tag(
+            "CACHE",
+            f"\u2705  attiva  db={b(db_path)}  "
+            f"ttl={ttl}d  max={maxe}  "
+            f"entries={b(str(total))}  hit_totali={b(str(hits))}"
+        ))
+    except Exception as e:
+        log.warning(tag(
+            "CACHE",
+            f"\u26a0\ufe0f  abilitata ma DB non raggiungibile: {e}\n"
+            f"          Controlla QUERY_CACHE_DB_PATH={b(db_path)} e i permessi."
+        ))
+
+
+# ---------------------------------------------------------------------------
 # Hot-reload watchdog
 # ---------------------------------------------------------------------------
 
@@ -172,6 +210,10 @@ class Pitonazz(commands.Bot):
 
     async def setup_hook(self):
         self.reload_status_list()
+
+        # Log stato cache prima di caricare i cog
+        _log_cache_boot_status()
+
         for cog in COGS:
             try:
                 await self.load_extension(cog)
