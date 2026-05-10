@@ -3,6 +3,8 @@ import io
 import json
 import logging
 import os
+import shutil
+import sqlite3
 import sys
 import zipfile
 from datetime import datetime
@@ -54,6 +56,20 @@ def _save_custom(data: list):
     CUSTOM_STATUSES_PATH.write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+def _get_cache_db_path() -> Optional[Path]:
+    """Restituisce il Path al database SQLite della cache, se configurato."""
+    db_path_str = os.getenv("DB_PATH", "").strip()
+    if db_path_str:
+        p = Path(db_path_str)
+        if p.exists():
+            return p
+    # Fallback: cerca .database/cache.db relativo alla root del bot
+    fallback = Path(".database") / "cache.db"
+    if fallback.exists():
+        return fallback
+    return None
 
 
 class Dev(commands.Cog):
@@ -174,6 +190,34 @@ class Dev(commands.Cog):
                         zf.write(img, arc_name)
                         included.append(arc_name)
                         log.info(tag("BACKUP", f"incluso: {b(arc_name)}"))
+
+            # Backup del database SQLite della cache (se presente)
+            db_path = _get_cache_db_path()
+            if db_path:
+                try:
+                    # Copia sicura tramite SQLite backup API (evita pagine sporche WAL)
+                    db_buf = io.BytesIO()
+                    src_conn = sqlite3.connect(str(db_path))
+                    dst_conn = sqlite3.connect(":memory:")
+                    src_conn.backup(dst_conn)
+                    src_conn.close()
+                    for line in dst_conn.iterdump():
+                        pass  # iterdump non ci serve, usiamo backup su file temporaneo
+                    dst_conn.close()
+                    # Strategia piu' semplice: leggi i byte del file dopo aver forzato WAL checkpoint
+                    wal_conn = sqlite3.connect(str(db_path))
+                    wal_conn.execute("PRAGMA wal_checkpoint(FULL)")
+                    wal_conn.close()
+                    db_bytes = db_path.read_bytes()
+                    arc_db_name = f"cache_db/{db_path.name}"
+                    zf.writestr(arc_db_name, db_bytes)
+                    included.append(arc_db_name)
+                    log.info(tag("BACKUP", f"incluso db cache: {b(arc_db_name)}  ({len(db_bytes)//1024} KB)"))
+                except Exception as exc:
+                    log.warning(tag("BACKUP", f"db cache non incluso: {exc}"))
+            else:
+                log.info(tag("BACKUP", "db cache non trovato (skip)"))
+
             meta = {
                 "timestamp": ts,
                 "bot": str(self.bot.user),
@@ -226,6 +270,21 @@ class Dev(commands.Cog):
                         dest.write_bytes(zf.read(name))
                         restored.append(name)
                         log.info(tag("RESTORE", f"ripristinato: {b(name)}"))
+
+                # Ripristino database SQLite della cache
+                db_arc = next((n for n in names if n.startswith("cache_db/") and n.endswith(".db")), None)
+                if db_arc:
+                    db_bytes = zf.read(db_arc)
+                    # Determina destinazione: DB_PATH env oppure fallback
+                    db_dest_str = os.getenv("DB_PATH", "").strip() or str(Path(".database") / "cache.db")
+                    db_dest = Path(db_dest_str)
+                    db_dest.parent.mkdir(parents=True, exist_ok=True)
+                    db_dest.write_bytes(db_bytes)
+                    restored.append(db_arc)
+                    log.info(tag("RESTORE", f"ripristinato db cache: {b(str(db_dest))}  ({len(db_bytes)//1024} KB)"))
+                else:
+                    log.info(tag("RESTORE", "nessun db cache nel backup (skip)"))
+
         except zipfile.BadZipFile:
             return await inter.followup.send("\u274c File ZIP non valido o corrotto.", ephemeral=True)
         cfg.reload()
