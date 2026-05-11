@@ -34,3 +34,6 @@ edge-tts>=6.1.9
 
 # Cache query musicali — driver SQLite asincrono (usato da cache_db/)
 aiosqlite>=0.20.0
+
+# Flask
+flask>=3.0
