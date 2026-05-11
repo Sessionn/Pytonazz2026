@@ -1,9 +1,11 @@
 """
 dev_cache.py — Comandi dev per gestire il song cache DB.
 Accessibili solo all'owner. Comandi slash: /cache-status, /cache-stats,
-/cache-prune, /cache-invalidate, /cache-clear.
+/cache-prune, /cache-invalidate, /cache-clear, /cache-export.
 """
 import logging
+import tempfile
+from pathlib import Path
 
 import discord
 from discord import app_commands
@@ -12,6 +14,7 @@ from discord.ext import commands
 from core.log_colors import tag, b, user
 from core.permissions import owner_check
 import core.cache_db as cache_db
+import core.cache_report as cache_report
 
 log = logging.getLogger("pitonazz.dev_cache")
 
@@ -201,6 +204,59 @@ class DevCache(commands.Cog):
         log.warning(tag("DEV_CACHE",
             f"CLEAR ALL  removed={b(str(removed))}  by={user(str(inter.user))}"
         ))
+
+    @app_commands.command(
+        name="cache-export",
+        description=f"{_OWN} Esporta il DB come file HTML e lo allega qui",
+    )
+    @owner_check
+    async def cache_export(self, inter: discord.Interaction):
+        if not cache_db.is_enabled():
+            await inter.response.send_message(
+                embed=discord.Embed(
+                    title="\u26a0\ufe0f Cache disabilitata",
+                    description="Abilita la cache nel `.env` per usare questo comando.",
+                    color=_C_WARN,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        await inter.response.defer(ephemeral=True)
+
+        try:
+            tmp = Path(tempfile.mktemp(suffix="_cache_report.html"))
+            cache_report.export_to_file(tmp)
+            size_kb = round(tmp.stat().st_size / 1024, 1)
+
+            embed = discord.Embed(
+                title=f"{_OWN} Cache \u2014 Export",
+                description="\U0001f4ce Report allegato. Aprilo nel browser per vedere le tabelle.",
+                color=_C_INFO,
+            )
+            embed.set_footer(text=f"Dimensione: {size_kb} KB")
+
+            await inter.followup.send(
+                embed=embed,
+                file=discord.File(str(tmp), filename="cache_report.html"),
+                ephemeral=True,
+            )
+            log.info(tag("DEV_CACHE",
+                f"export  {b(str(size_kb) + ' KB')}  by={user(str(inter.user))}"
+            ))
+        except Exception as e:
+            log.error(tag("DEV_CACHE", f"export ERROR  {e}"))
+            await inter.followup.send(
+                embed=discord.Embed(
+                    title="\u274c Errore export",
+                    description=f"`{e}`",
+                    color=_C_ERR,
+                ),
+                ephemeral=True,
+            )
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
 
 
 async def setup(bot: commands.Bot):
