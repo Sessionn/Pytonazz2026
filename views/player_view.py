@@ -97,7 +97,15 @@ class PlayerView(discord.ui.View):
             music_cog._players.pop(interaction.guild_id, None)
         vc = interaction.guild.voice_client
         if vc:
-            await vc.disconnect()
+            try:
+                await vc.disconnect()
+            except (asyncio.TimeoutError, Exception):
+                # Su host remoti il graceful disconnect può andare in timeout;
+                # force=True forza la pulizia locale senza attendere l'ack di Discord.
+                try:
+                    await vc.disconnect(force=True)
+                except Exception as e:
+                    log.warning("_cb_stop: disconnect forzato fallito: %s", e)
         await interaction.channel.send(
             embed=discord.Embed(
                 description=f"⏹️ Riproduzione interrotta da {interaction.user.mention}",
