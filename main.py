@@ -42,13 +42,13 @@ logging.getLogger("discord.http").setLevel(logging.WARNING)
 # ── Proxy / ffmpeg / cookie ──────────────────────────────────────────────────
 from core.log_colors import tag, b, hi, dim, _BGRN, _BRED, _GRY
 
-_ytdlp_path  = os.getenv("YTDLP_PATH",  "").strip()
-_ffmpeg_path = os.getenv("FFMPEG_PATH", "").strip()
-_cookie_path = os.getenv("COOKIE_PATH", "").strip()
+_ytdlp_path   = os.getenv("YTDLP_PATH",   "").strip()
+_ffmpeg_path  = os.getenv("FFMPEG_PATH",  "").strip()
+_cookie_file  = os.getenv("COOKIE_FILE",  "").strip()
 
-log.info(tag("PROXY",  f"ytdlp   {hi('ON', _BGRN)}  {b(_ytdlp_path)}" if _ytdlp_path else f"ytdlp   {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
-log.info(tag("PROXY",  f"ffmpeg  {hi('ON', _BGRN)}  {b(_ffmpeg_path)}" if _ffmpeg_path else f"ffmpeg  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
-log.info(tag("COOKIE", f"cookie  {hi('ON', _BGRN)}  {b(_cookie_path)}" if _cookie_path else f"cookie  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
+log.info(tag("PROXY",  f"ytdlp   {hi('ON', _BGRN)}  {b(_ytdlp_path)}"  if _ytdlp_path  else f"ytdlp   {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
+log.info(tag("PROXY",  f"ffmpeg  {hi('ON', _BGRN)}  {b(_ffmpeg_path)}" if _ffmpeg_path  else f"ffmpeg  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
+log.info(tag("COOKIE", f"cookie  {hi('ON', _BGRN)}  {b(_cookie_file)}" if _cookie_file  else f"cookie  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
 
 # ── Cache DB ─────────────────────────────────────────────────────────────────
 init_db(enabled=Config.CACHE_ENABLED)
@@ -121,6 +121,7 @@ async def watchdog():
 # ── Status rotation ──────────────────────────────────────────────────────────
 custom_statuses: list[str] = []
 
+
 def _load_custom_statuses() -> list[str]:
     try:
         if CUSTOM_STATUSES_PATH.exists():
@@ -131,13 +132,46 @@ def _load_custom_statuses() -> list[str]:
     return []
 
 
+def _build_activity(entry) -> discord.BaseActivity:
+    """Costruisce un oggetto Activity da un dict o da una stringa.
+
+    I dict in STATUS_CYCLE hanno la forma:
+        {"type": discord.ActivityType.X, "name": "...", "status": "online"|"idle"|...}
+    Le stringhe nei custom_statuses vengono trattate come discord.Game.
+    """
+    if isinstance(entry, str):
+        return discord.Game(name=entry)
+    activity_type = entry.get("type", discord.ActivityType.playing)
+    name = entry.get("name", "")
+    if activity_type == discord.ActivityType.listening:
+        return discord.Activity(type=discord.ActivityType.listening, name=name)
+    if activity_type == discord.ActivityType.watching:
+        return discord.Activity(type=discord.ActivityType.watching, name=name)
+    if activity_type == discord.ActivityType.competing:
+        return discord.Activity(type=discord.ActivityType.competing, name=name)
+    if activity_type == discord.ActivityType.streaming:
+        return discord.Streaming(name=name, url="https://twitch.tv/placeholder")
+    # playing e custom ricadono su Game
+    return discord.Game(name=name)
+
+
+def _build_status(entry) -> discord.Status:
+    """Ricava il discord.Status dal campo 'status' dell'entry."""
+    if isinstance(entry, str):
+        return discord.Status.online
+    raw = entry.get("status", "online")
+    return getattr(discord.Status, raw, discord.Status.online)
+
+
 @tasks.loop(minutes=10)
 async def rotate_status():
-    pool = custom_statuses + STATUS_CYCLE
+    pool = STATUS_CYCLE + ([entry for entry in custom_statuses] if custom_statuses else [])
     if not pool:
         return
     chosen = random.choice(pool)
-    await bot.change_presence(activity=discord.Game(name=chosen))
+    activity = _build_activity(chosen)
+    status   = _build_status(chosen)
+    await bot.change_presence(status=status, activity=activity)
 
 
 # ── Events ───────────────────────────────────────────────────────────────────
@@ -146,7 +180,7 @@ async def on_ready():
     global custom_statuses
     custom_statuses = _load_custom_statuses()
 
-    log.info(tag("WATCHDOG", f"Hot-reload attivo su cogs"))
+    log.info(tag("WATCHDOG", "Hot-reload attivo su cogs"))
     if not watchdog.is_running():
         watchdog.start()
     if not rotate_status.is_running():
@@ -168,7 +202,7 @@ async def on_command_error(ctx, error):
     log.error(tag("CMD_ERR", f"{ctx.command}  {error}"))
 
 
-# ── Entry point ──────────────────────────────────────────────────────────────
+# ── Entry point ─────────────────────────────────────────────────────────────
 async def main():
     async with bot:
         await load_cogs()
