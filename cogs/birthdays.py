@@ -163,7 +163,7 @@ def _build_list_embeds(guild: discord.Guild, all_bdays: dict) -> list[discord.Em
     rows: list[tuple[int, int, int, str, Optional[int]]] = []
     for uid_str, e in all_bdays.items():
         member = guild.get_member(int(uid_str))
-        mention = member.mention if member else f"*(id {uid_str})*"
+        mention = member.mention if member else f"<@{uid_str}>"
         age_now = (now_year - e["year"]) if e.get("year") else None
         this_year_birthday_date = _safe_date(today.year, e["month"], e["day"])
         age_next = (age_now + 1) if age_now and this_year_birthday_date < today else age_now
