@@ -31,7 +31,7 @@ def _load() -> dict:
         data = json.loads(_PATH.read_text(encoding="utf-8"))
         return {**_DEFAULTS, **data}
     except Exception as e:
-        log.error(tag("ERR", f"bot_config.json corrotto: {e} \u2014 uso defaults"))
+        log.error(tag("ERR", f"bot_config.json corrotto: {e} — uso defaults"))
         return dict(_DEFAULTS)
 
 
@@ -53,7 +53,7 @@ class BotConfig:
         self._write_lock = asyncio.Lock()
         self._data = _load()
         keys = list(self._data.keys())
-        log.info(tag("BOOT", f"bot_config  {len(keys)} chiavi  {dim(str(keys))[:80]}"))
+        log.debug(tag("BOOT", f"bot_config  {len(keys)} chiavi"))
 
     async def _persist(self) -> None:
         """Persiste _data su disco in modo sicuro (lock + executor)."""
@@ -80,68 +80,55 @@ class BotConfig:
     def disabled_commands(self) -> list[str]:
         return list(self._data.get("disabled_commands", []))
 
-    @staticmethod
-    def _normalize_command_name(name: str) -> str:
-        return command_slug(name)
-
-    def is_disabled(self, command_name: str) -> bool:
-        name = self._normalize_command_name(command_name)
-        if not name:
-            return False
-        disabled = {
-            self._normalize_command_name(n)
-            for n in self._data.get("disabled_commands", [])
-            if str(n).strip()
-        }
-        if name in disabled:
-            return True
-        # Retrocompatibilità: vecchi salvataggi potevano contenere solo il nome foglia.
-        if "_" in name and name.split("_")[-1] in disabled:
-            return True
-        return False
+    # ── Setters asincroni ─────────────────────────────────────────────────
 
     async def set_status_interval(self, seconds: int) -> None:
-        self._data["status_interval"] = seconds
+        self._data["status_interval"] = max(30, int(seconds))
         await self._persist()
 
     async def set_log_channel(self, channel_id: int | None) -> None:
         self._data["log_channel_id"] = channel_id
         await self._persist()
 
-    async def set_maintenance(self, active: bool) -> None:
-        self._data["maintenance"] = active
+    async def set_maintenance(self, value: bool) -> None:
+        self._data["maintenance"] = bool(value)
         await self._persist()
 
-    async def set_tts_volume(self, volume: float) -> None:
-        self._data["tts_volume"] = round(volume, 2)
+    async def set_tts_volume(self, value: float) -> None:
+        self._data["tts_volume"] = round(float(value), 2)
         await self._persist()
 
-    async def disable_command(self, name: str) -> bool:
-        name = self._normalize_command_name(name)
-        if not name:
-            return False
-        lst = self._data.setdefault("disabled_commands", [])
-        if name in lst:
-            return False
-        lst.append(name)
-        await self._persist()
-        return True
+    async def disable_command(self, slug: str) -> bool:
+        """Disabilita un comando. Restituisce True se e' stata una novita'."""
+        s = command_slug(slug)
+        if s not in self._data["disabled_commands"]:
+            self._data["disabled_commands"].append(s)
+            await self._persist()
+            return True
+        return False
 
-    async def enable_command(self, name: str) -> bool:
-        name = self._normalize_command_name(name)
-        if not name:
-            return False
-        lst = self._data.setdefault("disabled_commands", [])
-        if name not in lst:
-            return False
-        lst.remove(name)
-        await self._persist()
-        return True
+    async def enable_command(self, slug: str) -> bool:
+        """Riabilita un comando. Restituisce True se era effettivamente disabilitato."""
+        s = command_slug(slug)
+        if s in self._data["disabled_commands"]:
+            self._data["disabled_commands"].remove(s)
+            await self._persist()
+            return True
+        return False
+
+    def is_command_disabled(self, slug: str) -> bool:
+        return command_slug(slug) in self._data.get("disabled_commands", [])
+
+    # ── Snapshot ──────────────────────────────────────────────────────────────────
+
+    def snapshot(self) -> dict:
+        """Restituisce una copia immutabile della configurazione attuale."""
+        return dict(self._data)
+
+    # ── Reload ────────────────────────────────────────────────────────────────────
 
     def reload(self) -> None:
+        """Ricarica la configurazione dal disco (utile per hot-reload)."""
         self._data = _load()
         keys = list(self._data.keys())
-        log.info(tag("BOOT", f"bot_config  {len(keys)} chiavi  {dim(str(keys))[:80]}"))
-
-
-cfg = BotConfig()
+        log.debug(tag("BOOT", f"bot_config  {len(keys)} chiavi"))
