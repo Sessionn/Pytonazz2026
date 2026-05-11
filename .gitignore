@@ -10,6 +10,9 @@ __pycache__/
 venv/
 env/
 
+#birthdays
+assets/data/birthdays.json
+
 # Contenuto locale — cartelle tracciate con .gitkeep, contenuto mai in repo
 assets/config/*
 !assets/config/.gitkeep
@@ -34,6 +37,3 @@ Thumbs.db
 # database
 *.db
 *.sqlite
-
-#birthdays
-assets/config/birthdays.json
