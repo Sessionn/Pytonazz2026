@@ -161,7 +161,7 @@ def init_db(
     log.info(tag(
         "CACHE_DB",
         f"{hi('attiva', _BGRN)}  "
-        f"db={b(Config.DB_PATH)}  "
+        f"{b(Config.DB_PATH)}  "
         f"ttl={b(str(Config.CACHE_TTL_DAYS) + 'd')}  "
         f"max={b(str(Config.CACHE_MAX_ENTRIES))}"
     ))
