@@ -86,8 +86,8 @@ CREATE TABLE IF NOT EXISTS song_cache (
     duration     INTEGER,
     thumbnail    TEXT,
     spotify_url  TEXT,
-    created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
-    last_used    INTEGER NOT NULL DEFAULT (unixepoch()),
+    created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    last_used    INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     hit_count    INTEGER NOT NULL DEFAULT 1,
     is_valid     INTEGER NOT NULL DEFAULT 1
 );
@@ -193,7 +193,7 @@ def get(query: str) -> Optional[dict]:
             log.info(tag("CACHE_DB", f"\U0001f50d {hi('MISS', _GRY)}  {b(query)}"))
             return None
         cur.execute(
-            "UPDATE song_cache SET last_used = unixepoch(), hit_count = hit_count + 1 WHERE id = ?",
+            "UPDATE song_cache SET last_used = strftime('%s','now'), hit_count = hit_count + 1 WHERE id = ?",
             (row["id"],),
         )
     title  = row["title"]  or query
@@ -238,7 +238,7 @@ def put(query: str, track) -> None:
                 duration    = excluded.duration,
                 thumbnail   = excluded.thumbnail,
                 spotify_url = excluded.spotify_url,
-                last_used   = unixepoch(),
+                last_used   = strftime('%s','now'),
                 hit_count   = hit_count + 1,
                 is_valid    = 1
             """,
