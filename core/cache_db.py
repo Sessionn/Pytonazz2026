@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from config import Config
+from core.log_colors import tag, b
 
 log = logging.getLogger("pitonazz.cache_db")
 
@@ -57,7 +58,6 @@ def _get_conn() -> sqlite3.Connection:
                 _conn.execute("PRAGMA synchronous=NORMAL")
                 _conn.execute("PRAGMA foreign_keys=ON")
                 _init_schema(_conn)
-                log.info(f"[CACHE_DB] connesso a {Config.DB_PATH!r}")
     return _conn
 
 
@@ -151,17 +151,20 @@ def init_db(
     """
     global _enabled
     if not enabled:
-        log.info("[CACHE_DB] cache disabilitata (CACHE_ENABLED=false)")
+        log.info(tag("CACHE_DB", "disabilitata  (imposta CACHE_ENABLED=true per attivarla)"))
         _enabled = False
         return
     if db_path is not None:
         Config.DB_PATH = str(db_path)
     init()
     _enabled = True
-    log.info(
-        f"[CACHE_DB] attiva  db={Config.DB_PATH!r}  "
-        f"ttl={Config.CACHE_TTL_DAYS}d  max={Config.CACHE_MAX_ENTRIES}"
-    )
+    log.info(tag(
+        "CACHE_DB",
+        f"attiva  "
+        f"db={b(Config.DB_PATH)}  "
+        f"ttl={b(str(Config.CACHE_TTL_DAYS) + 'd')}  "
+        f"max={b(str(Config.CACHE_MAX_ENTRIES))}"
+    ))
 
 
 def get(query: str) -> Optional[dict]:
@@ -171,7 +174,6 @@ def get(query: str) -> Optional[dict]:
     h = _hash(query)
     cutoff = _ttl_cutoff()
     with _cursor() as cur:
-        # cerca prima nella tabella principale, poi negli alias
         cur.execute(
             """
             SELECT sc.*
@@ -188,12 +190,16 @@ def get(query: str) -> Optional[dict]:
         )
         row = cur.fetchone()
         if row is None:
+            log.debug(tag("CACHE_DB", f"MISS  {b(query)}"))
             return None
-        # aggiorna last_used e hit_count
         cur.execute(
             "UPDATE song_cache SET last_used = unixepoch(), hit_count = hit_count + 1 WHERE id = ?",
             (row["id"],),
         )
+    title  = row["title"]  or query
+    artist = row["artist"] or ""
+    label  = f"{b(title)}" + (f"  {artist}" if artist else "")
+    log.info(tag("CACHE_DB", f"HIT  {label}  hits={row['hit_count'] + 1}"))
     return dict(row)
 
 
@@ -211,7 +217,14 @@ def put(query: str, track) -> None:
             return track.get(attr, default)
         return getattr(track, attr, default)
 
+    title  = _g("title",  "") or query
+    artist = _g("artist", "") or ""
+
     with _cursor() as cur:
+        # Controlla se e' un INSERT o un UPDATE
+        cur.execute("SELECT id FROM song_cache WHERE query_hash = ?", (h,))
+        existing = cur.fetchone()
+
         cur.execute(
             """
             INSERT INTO song_cache
@@ -235,13 +248,20 @@ def put(query: str, track) -> None:
                 query.strip(),
                 _g("webpage_url", ""),
                 _g("source", "youtube"),
-                _g("title", ""),
-                _g("artist", ""),
+                title,
+                artist,
                 int(_g("duration") or 0),
                 _g("thumbnail", ""),
                 _g("spotify_url", ""),
             ),
         )
+
+    label = f"{b(title)}" + (f"  {artist}" if artist else "")
+    if existing:
+        log.debug(tag("CACHE_DB", f"UPDATE  {label}  query={b(query)}"))
+    else:
+        log.info(tag("CACHE_DB", f"STORE  {label}  query={b(query)}"))
+
     _maybe_trim()
 
 
@@ -273,6 +293,7 @@ def add_alias(alias: str, canonical_query: str) -> None:
             """,
             (h_alias, alias.strip(), row["id"]),
         )
+    log.debug(tag("CACHE_DB", f"ALIAS  {b(alias)}  -> {b(canonical_query)}"))
 
 
 def invalidate(query: str) -> bool:
@@ -288,7 +309,12 @@ def invalidate(query: str) -> bool:
             "UPDATE song_cache SET is_valid = 0 WHERE query_hash = ? AND is_valid = 1",
             (h,),
         )
-        return cur.rowcount > 0
+        found = cur.rowcount > 0
+    if found:
+        log.info(tag("CACHE_DB", f"INVALIDATE  {b(query)}"))
+    else:
+        log.debug(tag("CACHE_DB", f"INVALIDATE  {b(query)}  (non trovata)"))
+    return found
 
 
 def stats() -> dict:
@@ -348,11 +374,8 @@ def prune_lru(
     """
     cutoff = _ttl_cutoff(ttl_days)
     with _cursor() as cur:
-        # 1. Rimuovi entry scadute
         cur.execute("DELETE FROM song_cache WHERE last_used < ?", (cutoff,))
         expired = cur.rowcount
-
-        # 2. Rimuovi eccedenze (tieni le piu' usate + recenti)
         cur.execute(
             """
             DELETE FROM song_cache
@@ -368,10 +391,13 @@ def prune_lru(
 
     total_removed = expired + trimmed
     if total_removed:
-        log.info(
-            f"[CACHE_DB] prune_lru: {expired} scadute + {trimmed} eccedenze rimosse "
-            f"(max_entries={max_entries}, ttl={ttl_days}d)"
-        )
+        log.info(tag(
+            "CACHE_DB",
+            f"PRUNE  scadute={b(str(expired))}  eccedenze={b(str(trimmed))}  "
+            f"max={max_entries}  ttl={ttl_days}d"
+        ))
+    else:
+        log.debug(tag("CACHE_DB", f"PRUNE  nulla da rimuovere  max={max_entries}  ttl={ttl_days}d"))
     return total_removed
 
 
@@ -381,7 +407,7 @@ def clear() -> int:
         cur.execute("DELETE FROM song_cache")
         n = cur.rowcount
         cur.execute("DELETE FROM query_aliases")
-    log.info(f"[CACHE_DB] clear: {n} voci eliminate")
+    log.info(tag("CACHE_DB", f"CLEAR  {b(str(n))} entry eliminate"))
     return n
 
 
