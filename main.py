@@ -53,6 +53,33 @@ log.info(tag("COOKIE", f"cookie  {hi('ON', _BGRN)}  {b(_cookie_file)}" if _cooki
 # ── Cache DB ─────────────────────────────────────────────────────────────────
 init_db(enabled=Config.CACHE_ENABLED)
 
+# ── Dashboard ────────────────────────────────────────────────────────────────
+if Config.CACHE_ENABLED:
+    import threading, os, sys, logging
+
+    def _run_dashboard():
+        _devnull = open(os.devnull, "w")
+        sys.stderr = _devnull
+        sys.stdout = _devnull          # werkzeug a volte usa stdout
+
+        from data.database.dashboard.app import create_app
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+        flask_app = create_app()
+        flask_app.logger.setLevel(logging.ERROR)
+        flask_app.run(
+            host=Config.DASHBOARD_HOST,
+            port=Config.DASHBOARD_PORT,
+            debug=False,
+            use_reloader=False,
+        )
+
+    t = threading.Thread(target=_run_dashboard, daemon=True)
+    t.start()
+
+    _dash_log = logging.getLogger("pitonazz.cache_db")
+    _dash_log.info(tag("CACHE_DB", f"Dashboard {hi('ON', _BGRN)}  {dim(f'http://{Config.DASHBOARD_HOST}:{Config.DASHBOARD_PORT}')}"))
+
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True

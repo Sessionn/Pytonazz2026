@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pytonazz · Dashboard</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="shell">
+
+  <nav>
+    <div class="logo">💿 <span>Pytonazz</span></div>
+    <div class="nav-section-label">Sezioni</div>
+    <a href="#" class="active" onclick="showSection('cache', this); return false;">
+      <span class="nav-icon">🎵</span> Song Cache
+    </a>
+    <a href="#" onclick="showSection('aliases', this); return false;">
+      <span class="nav-icon">🔗</span> Aliases
+    </a>
+    <div class="nav-divider"></div>
+    <div class="nav-section-label">Info</div>
+    <a style="cursor:default;pointer-events:none">
+      <span class="nav-icon">📁</span> cache.db
+    </a>
+
+    <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">
+      <div class="toggle-track" id="toggle-track">
+        <div class="toggle-thumb"></div>
+      </div>
+      <span id="theme-label">Tema chiaro</span>
+    </button>
+  </nav>
+
+  <main>
+    <div class="page-header">
+      <h1>Cache Dashboard</h1>
+      <p id="gen-time"></p>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="val count-up" data-target="{{ stats.total or 0 }}">0</div>
+        <div class="lbl">Entry totali</div>
+      </div>
+      <div class="stat-card">
+        <div class="val green count-up" data-target="{{ stats.valid or 0 }}">0</div>
+        <div class="lbl">Valide</div>
+      </div>
+      <div class="stat-card">
+        <div class="val red count-up" data-target="{{ stats.invalid or 0 }}">0</div>
+        <div class="lbl">Invalide</div>
+      </div>
+      <div class="stat-card">
+        <div class="val yellow count-up" data-target="{{ stats.hits or 0 }}">0</div>
+        <div class="lbl">Hit totali</div>
+      </div>
+      <div class="stat-card">
+        <div class="val count-up" data-target="{{ aliases_count }}">0</div>
+        <div class="lbl">Aliases</div>
+      </div>
+    </div>
+
+    <div id="cache-section">
+      <div class="toolbar">
+        <input type="text" id="search-input"
+          placeholder="🔍  Cerca titolo, artista, query…"
+          oninput="debouncedFetch()">
+        <div class="custom-select-wrap">
+          <select id="filter-source" onchange="fetchSongs()">
+            <option value="">Tutte le sorgenti</option>
+            <option value="youtube">YouTube</option>
+            <option value="spotify">Spotify</option>
+          </select>
+        </div>
+        <div class="custom-select-wrap">
+          <select id="filter-valid" onchange="fetchSongs()">
+            <option value="">Tutti gli stati</option>
+            <option value="1">✅ Valide</option>
+            <option value="0">❌ Invalide</option>
+          </select>
+        </div>
+        <button class="btn btn-ghost" onclick="clearFilters()">Reset</button>
+      </div>
+
+      <div class="table-wrap">
+        <table id="songs-table">
+          <thead>
+            <tr>
+              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">↕</span></th>
+              <th>Titolo / Artista</th>
+              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">↕</span></th>
+              <th>Sorgente</th>
+              <th>Dur.</th>
+              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">↓</span></th>
+              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">↕</span></th>
+              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">↕</span></th>
+              <th>Stato</th>
+              <th>Azioni</th>
+            </tr>
+          </thead>
+          <tbody id="songs-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="aliases-section">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Query originale</th>
+              <th>Canzone associata</th>
+              <th>Cache ID</th>
+            </tr>
+          </thead>
+          <tbody id="aliases-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <button class="close" onclick="closeModal()">✕</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
+</body>
+</html>

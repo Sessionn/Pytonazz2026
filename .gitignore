@@ -18,8 +18,6 @@ data/*
 !data/.gitkeep
 
 !data/database/
-data/database/*
-!data/database/.gitkeep
 
 # Cache runtime (token Spotify di spotipy, yt-dlp, libs)
 .cache

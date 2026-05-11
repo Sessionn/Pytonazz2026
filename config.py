@@ -159,13 +159,17 @@ class Config:
     # ── AI ────────────────────────────────────────────────────────────────────────────────────
     AI_COOLDOWN_SECONDS: int = 5
 
-    # ── Song Cache DB ───────────────────────────────────────────────────────────────────
-    _cache_enabled_raw: str = os.getenv("CACHE_ENABLED", "false").strip().lower()
-    CACHE_ENABLED: bool     = _cache_enabled_raw in ("true", "1", "yes", "on")
-    DB_PATH: str            = _resolve_db_path(os.getenv("DB_PATH", ""))
-    CACHE_TTL_DAYS: int     = int(os.getenv("CACHE_TTL_DAYS",    "30"))
-    CACHE_MAX_ENTRIES: int  = int(os.getenv("CACHE_MAX_ENTRIES", "500"))
+    # ── Song Cache DB ───────────────────────────────────────────────────────────
+    _cache_enabled_raw: str     = os.getenv("CACHE_ENABLED", "false").strip().lower()
+    CACHE_ENABLED: bool         = _cache_enabled_raw in ("true", "1", "yes", "on")
+    DB_PATH: str                = _resolve_db_path(os.getenv("DB_PATH", ""))
+    CACHE_TTL_DAYS: int         = int(os.getenv("CACHE_TTL_DAYS",    "30"))
+    CACHE_MAX_ENTRIES: int      = int(os.getenv("CACHE_MAX_ENTRIES", "500"))
 
+    _dashboard_socket_raw: str  = os.getenv("DASHBOARD_SOCKET", "").strip()
+    DASHBOARD_ENABLED: bool     = bool(_dashboard_socket_raw)
+    DASHBOARD_HOST: str         = _dashboard_socket_raw.rsplit(":", 1)[0] if _dashboard_socket_raw else "0.0.0.0"
+    DASHBOARD_PORT: int         = int(_dashboard_socket_raw.rsplit(":", 1)[1]) if _dashboard_socket_raw else 5000
 
 # ────────────────────────────────────────────────────────────────────────────────────────
 
