@@ -30,6 +30,7 @@ log = logging.getLogger("pitonazz.main")
 logging.getLogger("pitonazz.spotify_enrich").setLevel(
     logging.DEBUG if Config.LOG_LEVEL == "DEBUG" else logging.INFO
 )
+logging.getLogger("asyncio").setLevel(logging.INFO)
 ensure_runtime_dirs()
 
 # Silenzia librerie esterne che spammano log INFO inutili
@@ -39,22 +40,15 @@ logging.getLogger("discord.client").setLevel(logging.WARNING)
 logging.getLogger("discord.http").setLevel(logging.WARNING)
 
 # ── Proxy / ffmpeg / cookie ──────────────────────────────────────────────────
-from core.log_colors import tag, b
-
-def _log_proxy_flag(label: str, env_key: str) -> None:
-    val = os.getenv(env_key, "").strip()
-    status = b("ON") if val else "OFF"
-    reason = f"  ({val})" if val else f"  (non configurata in env)"
-    log.info(tag("PROXY", f"{label}{reason}") if not val else tag("PROXY", f"{label}{reason}"))
-    log.info(tag("PROXY", f"{label}  {status}{reason}"))
+from core.log_colors import tag, b, hi, dim, _BGRN, _BRED, _GRY
 
 _ytdlp_path  = os.getenv("YTDLP_PATH",  "").strip()
 _ffmpeg_path = os.getenv("FFMPEG_PATH", "").strip()
 _cookie_path = os.getenv("COOKIE_PATH", "").strip()
 
-log.info(tag("PROXY",  f"ytdlp   {'ON  ' + b(_ytdlp_path)  if _ytdlp_path  else 'OFF  (non configurata in env)'}"))
-log.info(tag("PROXY",  f"ffmpeg  {'ON  ' + b(_ffmpeg_path) if _ffmpeg_path else 'OFF  (non configurata in env)'}"))
-log.info(tag("COOKIE", f"{'ON  ' + b(_cookie_path) if _cookie_path else 'OFF  (non configurata in env)'}"))
+log.info(tag("PROXY",  f"ytdlp   {hi('ON', _BGRN)}  {b(_ytdlp_path)}" if _ytdlp_path else f"ytdlp   {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
+log.info(tag("PROXY",  f"ffmpeg  {hi('ON', _BGRN)}  {b(_ffmpeg_path)}" if _ffmpeg_path else f"ffmpeg  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
+log.info(tag("COOKIE", f"cookie  {hi('ON', _BGRN)}  {b(_cookie_path)}" if _cookie_path else f"cookie  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
 
 # ── Cache DB ─────────────────────────────────────────────────────────────────
 init_db(enabled=Config.CACHE_ENABLED)
@@ -158,11 +152,11 @@ async def on_ready():
 
     try:
         synced = await bot.tree.sync()
-        log.info(tag("SYNC", f"{b(str(bot.guilds[0]))}  [{bot.guilds[0].id}]  -> {b(str(len(synced)))} comandi"))
+        log.info(tag("SYNC", f"{b(str(bot.guilds[0]))}  [{dim(str(bot.guilds[0].id))}]  -> {b(str(len(synced)))} comandi"))
     except Exception as e:
         log.error(tag("SYNC", f"errore sync  {e}"))
 
-    log.info(tag("READY", f"{b(str(bot.user))} online  ID: {b(str(bot.user.id))}"))
+    log.info(tag("READY", f"{b(str(bot.user))}  {hi('online', _BGRN)}  ID: {dim(str(bot.user.id))}"))
 
 
 @bot.event
