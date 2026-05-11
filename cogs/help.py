@@ -24,7 +24,7 @@ from embeds.help_embeds import (
 from core.permissions import dev_check, perm
 
 
-# ── Views ────────────────────────────────────────────────────────────────────
+# ── Views ────────────────────────────────────────────────────────────────
 
 class _CategoryPagesView(discord.ui.View):
     def __init__(self, pages, author_id, category_label, all_pages, include_dev, bot):
@@ -124,7 +124,7 @@ class _CategorySelectView(discord.ui.View):
             item.disabled = True
 
 
-# ── Cog ──────────────────────────────────────────────────────────────────────
+# ── Cog ──────────────────────────────────────────────────────────────────
 
 class Help(commands.Cog):
     COG_ICON  = "📚"
@@ -182,8 +182,7 @@ class Help(commands.Cog):
         view      = _CategorySelectView(all_pages, inter.user.id, include_dev=False, bot=self.bot)
         await inter.response.send_message(embed=home, view=view, ephemeral=True)
 
-    @app_commands.command(name="help-dev", description="🔧 Comandi tecnici del bot")
-    @perm("dev")
+    @app_commands.command(name="devhelp", description="🔧 Comandi tecnici del bot")
     @dev_check
     async def help_dev_cmd(self, inter: discord.Interaction):
         all_pages = build_all_pages(self.bot, include_dev=True, _is_dev=True, _is_admin=True)
