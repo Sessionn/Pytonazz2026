@@ -356,13 +356,15 @@ class MusicPlayer:
         """Disconnette silenziosamente dopo IDLE_TIMEOUT secondi di inattività.
         Non disconnette se il player è in pausa: lascia all'utente
         la scelta di riprendere la riproduzione.
+
+        force=True bypassa _voice_disconnect() di discord.py che chiama
+        _log.info() in modo sync, evitando un potenziale deadlock sul lock
+        del logging handler che blocca il loop asyncio e impedisce i heartbeat.
         """
         await asyncio.sleep(Config.IDLE_TIMEOUT)
         if self.vc and not self.vc.is_playing() and not self._paused:
-            # Rimuove il messaggio player prima di disconnettere:
-            # evita che rimangano bottoni non funzionanti nel canale.
             await self._delete_player_msg()
-            await self.vc.disconnect()
+            await self.vc.disconnect(force=True)
             if self._on_cleanup:
                 self._on_cleanup(self.guild.id)
         self._idle_task = None
