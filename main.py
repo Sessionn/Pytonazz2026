@@ -147,8 +147,10 @@ async def on_ready():
     custom_statuses = _load_custom_statuses()
 
     log.info(tag("WATCHDOG", f"Hot-reload attivo su cogs"))
-    watchdog.start()
-    rotate_status.start()
+    if not watchdog.is_running():
+        watchdog.start()
+    if not rotate_status.is_running():
+        rotate_status.start()
 
     try:
         synced = await bot.tree.sync()
