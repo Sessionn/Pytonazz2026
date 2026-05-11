@@ -151,7 +151,7 @@ def init_db(
     """
     global _enabled
     if not enabled:
-        log.info(tag("CACHE_DB", "disabilitata  (imposta CACHE_ENABLED=true per attivarla)"))
+        log.info(tag("CACHE_DB", f"{hi('disabilitata', _BRED)}  {dim('(imposta CACHE_ENABLED=true per attivarla)')}"))
         _enabled = False
         return
     if db_path is not None:
@@ -160,7 +160,7 @@ def init_db(
     _enabled = True
     log.info(tag(
         "CACHE_DB",
-        f"attiva  "
+        f"{hi('attiva', _BGRN)}  "
         f"db={b(Config.DB_PATH)}  "
         f"ttl={b(str(Config.CACHE_TTL_DAYS) + 'd')}  "
         f"max={b(str(Config.CACHE_MAX_ENTRIES))}"
@@ -190,7 +190,7 @@ def get(query: str) -> Optional[dict]:
         )
         row = cur.fetchone()
         if row is None:
-            log.debug(tag("CACHE_DB", f"\U0001f50d {hi('MISS', _GRY)}  {b(query)}"))
+            log.info(tag("CACHE_DB", f"\U0001f50d {hi('MISS', _GRY)}  {b(query)}"))
             return None
         cur.execute(
             "UPDATE song_cache SET last_used = unixepoch(), hit_count = hit_count + 1 WHERE id = ?",
@@ -221,7 +221,6 @@ def put(query: str, track) -> None:
     artist = _g("artist", "") or ""
 
     with _cursor() as cur:
-        # Controlla se e' un INSERT o un UPDATE
         cur.execute("SELECT id FROM song_cache WHERE query_hash = ?", (h,))
         existing = cur.fetchone()
 
@@ -258,7 +257,7 @@ def put(query: str, track) -> None:
 
     label = f"{b(title)}" + (f"  {artist}" if artist else "")
     if existing:
-        log.debug(tag("CACHE_DB", f"\u267b\ufe0f  {hi('UPDATE', _CYN)}  {label}"))
+        log.info(tag("CACHE_DB", f"\u267b\ufe0f  {hi('UPDATE', _CYN)}  {label}"))
     else:
         log.info(tag("CACHE_DB", f"\U0001f4be {hi('STORE', _TEAL)}  {label}"))
 
