@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from config import Config
-from core.log_colors import tag, b
+from core.log_colors import tag, b, hi, dim, _BGRN, _BYEL, _BRED, _CYN, _TEAL, _GRY
 
 log = logging.getLogger("pitonazz.cache_db")
 
@@ -41,7 +41,7 @@ _conn: Optional[sqlite3.Connection] = None
 _enabled: bool = False
 
 
-# ── Connessione ──────────────────────────────────────────────────────────────
+# ── Connessione ────────────────────────────────────────────
 
 def _get_conn() -> sqlite3.Connection:
     global _conn
@@ -72,7 +72,7 @@ def _cursor():
             cur.close()
 
 
-# ── Schema ───────────────────────────────────────────────────────────────────
+# ── Schema ───────────────────────────────────────────────
 
 DDL = """
 CREATE TABLE IF NOT EXISTS song_cache (
@@ -113,7 +113,7 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────
 
 def _hash(query: str) -> str:
     return hashlib.sha256(query.strip().lower().encode()).hexdigest()
@@ -124,7 +124,7 @@ def _ttl_cutoff(ttl_days: Optional[int] = None) -> int:
     return int(time.time()) - days * 86_400
 
 
-# ── API pubblica ─────────────────────────────────────────────────────────────
+# ── API pubblica ───────────────────────────────────────────
 
 def is_enabled() -> bool:
     """Restituisce True se la cache e' attiva (init_db chiamata con enabled=True)."""
@@ -190,7 +190,7 @@ def get(query: str) -> Optional[dict]:
         )
         row = cur.fetchone()
         if row is None:
-            log.debug(tag("CACHE_DB", f"MISS  {b(query)}"))
+            log.debug(tag("CACHE_DB", f"\U0001f50d {hi('MISS', _GRY)}  {b(query)}"))
             return None
         cur.execute(
             "UPDATE song_cache SET last_used = unixepoch(), hit_count = hit_count + 1 WHERE id = ?",
@@ -199,7 +199,7 @@ def get(query: str) -> Optional[dict]:
     title  = row["title"]  or query
     artist = row["artist"] or ""
     label  = f"{b(title)}" + (f"  {artist}" if artist else "")
-    log.info(tag("CACHE_DB", f"HIT  {label}  hits={row['hit_count'] + 1}"))
+    log.info(tag("CACHE_DB", f"\u2705 {hi('HIT', _BGRN)}  {label}  hits={row['hit_count'] + 1}"))
     return dict(row)
 
 
@@ -258,9 +258,9 @@ def put(query: str, track) -> None:
 
     label = f"{b(title)}" + (f"  {artist}" if artist else "")
     if existing:
-        log.debug(tag("CACHE_DB", f"UPDATE  {label}  query={b(query)}"))
+        log.debug(tag("CACHE_DB", f"\u267b\ufe0f  {hi('UPDATE', _CYN)}  {label}"))
     else:
-        log.info(tag("CACHE_DB", f"STORE  {label}  query={b(query)}"))
+        log.info(tag("CACHE_DB", f"\U0001f4be {hi('STORE', _TEAL)}  {label}"))
 
     _maybe_trim()
 
@@ -293,7 +293,7 @@ def add_alias(alias: str, canonical_query: str) -> None:
             """,
             (h_alias, alias.strip(), row["id"]),
         )
-    log.debug(tag("CACHE_DB", f"ALIAS  {b(alias)}  -> {b(canonical_query)}"))
+    log.debug(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _GRY)}  {b(alias)}  \u2192 {b(canonical_query)}"))
 
 
 def invalidate(query: str) -> bool:
@@ -311,9 +311,9 @@ def invalidate(query: str) -> bool:
         )
         found = cur.rowcount > 0
     if found:
-        log.info(tag("CACHE_DB", f"INVALIDATE  {b(query)}"))
+        log.info(tag("CACHE_DB", f"\U0001f6ab {hi('INVALIDATE', _BYEL)}  {b(query)}"))
     else:
-        log.debug(tag("CACHE_DB", f"INVALIDATE  {b(query)}  (non trovata)"))
+        log.debug(tag("CACHE_DB", f"\U0001f6ab {hi('INVALIDATE', _GRY)}  {b(query)}  (non trovata)"))
     return found
 
 
@@ -323,42 +323,51 @@ def stats() -> dict:
 
     Campi restituiti:
         total       - numero totale di entry (valide + invalide)
-        valid       - entry con is_valid = 1
+        valid       - entry valide e non scadute
+        hits        - somma totale dei hit_count
         aliases     - numero di alias registrati
-        hits_total  - somma di hit_count su tutte le entry valide
-        size_kb     - dimensione del file DB in KB (0 se non misurabile)
-        db_path     - path corrente del file DB
-        top_query   - dict {query_raw, hit_count} della entry piu' richiesta, o None
+        size_kb     - dimensione approssimativa del file SQLite in KB
+        db_path     - percorso del file DB
+        top_query   - dict della query con piu' hit (o None)
     """
+    if not _enabled:
+        return {"total": 0, "valid": 0, "hits": 0, "aliases": 0,
+                "size_kb": 0, "db_path": Config.DB_PATH, "top_query": None}
+    cutoff = _ttl_cutoff()
     with _cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM song_cache")
+        total = cur.fetchone()[0]
+
         cur.execute(
-            "SELECT COUNT(*) AS total, "
-            "SUM(CASE WHEN is_valid = 1 THEN 1 ELSE 0 END) AS valid, "
-            "SUM(CASE WHEN is_valid = 1 THEN hit_count ELSE 0 END) AS hits "
-            "FROM song_cache"
+            "SELECT COUNT(*) FROM song_cache WHERE is_valid = 1 AND last_used >= ?",
+            (cutoff,),
         )
-        row = cur.fetchone()
-        cur.execute("SELECT COUNT(*) AS aliases FROM query_aliases")
-        aliases_row = cur.fetchone()
+        valid = cur.fetchone()[0]
+
+        cur.execute("SELECT COALESCE(SUM(hit_count), 0) FROM song_cache")
+        hits = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM query_aliases")
+        aliases = cur.fetchone()[0]
+
         cur.execute(
-            "SELECT query_raw, hit_count FROM song_cache "
-            "WHERE is_valid = 1 ORDER BY hit_count DESC LIMIT 1"
+            "SELECT * FROM song_cache ORDER BY hit_count DESC LIMIT 1"
         )
         top_row = cur.fetchone()
 
     try:
-        size_kb = round(os.path.getsize(Config.DB_PATH) / 1024, 1)
+        size_kb = round(Path(Config.DB_PATH).stat().st_size / 1024, 1)
     except OSError:
         size_kb = 0.0
 
     return {
-        "total":      row["total"]   or 0,
-        "valid":      row["valid"]   or 0,
-        "aliases":    aliases_row["aliases"] or 0,
-        "hits_total": row["hits"]    or 0,
-        "size_kb":    size_kb,
-        "db_path":    Config.DB_PATH,
-        "top_query":  dict(top_row) if top_row else None,
+        "total":    total,
+        "valid":    valid,
+        "hits":     hits,
+        "aliases":  aliases,
+        "size_kb":  size_kb,
+        "db_path":  Config.DB_PATH,
+        "top_query": dict(top_row) if top_row else None,
     }
 
 
@@ -393,11 +402,11 @@ def prune_lru(
     if total_removed:
         log.info(tag(
             "CACHE_DB",
-            f"PRUNE  scadute={b(str(expired))}  eccedenze={b(str(trimmed))}  "
+            f"\u2702\ufe0f  {hi('PRUNE', _BYEL)}  scadute={b(str(expired))}  eccedenze={b(str(trimmed))}  "
             f"max={max_entries}  ttl={ttl_days}d"
         ))
     else:
-        log.debug(tag("CACHE_DB", f"PRUNE  nulla da rimuovere  max={max_entries}  ttl={ttl_days}d"))
+        log.debug(tag("CACHE_DB", f"\u2702\ufe0f  {hi('PRUNE', _GRY)}  nulla da rimuovere"))
     return total_removed
 
 
@@ -407,7 +416,7 @@ def clear() -> int:
         cur.execute("DELETE FROM song_cache")
         n = cur.rowcount
         cur.execute("DELETE FROM query_aliases")
-    log.info(tag("CACHE_DB", f"CLEAR  {b(str(n))} entry eliminate"))
+    log.info(tag("CACHE_DB", f"\U0001f5d1\ufe0f  {hi('CLEAR', _BRED)}  {b(str(n))} entry eliminate"))
     return n
 
 
@@ -416,7 +425,7 @@ def clear_all() -> int:
     return clear()
 
 
-# ── Manutenzione automatica ───────────────────────────────────────────────────
+# ── Manutenzione automatica ───────────────────────────────────────────
 
 _last_trim = 0.0
 _TRIM_INTERVAL = 300  # secondi tra un trim e l'altro
