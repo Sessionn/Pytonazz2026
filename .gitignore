@@ -10,8 +10,9 @@ __pycache__/
 venv/
 env/
 
-#birthdays
-assets/data/birthdays.json
+# birthdays
+assets/data/*
+!assets/data/.gitkeep
 
 # Contenuto locale — cartelle tracciate con .gitkeep, contenuto mai in repo
 assets/config/*
