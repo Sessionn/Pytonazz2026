@@ -7,15 +7,20 @@ Abilitata solo se CACHE_ENABLED=true nel .env.
 API pubblica:
     init_db(db_path, enabled) -> None   (alias per main.py)
     init()                    -> None   (forza init DB)
+    is_enabled()              -> bool
     get(query)                -> dict | None
     put(query, track)         -> None
-    invalidate(query)         -> None
+    add_alias(alias, query)   -> None
+    invalidate(query)         -> bool
     stats()                   -> dict
+    prune_lru(max_entries, ttl_days) -> int
     clear()                   -> int  (numero righe eliminate)
+    clear_all()               -> int  (alias di clear())
 """
 
 import hashlib
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -30,6 +35,9 @@ log = logging.getLogger("pitonazz.cache_db")
 _DB_VERSION = 1
 _lock = threading.Lock()
 _conn: Optional[sqlite3.Connection] = None
+
+# Flag runtime: permette di sapere se il DB e' stato inizializzato con enabled=True
+_enabled: bool = False
 
 
 # ── Connessione ──────────────────────────────────────────────────────────────
@@ -111,11 +119,17 @@ def _hash(query: str) -> str:
     return hashlib.sha256(query.strip().lower().encode()).hexdigest()
 
 
-def _ttl_cutoff() -> int:
-    return int(time.time()) - Config.CACHE_TTL_DAYS * 86_400
+def _ttl_cutoff(ttl_days: Optional[int] = None) -> int:
+    days = ttl_days if ttl_days is not None else Config.CACHE_TTL_DAYS
+    return int(time.time()) - days * 86_400
 
 
 # ── API pubblica ─────────────────────────────────────────────────────────────
+
+def is_enabled() -> bool:
+    """Restituisce True se la cache e' attiva (init_db chiamata con enabled=True)."""
+    return _enabled
+
 
 def init() -> None:
     """Forza l'inizializzazione del DB (chiamata all'avvio se CACHE_ENABLED)."""
@@ -135,17 +149,24 @@ def init_db(
               Config.DB_PATH prima di aprire la connessione.
     enabled : se False la cache e' disabilitata e la funzione e' un no-op.
     """
+    global _enabled
     if not enabled:
         log.info("[CACHE_DB] cache disabilitata (CACHE_ENABLED=false)")
+        _enabled = False
         return
     if db_path is not None:
         Config.DB_PATH = str(db_path)
     init()
+    _enabled = True
+    log.info(
+        f"[CACHE_DB] attiva  db={Config.DB_PATH!r}  "
+        f"ttl={Config.CACHE_TTL_DAYS}d  max={Config.CACHE_MAX_ENTRIES}"
+    )
 
 
 def get(query: str) -> Optional[dict]:
     """Restituisce la riga cachata per query, o None se assente/scaduta."""
-    if not query:
+    if not query or not _enabled:
         return None
     h = _hash(query)
     cutoff = _ttl_cutoff()
@@ -181,7 +202,7 @@ def put(query: str, track) -> None:
     Salva/aggiorna una TrackInfo nel DB.
     track puo' essere un oggetto TrackInfo o un dict.
     """
-    if not query:
+    if not query or not _enabled:
         return
     h = _hash(query)
 
@@ -224,27 +245,134 @@ def put(query: str, track) -> None:
     _maybe_trim()
 
 
-def invalidate(query: str) -> None:
-    """Marca una voce come non valida senza eliminarla (per debug o re-fetch)."""
-    if not query:
+def add_alias(alias: str, canonical_query: str) -> None:
+    """
+    Registra `alias` come query alternativa che punta alla stessa entry
+    di `canonical_query`. Se canonical_query non esiste nel DB, la funzione
+    e' un no-op silenzioso.
+    """
+    if not alias or not canonical_query or not _enabled:
         return
+    h_alias     = _hash(alias)
+    h_canonical = _hash(canonical_query)
+    with _cursor() as cur:
+        cur.execute(
+            "SELECT id FROM song_cache WHERE query_hash = ? AND is_valid = 1",
+            (h_canonical,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return
+        cur.execute(
+            """
+            INSERT INTO query_aliases (query_hash, query_raw, cache_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(query_hash) DO UPDATE SET
+                query_raw = excluded.query_raw,
+                cache_id  = excluded.cache_id
+            """,
+            (h_alias, alias.strip(), row["id"]),
+        )
+
+
+def invalidate(query: str) -> bool:
+    """
+    Marca una voce come non valida senza eliminarla (per debug o re-fetch).
+    Restituisce True se la voce esisteva ed e' stata invalidata, False altrimenti.
+    """
+    if not query:
+        return False
     h = _hash(query)
     with _cursor() as cur:
-        cur.execute("UPDATE song_cache SET is_valid = 0 WHERE query_hash = ?", (h,))
+        cur.execute(
+            "UPDATE song_cache SET is_valid = 0 WHERE query_hash = ? AND is_valid = 1",
+            (h,),
+        )
+        return cur.rowcount > 0
 
 
 def stats() -> dict:
-    """Ritorna statistiche rapide sul DB."""
+    """
+    Ritorna statistiche estese sul DB.
+
+    Campi restituiti:
+        total       - numero totale di entry (valide + invalide)
+        valid       - entry con is_valid = 1
+        aliases     - numero di alias registrati
+        hits_total  - somma di hit_count su tutte le entry valide
+        size_kb     - dimensione del file DB in KB (0 se non misurabile)
+        db_path     - path corrente del file DB
+        top_query   - dict {query_raw, hit_count} della entry piu' richiesta, o None
+    """
     with _cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS total, SUM(hit_count) AS hits FROM song_cache WHERE is_valid = 1")
+        cur.execute(
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN is_valid = 1 THEN 1 ELSE 0 END) AS valid, "
+            "SUM(CASE WHEN is_valid = 1 THEN hit_count ELSE 0 END) AS hits "
+            "FROM song_cache"
+        )
         row = cur.fetchone()
         cur.execute("SELECT COUNT(*) AS aliases FROM query_aliases")
-        aliases = cur.fetchone()
+        aliases_row = cur.fetchone()
+        cur.execute(
+            "SELECT query_raw, hit_count FROM song_cache "
+            "WHERE is_valid = 1 ORDER BY hit_count DESC LIMIT 1"
+        )
+        top_row = cur.fetchone()
+
+    try:
+        size_kb = round(os.path.getsize(Config.DB_PATH) / 1024, 1)
+    except OSError:
+        size_kb = 0.0
+
     return {
-        "total":   row["total"]   or 0,
-        "hits":    row["hits"]    or 0,
-        "aliases": aliases["aliases"] or 0,
+        "total":      row["total"]   or 0,
+        "valid":      row["valid"]   or 0,
+        "aliases":    aliases_row["aliases"] or 0,
+        "hits_total": row["hits"]    or 0,
+        "size_kb":    size_kb,
+        "db_path":    Config.DB_PATH,
+        "top_query":  dict(top_row) if top_row else None,
     }
+
+
+def prune_lru(
+    max_entries: int = 500,
+    ttl_days: int = 30,
+) -> int:
+    """
+    Rimuove le entry scadute e quelle in eccesso rispetto a max_entries
+    (tenendo le piu' usate di recente).
+
+    Restituisce il numero totale di righe eliminate.
+    """
+    cutoff = _ttl_cutoff(ttl_days)
+    with _cursor() as cur:
+        # 1. Rimuovi entry scadute
+        cur.execute("DELETE FROM song_cache WHERE last_used < ?", (cutoff,))
+        expired = cur.rowcount
+
+        # 2. Rimuovi eccedenze (tieni le piu' usate + recenti)
+        cur.execute(
+            """
+            DELETE FROM song_cache
+             WHERE id NOT IN (
+               SELECT id FROM song_cache
+                ORDER BY hit_count DESC, last_used DESC
+                LIMIT ?
+             )
+            """,
+            (max_entries,),
+        )
+        trimmed = cur.rowcount
+
+    total_removed = expired + trimmed
+    if total_removed:
+        log.info(
+            f"[CACHE_DB] prune_lru: {expired} scadute + {trimmed} eccedenze rimosse "
+            f"(max_entries={max_entries}, ttl={ttl_days}d)"
+        )
+    return total_removed
 
 
 def clear() -> int:
@@ -255,6 +383,11 @@ def clear() -> int:
         cur.execute("DELETE FROM query_aliases")
     log.info(f"[CACHE_DB] clear: {n} voci eliminate")
     return n
+
+
+def clear_all() -> int:
+    """Alias di clear() — compatibile con dev_cache.py."""
+    return clear()
 
 
 # ── Manutenzione automatica ───────────────────────────────────────────────────
@@ -273,23 +406,8 @@ def _maybe_trim() -> None:
 
 
 def _trim() -> None:
-    cutoff = _ttl_cutoff()
-    with _cursor() as cur:
-        # rimuovi scadute
-        cur.execute("DELETE FROM song_cache WHERE last_used < ?", (cutoff,))
-        expired = cur.rowcount
-        # rimuovi eccedenze (tieni le piu' usate)
-        cur.execute(
-            """
-            DELETE FROM song_cache
-             WHERE id NOT IN (
-               SELECT id FROM song_cache
-                ORDER BY hit_count DESC, last_used DESC
-                LIMIT ?
-             )
-            """,
-            (Config.CACHE_MAX_ENTRIES,),
-        )
-        trimmed = cur.rowcount
-    if expired or trimmed:
-        log.debug(f"[CACHE_DB] trim: {expired} scadute + {trimmed} eccedenze rimosse")
+    """Esegue pulizia automatica usando i valori correnti di Config."""
+    prune_lru(
+        max_entries=Config.CACHE_MAX_ENTRIES,
+        ttl_days=Config.CACHE_TTL_DAYS,
+    )
