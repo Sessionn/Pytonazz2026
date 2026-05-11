@@ -48,8 +48,6 @@ async def _save_async(write_lock: asyncio.Lock, data: dict) -> None:
 
 class BotConfig:
     def __init__(self):
-        # Lock creato qui (dentro il running loop) per evitare il deprecation warning
-        # di asyncio.Lock() istanziato fuori da un contesto asincrono (Python 3.10+).
         self._write_lock = asyncio.Lock()
         self._data = _load()
         keys = list(self._data.keys())
@@ -80,7 +78,7 @@ class BotConfig:
     def disabled_commands(self) -> list[str]:
         return list(self._data.get("disabled_commands", []))
 
-    # ── Setters asincroni ─────────────────────────────────────────────────
+    # ── Setters asincroni ─────────────────────────────────────────────────────
 
     async def set_status_interval(self, seconds: int) -> None:
         self._data["status_interval"] = max(30, int(seconds))
@@ -119,16 +117,19 @@ class BotConfig:
     def is_command_disabled(self, slug: str) -> bool:
         return command_slug(slug) in self._data.get("disabled_commands", [])
 
-    # ── Snapshot ──────────────────────────────────────────────────────────────────
+    # ── Snapshot ──────────────────────────────────────────────────────────────
 
     def snapshot(self) -> dict:
         """Restituisce una copia immutabile della configurazione attuale."""
         return dict(self._data)
 
-    # ── Reload ────────────────────────────────────────────────────────────────────
+    # ── Reload ────────────────────────────────────────────────────────────────
 
     def reload(self) -> None:
         """Ricarica la configurazione dal disco (utile per hot-reload)."""
         self._data = _load()
         keys = list(self._data.keys())
         log.debug(tag("BOOT", f"bot_config  {len(keys)} chiavi"))
+
+
+cfg = BotConfig()
