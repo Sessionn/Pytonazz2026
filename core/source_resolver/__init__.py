@@ -554,18 +554,20 @@ class SourceResolver:
             junk_pct = int(score["variant_penalty"]   * 100)
             nm_pct   = int(score["non_music_penalty"] * 100)
 
-            enrich_log.info(
-                tag("SPOTIFY",
-                    f"enrich[{idx}]\n"
-                    f"  query  : {b(original_query)}\n"
-                    f"  sp     : {b(sp_title)}  ({b(sp_artist)})\n"
-                    f"  yt     : {b(yt_title_before)}\n"
-                    f"  conf   : {hi(f'{conf_pct:3d}%', _dc)}\n"
-                    f"    q={q_pct:3d}%  yt={yt_pct:3d}%  art={art_pct:3d}%\n"
-                    f"    dur={dur_pct:3d}%  junk={junk_pct:3d}%  nm={nm_pct:3d}%\n"
-                    f"  result : {hi(decision, _dc)}  ({dim(score['reason'])})"
-                )
-            )
+            _sp_label = b(sp_title) + (f"  {sp_artist}" if sp_artist else "")
+            _yt_label = dim(yt_title_before) if decision == "full" else b(yt_title_before)
+            enrich_log.info(tag(
+                "SPOTIFY",
+                f"enrich[{idx}]  {b(original_query)}  →  {_sp_label}"
+                f"  |  yt: {_yt_label}"
+                f"  |  {hi(decision, _dc)}  {hi(f'{conf_pct}%', _dc)}",
+            ))
+            enrich_log.debug(tag(
+                "SPOTIFY",
+                f"  scores  q={q_pct}%  yt={yt_pct}%  art={art_pct}%"
+                f"  dur={dur_pct}%  junk={junk_pct}%  nm={nm_pct}%"
+                f"  reason={dim(score['reason'])}",
+            ))
         return tracks
 
     @classmethod
