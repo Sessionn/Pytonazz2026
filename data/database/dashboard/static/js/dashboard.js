@@ -242,6 +242,23 @@ function renderSongsDiff(data) {
     showToast(`+${addedIds.length} nuova traccia`, "success");
   }
 
+  // aggiorna valori righe esistenti (hit_count, is_valid, last_used)
+  data.forEach(s => {
+    const tr = document.querySelector(`#songs-body tr[data-id="${s.id}"]`);
+    if (!tr) return;
+
+    const hitsEl = tr.querySelector(".hits-num");
+    if (hitsEl) {
+      const oldVal = parseInt(hitsEl.textContent) || 0;
+      if (oldVal !== s.hit_count) {
+        hitsEl.textContent = s.hit_count ?? 0;
+        hitsEl.style.transition = "color .4s";
+        hitsEl.style.color = "var(--yellow)";
+        setTimeout(() => { hitsEl.style.color = ""; }, 1000);
+      }
+    }
+  });
+  
   _lastIds = newIds;
 }
 
