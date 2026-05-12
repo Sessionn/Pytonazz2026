@@ -7,7 +7,7 @@ from flask import Flask, render_template, jsonify, request
 def create_app():
     app = Flask(__name__)
 
-    # ── Silenzia completamente werkzeug (log HTTP requests) ────────────────────────
+    # ── Silenzia completamente werkzeug (log HTTP requests) ──────────────────
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
     DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cache.db")
@@ -29,8 +29,7 @@ def create_app():
                 SUM(hit_count) AS hits
             FROM song_cache
         """)[0]
-        # tabella corretta: query_alias (senza 's' finale)
-        aliases_count = query_db("SELECT COUNT(*) as c FROM query_alias")[0]["c"]
+        aliases_count = query_db("SELECT COUNT(*) as c FROM query_aliases")[0]["c"]
         return render_template("index.html", stats=stats, aliases_count=aliases_count)
 
     @app.route("/api/songs")
@@ -48,7 +47,7 @@ def create_app():
 
         filters, params = [], []
         if search:
-            filters.append("(LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(canonical_key) LIKE ?)")
+            filters.append("(LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(query_raw) LIKE ?)")
             params += [f"%{search.lower()}%"] * 3
         if source:
             filters.append("source = ?")
@@ -65,37 +64,14 @@ def create_app():
 
     @app.route("/api/aliases")
     def api_aliases():
-        # schema reale: alias_key, canonical_key, variant_tag
         rows = query_db("""
-            SELECT
-                qa.id,
-                qa.alias_key,
-                qa.canonical_key,
-                qa.variant_tag,
-                qa.created_at,
-                sc.title,
-                sc.artist,
-                sc.id AS cache_id
-            FROM query_alias qa
-            LEFT JOIN song_cache sc
-                ON sc.canonical_key = qa.canonical_key
-               AND sc.variant_tag   = qa.variant_tag
+            SELECT qa.id, qa.query_raw, qa.cache_id,
+                   sc.title, sc.artist
+            FROM query_aliases qa
+            LEFT JOIN song_cache sc ON sc.id = qa.cache_id
             ORDER BY qa.id DESC
         """)
         return jsonify(rows)
-
-    @app.route("/api/stats")
-    def api_stats():
-        stats = query_db("""
-            SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN is_valid=1 THEN 1 ELSE 0 END) AS valid,
-                SUM(CASE WHEN is_valid=0 THEN 1 ELSE 0 END) AS invalid,
-                SUM(hit_count) AS hits
-            FROM song_cache
-        """)[0]
-        aliases = query_db("SELECT COUNT(*) as c FROM query_alias")[0]["c"]
-        return jsonify({**stats, "aliases": aliases})
 
     @app.route("/api/delete/<int:row_id>", methods=["DELETE"])
     def delete_song(row_id):
@@ -108,7 +84,7 @@ def create_app():
     return app
 
 
-# ── Avvio standalone (test locale senza bot) ───────────────────────────────────────────
+# ── Avvio standalone (test locale senza bot) ─────────────────────────────────
 if __name__ == "__main__":
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     flask_app = create_app()
