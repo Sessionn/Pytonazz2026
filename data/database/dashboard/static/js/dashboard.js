@@ -16,7 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "Aggiornato: " + new Date().toLocaleString("it-IT");
 
   // favicon animata
-  const favicons = ["💿", "📀"];
+  const favicons = ["💿", "🎵"];
   let fi = 0;
   setInterval(() => {
     fi = (fi + 1) % favicons.length;
