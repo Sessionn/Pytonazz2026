@@ -1,6 +1,8 @@
 let currentSort = "hit_count";
 let currentOrder = "desc";
 let debounceTimer;
+let autoRefreshInterval = null;
+let _lastIds = new Set();
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
@@ -9,8 +11,18 @@ document.addEventListener("DOMContentLoaded", () => {
   updateThemeUI(saved);
   animateCounters();
   fetchSongs();
+  startAutoRefresh(10);
   document.getElementById("gen-time").textContent =
     "Aggiornato: " + new Date().toLocaleString("it-IT");
+
+  // favicon animata
+  const favicons = ["💿", "🎵"];
+  let fi = 0;
+  setInterval(() => {
+    fi = (fi + 1) % favicons.length;
+    const el = document.querySelector("link[rel='icon']");
+    if (el) el.href = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>${favicons[fi]}</text></svg>`;
+  }, 2000);
 });
 
 // ── THEME ─────────────────────────────────────────────────────────────────────
@@ -49,99 +61,157 @@ function animateCounters() {
   });
 }
 
+// ── AUTO REFRESH ──────────────────────────────────────────────────────────────
+function startAutoRefresh(seconds = 10) {
+  stopAutoRefresh();
+  autoRefreshInterval = setInterval(() => {
+    fetchSongs(true);
+  }, seconds * 1000);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+  }
+}
+
 // ── FETCH SONGS ───────────────────────────────────────────────────────────────
-function fetchSongs() {
+function fetchSongs(silent = false) {
   const q      = document.getElementById("search-input").value;
   const source = document.getElementById("filter-source").value;
   const valid  = document.getElementById("filter-valid").value;
   const params = new URLSearchParams({ q, source, valid, sort: currentSort, order: currentOrder });
 
-  showSkeleton();
+  if (!silent) showSkeleton();
 
   fetch("/api/songs?" + params)
     .then(r => r.json())
     .then(data => {
-      hideSkeleton();
+      if (!silent) hideSkeleton();
       if (data.length === 0) {
         document.getElementById("songs-body").innerHTML =
           `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted)">Nessun risultato trovato.</td></tr>`;
+        _lastIds = new Set();
         return;
       }
-      renderSongs(data);
+      if (silent) {
+        renderSongsDiff(data);
+      } else {
+        renderSongs(data);
+      }
     })
     .catch(() => showToast("Errore nel caricamento dati", "error"));
 }
 
 function debouncedFetch() {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(fetchSongs, 280);
+  debounceTimer = setTimeout(() => fetchSongs(false), 280);
 }
 
-// ── RENDER SONGS ──────────────────────────────────────────────────────────────
+// ── BUILD ROW ─────────────────────────────────────────────────────────────────
+function buildRow(s, i = 0) {
+  const src = s.source || "youtube";
+  const srcColor = src === "spotify" ? "#1DB954" : "#e5173f";
+  const badge = s.is_valid
+    ? `<span class="badge ok">valida</span>`
+    : `<span class="badge err">invalida</span>`;
+  const dur = s.duration ? fmtDuration(s.duration) : "-";
+  const thumbHtml = s.thumbnail
+    ? `<img class="thumb" src="${esc(s.thumbnail)}" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
+    : `<div class="thumb-placeholder">🎵</div>`;
+  const webLink = s.webpage_url
+    ? `<a class="link-btn" href="${esc(s.webpage_url)}" target="_blank">▶</a>` : "";
+  const spLink = s.spotify_url
+    ? `<a class="link-btn sp" href="${esc(s.spotify_url)}" target="_blank">♫</a>` : "";
+
+  const tr = document.createElement("tr");
+  tr.style.animationDelay = `${i * 28}ms`;
+  tr.dataset.id = s.id;
+  tr.innerHTML = `
+    <td class="id-col">${s.id}</td>
+    <td>
+      <div style="display:flex;align-items:center;gap:10px">
+        ${thumbHtml}
+        <div>
+          <div class="title-text" onclick='openModal(${JSON.stringify(s)})'>${esc(s.title || "")}</div>
+          <div class="artist-text">${esc(s.artist || "")}</div>
+        </div>
+      </div>
+    </td>
+    <td>
+      <div class="query-cell" title="${esc(s.query_raw || "")}"
+        onclick="setSearch('${esc(s.query_raw || "")}')">
+        ${esc(s.query_raw || "")}
+      </div>
+    </td>
+    <td><span class="src-badge" style="background:${srcColor}">${src}</span></td>
+    <td class="dim" style="text-align:center">${dur}</td>
+    <td class="hits-num" style="text-align:center">${s.hit_count ?? 0}</td>
+    <td class="dim">${fmtTs(s.created_at)}</td>
+    <td class="dim">${fmtTs(s.last_used)}</td>
+    <td>${badge}</td>
+    <td>
+      <div class="row-actions">
+        ${webLink}${spLink}
+        <button class="del-btn" title="Elimina" onclick="deleteSong(${s.id})">✖</button>
+      </div>
+    </td>
+  `;
+  return tr;
+}
+
+// ── RENDER SONGS (primo caricamento) ──────────────────────────────────────────
 function renderSongs(data) {
   const tbody = document.getElementById("songs-body");
   tbody.innerHTML = "";
+  data.forEach((s, i) => tbody.appendChild(buildRow(s, i)));
+  _lastIds = new Set(data.map(s => s.id));
+}
 
-  data.forEach((s, i) => {
-    const src = s.source || "youtube";
-    const srcColor = src === "spotify" ? "#1DB954" : "#e5173f";
-    const badge = s.is_valid
-      ? `<span class="badge ok">valida</span>`
-      : `<span class="badge err">invalida</span>`;
-    const dur = s.duration ? fmtDuration(s.duration) : "-";
+// ── RENDER DIFF (silent refresh) ──────────────────────────────────────────────
+function renderSongsDiff(data) {
+  const newIds = new Set(data.map(s => s.id));
 
-    const thumbHtml = s.thumbnail
-      ? `<img class="thumb" src="${esc(s.thumbnail)}" loading="lazy"
-           onerror="this.replaceWith(makePlaceholder())">`
-      : `<div class="thumb-placeholder">🎵</div>`;
-
-    const webLink = s.webpage_url
-      ? `<a class="link-btn" href="${esc(s.webpage_url)}" target="_blank">▶</a>`
-      : "";
-    const spLink = s.spotify_url
-      ? `<a class="link-btn sp" href="${esc(s.spotify_url)}" target="_blank">♫</a>`
-      : "";
-
-    const tr = document.createElement("tr");
-    tr.style.animationDelay = `${i * 28}ms`;
-    tr.dataset.id = s.id;
-    tr.innerHTML = `
-      <td class="id-col">${s.id}</td>
-      <td>
-        <div style="display:flex;align-items:center;gap:10px">
-          ${thumbHtml}
-          <div>
-            <div class="title-text" onclick='openModal(${JSON.stringify(s)})'>${esc(s.title || "")}</div>
-            <div class="artist-text">${esc(s.artist || "")}</div>
-          </div>
-        </div>
-      </td>
-      <td>
-        <div class="query-cell" title="${esc(s.query_raw || "")}"
-          onclick="setSearch('${esc(s.query_raw || "")}')">
-          ${esc(s.query_raw || "")}
-        </div>
-      </td>
-      <td><span class="src-badge" style="background:${srcColor}">${src}</span></td>
-      <td class="dim" style="text-align:center">${dur}</td>
-      <td class="hits-num" style="text-align:center">${s.hit_count ?? 0}</td>
-      <td class="dim">${fmtTs(s.created_at)}</td>
-      <td class="dim">${fmtTs(s.last_used)}</td>
-      <td>${badge}</td>
-      <td>
-        <div class="row-actions">
-          ${webLink}${spLink}
-          <button class="del-btn" title="Elimina" onclick="deleteSong(${s.id})">✖</button>
-        </div>
-      </td>
-    `;
-    tbody.appendChild(tr);
+  // rimuovi righe eliminate dal db
+  document.querySelectorAll("#songs-body tr[data-id]").forEach(tr => {
+    if (!newIds.has(parseInt(tr.dataset.id))) {
+      tr.style.transition = "opacity .4s, transform .4s";
+      tr.style.opacity = "0";
+      tr.style.transform = "translateX(20px)";
+      setTimeout(() => tr.remove(), 400);
+    }
   });
+
+  // aggiungi righe nuove
+  const addedIds = [...newIds].filter(id => !_lastIds.has(id));
+  if (addedIds.length > 0) {
+    const tbody = document.getElementById("songs-body");
+    const newSongs = data.filter(s => addedIds.includes(s.id));
+    newSongs.reverse().forEach(s => {
+      if (tbody.querySelector(`tr[data-id="${s.id}"]`)) return;
+      const tr = buildRow(s);
+      tr.style.animation = "none";
+      tr.style.opacity = "0";
+      tr.style.transform = "translateY(-10px)";
+      tbody.prepend(tr);
+      requestAnimationFrame(() => {
+        tr.style.transition = "opacity .4s, transform .4s, background .8s";
+        tr.style.opacity = "1";
+        tr.style.transform = "translateY(0)";
+        tr.style.background = "rgba(166,227,161,0.12)";
+        setTimeout(() => { tr.style.background = ""; }, 1800);
+      });
+    });
+    showToast(`+${addedIds.length} nuova traccia`, "success");
+  }
+
+  _lastIds = newIds;
 }
 
 function setSearch(val) {
   document.getElementById("search-input").value = val;
-  fetchSongs();
+  fetchSongs(false);
 }
 
 // ── SORT ──────────────────────────────────────────────────────────────────────
@@ -161,14 +231,14 @@ function sortBy(col) {
     th.classList.add("sorted");
     th.querySelector(".arrow").textContent = currentOrder === "desc" ? "↓" : "↑";
   }
-  fetchSongs();
+  fetchSongs(false);
 }
 
 function clearFilters() {
   document.getElementById("search-input").value = "";
   document.getElementById("filter-source").value = "";
   document.getElementById("filter-valid").value = "";
-  fetchSongs();
+  fetchSongs(false);
 }
 
 // ── SKELETON ──────────────────────────────────────────────────────────────────
@@ -200,6 +270,7 @@ function deleteSong(id) {
           tr.style.transform = "translateX(20px)";
           setTimeout(() => tr.remove(), 300);
         }
+        _lastIds.delete(id);
         showToast("Entry eliminata", "success");
         closeModal();
       }
@@ -210,8 +281,7 @@ function deleteSong(id) {
 // ── MODAL ─────────────────────────────────────────────────────────────────────
 function openModal(s) {
   const thumbHtml = s.thumbnail
-    ? `<img class="modal-thumb" src="${esc(s.thumbnail)}">`
-    : "";
+    ? `<img class="modal-thumb" src="${esc(s.thumbnail)}">` : "";
 
   document.getElementById("modal-content").innerHTML = `
     ${thumbHtml}
@@ -280,6 +350,8 @@ function showSection(sec, el) {
   document.getElementById("cache-section").style.display   = sec === "cache"   ? "block" : "none";
   document.getElementById("aliases-section").style.display = sec === "aliases" ? "block" : "none";
   if (sec === "aliases") fetchAliases();
+  if (sec === "cache") startAutoRefresh(10);
+  else stopAutoRefresh();
 }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
