@@ -5,7 +5,7 @@ let autoRefreshInterval = null;
 let statsRefreshInterval = null;
 let _lastIds = new Set();
 
-// ── INIT ──────────────────────────────────────────────────────────────────────
+// ── INIT ──────────────────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   const saved = localStorage.getItem("theme") || "dark";
   document.documentElement.setAttribute("data-theme", saved);
@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "Aggiornato: " + new Date().toLocaleString("it-IT");
 
   // favicon animata
-  const favicons = ["💿", "🎵"];
+  const favicons = ["\ud83d\udcbf", "\ud83c\udfb5"];
   let fi = 0;
   setInterval(() => {
     fi = (fi + 1) % favicons.length;
@@ -27,7 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }, 2000);
 });
 
-// ── THEME ─────────────────────────────────────────────────────────────────────
+// ── THEME ───────────────────────────────────────────────────────────────────────────────
 function toggleTheme() {
   const html = document.documentElement;
   const newTheme = html.getAttribute("data-theme") === "light" ? "dark" : "light";
@@ -48,7 +48,7 @@ function updateThemeUI(theme) {
   }
 }
 
-// ── COUNTER ANIMATION (primo caricamento) ─────────────────────────────────────
+// ── COUNTER ANIMATION (primo caricamento) ─────────────────────────────────────────────
 function animateCounters() {
   document.querySelectorAll(".count-up").forEach(el => {
     const target = parseInt(el.dataset.target) || 0;
@@ -63,7 +63,7 @@ function animateCounters() {
   });
 }
 
-// ── COUNTER ANIMATION (aggiornamento live) ────────────────────────────────────
+// ── COUNTER ANIMATION (aggiornamento live) ──────────────────────────────────────────────
 function animateCounterTo(id, target) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -79,7 +79,7 @@ function animateCounterTo(id, target) {
   requestAnimationFrame(update);
 }
 
-// ── STATS REFRESH ─────────────────────────────────────────────────────────────
+// ── STATS REFRESH ─────────────────────────────────────────────────────────────────────────────
 function startStatsRefresh(seconds = 15) {
   if (statsRefreshInterval) clearInterval(statsRefreshInterval);
   statsRefreshInterval = setInterval(() => fetchStats(), seconds * 1000);
@@ -100,7 +100,7 @@ function fetchStats() {
     .catch(() => {});
 }
 
-// ── AUTO REFRESH SONGS ────────────────────────────────────────────────────────
+// ── AUTO REFRESH SONGS ────────────────────────────────────────────────────────────────────────
 function startAutoRefresh(seconds = 10) {
   stopAutoRefresh();
   autoRefreshInterval = setInterval(() => fetchSongs(true), seconds * 1000);
@@ -113,7 +113,7 @@ function stopAutoRefresh() {
   }
 }
 
-// ── FETCH SONGS ───────────────────────────────────────────────────────────────
+// ── FETCH SONGS ───────────────────────────────────────────────────────────────────────────────
 function fetchSongs(silent = false) {
   const q      = document.getElementById("search-input").value;
   const source = document.getElementById("filter-source").value;
@@ -146,7 +146,7 @@ function debouncedFetch() {
   debounceTimer = setTimeout(() => fetchSongs(false), 280);
 }
 
-// ── BUILD ROW ─────────────────────────────────────────────────────────────────
+// ── BUILD ROW ──────────────────────────────────────────────────────────────────────────────────
 function buildRow(s, i = 0) {
   const src = s.source || "youtube";
   const srcColor = src === "spotify" ? "#1DB954" : "#e5173f";
@@ -156,11 +156,14 @@ function buildRow(s, i = 0) {
   const dur = s.duration ? fmtDuration(s.duration) : "-";
   const thumbHtml = s.thumbnail
     ? `<img class="thumb" src="${esc(s.thumbnail)}" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
-    : `<div class="thumb-placeholder">🎵</div>`;
+    : `<div class="thumb-placeholder">\ud83c\udfb5</div>`;
   const webLink = s.webpage_url
     ? `<a class="link-btn" href="${esc(s.webpage_url)}" target="_blank">▶</a>` : "";
   const spLink = s.spotify_url
     ? `<a class="link-btn sp" href="${esc(s.spotify_url)}" target="_blank">♫</a>` : "";
+
+  // Mostra canonical_key come "query" (non esiste query_raw nel nuovo schema)
+  const queryDisplay = s.canonical_key || "";
 
   const tr = document.createElement("tr");
   tr.style.animationDelay = `${i * 28}ms`;
@@ -171,15 +174,15 @@ function buildRow(s, i = 0) {
       <div style="display:flex;align-items:center;gap:10px">
         ${thumbHtml}
         <div>
-          <div class="title-text" onclick='openModal(${JSON.stringify(s)})'>${esc(s.title || "")}</div>
+          <div class="title-text" style="cursor:pointer">${esc(s.title || "")}</div>
           <div class="artist-text">${esc(s.artist || "")}</div>
         </div>
       </div>
     </td>
     <td>
-      <div class="query-cell" title="${esc(s.query_raw || "")}"
-        onclick="setSearch('${esc(s.query_raw || "")}')">
-        ${esc(s.query_raw || "")}
+      <div class="query-cell" title="${esc(queryDisplay)}"
+        onclick="setSearch('${esc(queryDisplay).replace(/'/g, "&#39;")}')">
+        ${esc(queryDisplay)}
       </div>
     </td>
     <td><span class="src-badge" style="background:${srcColor}">${src}</span></td>
@@ -191,14 +194,22 @@ function buildRow(s, i = 0) {
     <td>
       <div class="row-actions">
         ${webLink}${spLink}
-        <button class="del-btn" title="Elimina" onclick="deleteSong(${s.id})">✖</button>
+        <button class="del-btn" title="Elimina" onclick="deleteSong(${s.id})">\u2716</button>
       </div>
     </td>
   `;
+
+  // FIX: usa addEventListener invece di onclick inline per evitare
+  // rottura con titoli/artisti contenenti apici o caratteri speciali
+  const titleEl = tr.querySelector(".title-text");
+  if (titleEl) {
+    titleEl.addEventListener("click", () => openModal(s));
+  }
+
   return tr;
 }
 
-// ── RENDER SONGS (primo caricamento) ──────────────────────────────────────────
+// ── RENDER SONGS (primo caricamento) ───────────────────────────────────────────────────────
 function renderSongs(data) {
   const tbody = document.getElementById("songs-body");
   tbody.innerHTML = "";
@@ -206,7 +217,7 @@ function renderSongs(data) {
   _lastIds = new Set(data.map(s => s.id));
 }
 
-// ── RENDER DIFF (silent refresh) ──────────────────────────────────────────────
+// ── RENDER DIFF (silent refresh) ────────────────────────────────────────────────────────────────
 function renderSongsDiff(data) {
   const newIds = new Set(data.map(s => s.id));
 
@@ -258,7 +269,7 @@ function renderSongsDiff(data) {
       }
     }
   });
-  
+
   _lastIds = newIds;
 }
 
@@ -267,7 +278,7 @@ function setSearch(val) {
   fetchSongs(false);
 }
 
-// ── SORT ──────────────────────────────────────────────────────────────────────
+// ── SORT ──────────────────────────────────────────────────────────────────────────────────────
 function sortBy(col) {
   if (currentSort === col) {
     currentOrder = currentOrder === "desc" ? "asc" : "desc";
@@ -277,12 +288,12 @@ function sortBy(col) {
   }
   document.querySelectorAll("th[data-col]").forEach(th => {
     th.classList.remove("sorted");
-    th.querySelector(".arrow").textContent = "↕";
+    th.querySelector(".arrow").textContent = "\u2195";
   });
   const th = document.querySelector(`th[data-col="${col}"]`);
   if (th) {
     th.classList.add("sorted");
-    th.querySelector(".arrow").textContent = currentOrder === "desc" ? "↓" : "↑";
+    th.querySelector(".arrow").textContent = currentOrder === "desc" ? "\u2193" : "\u2191";
   }
   fetchSongs(false);
 }
@@ -294,7 +305,7 @@ function clearFilters() {
   fetchSongs(false);
 }
 
-// ── SKELETON ──────────────────────────────────────────────────────────────────
+// ── SKELETON ─────────────────────────────────────────────────────────────────────────────────
 function showSkeleton() {
   const tbody = document.getElementById("songs-body");
   const widths = [30, 140, 90, 60, 40, 30, 80, 80, 55, 50];
@@ -310,7 +321,7 @@ function hideSkeleton() {
     .forEach(el => el.closest("tr")?.remove());
 }
 
-// ── DELETE ────────────────────────────────────────────────────────────────────
+// ── DELETE ────────────────────────────────────────────────────────────────────────────────────
 function deleteSong(id) {
   const tr = document.querySelector(`tr[data-id="${id}"]`);
   fetch("/api/delete/" + id, { method: "DELETE" })
@@ -331,7 +342,7 @@ function deleteSong(id) {
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
 }
 
-// ── MODAL ─────────────────────────────────────────────────────────────────────
+// ── MODAL ─────────────────────────────────────────────────────────────────────────────────────
 function openModal(s) {
   const thumbHtml = s.thumbnail
     ? `<img class="modal-thumb" src="${esc(s.thumbnail)}">` : "";
@@ -342,7 +353,8 @@ function openModal(s) {
     <div class="modal-artist">${esc(s.artist || "")}</div>
     <div style="clear:both;margin-bottom:4px"></div>
     ${mrow("ID", s.id)}
-    ${mrow("Query", s.query_raw)}
+    ${mrow("Canonical key", s.canonical_key || "-")}
+    ${mrow("Variant", s.variant_tag || "-")}
     ${mrow("Sorgente", s.source)}
     ${mrow("Durata", s.duration ? fmtDuration(s.duration) : "-")}
     ${mrow("Hits", `<span style="color:var(--yellow);font-weight:700">${s.hit_count ?? 0}</span>`)}
@@ -352,7 +364,7 @@ function openModal(s) {
     ${s.webpage_url ? mrow("Link", `<a class="modal-link" href="${esc(s.webpage_url)}" target="_blank">${esc(s.webpage_url)}</a>`) : ""}
     ${s.spotify_url ? mrow("Spotify", `<a class="modal-link" href="${esc(s.spotify_url)}" target="_blank">${esc(s.spotify_url)}</a>`) : ""}
     <div class="modal-actions">
-      <button class="btn btn-danger" onclick="deleteSong(${s.id})">✖ Elimina</button>
+      <button class="btn btn-danger" onclick="deleteSong(${s.id})">\u2716 Elimina</button>
       <button class="btn btn-ghost" onclick="closeModal()">Chiudi</button>
     </div>
   `;
@@ -370,33 +382,39 @@ function closeModal() {
   document.getElementById("modal-bg").classList.remove("open");
 }
 
-document.getElementById("modal-bg").addEventListener("click", e => {
-  if (e.target === document.getElementById("modal-bg")) closeModal();
+document.addEventListener("DOMContentLoaded", () => {
+  const bg = document.getElementById("modal-bg");
+  if (bg) {
+    bg.addEventListener("click", e => {
+      if (e.target === bg) closeModal();
+    });
+  }
 });
 
-// ── ALIASES ───────────────────────────────────────────────────────────────────
+// ── ALIASES ───────────────────────────────────────────────────────────────────────────────────
 function fetchAliases() {
   fetch("/api/aliases").then(r => r.json()).then(data => {
     const tbody = document.getElementById("aliases-body");
     if (data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--muted)">Nessun alias registrato.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--muted)">Nessun alias registrato.</td></tr>`;
       return;
     }
     tbody.innerHTML = data.map((a, i) => `
       <tr style="animation-delay:${i * 25}ms">
         <td class="id-col">${a.id}</td>
-        <td class="dim">${esc(a.query_raw || "")}</td>
+        <td class="dim">${esc(a.alias_key || "")}</td>
+        <td class="dim">${esc(a.canonical_key || "")}</td>
         <td>
           <span class="title-text">${esc(a.title || "")}</span>
           <span class="artist-text">${esc(a.artist || "")}</span>
         </td>
-        <td class="id-col">${a.cache_id}</td>
+        <td class="id-col">${a.cache_id ?? "-"}</td>
       </tr>
     `).join("");
   });
 }
 
-// ── SECTION SWITCH ────────────────────────────────────────────────────────────
+// ── SECTION SWITCH ────────────────────────────────────────────────────────────────────────────
 function showSection(sec, el) {
   document.querySelectorAll("nav a").forEach(a => a.classList.remove("active"));
   el.classList.add("active");
@@ -406,10 +424,10 @@ function showSection(sec, el) {
   if (sec === "cache")   { startAutoRefresh(10); }
 }
 
-// ── TOAST ─────────────────────────────────────────────────────────────────────
+// ── TOAST ─────────────────────────────────────────────────────────────────────────────────────
 function showToast(msg, type = "success") {
   const container = document.getElementById("toast-container");
-  const icon = type === "success" ? "✅" : "❌";
+  const icon = type === "success" ? "\u2705" : "\u274c";
   const el = document.createElement("div");
   el.className = `toast ${type}`;
   el.innerHTML = `<span>${icon}</span> ${msg}`;
@@ -420,7 +438,7 @@ function showToast(msg, type = "success") {
   }, 2800);
 }
 
-// ── UTILS ─────────────────────────────────────────────────────────────────────
+// ── UTILS ────────────────────────────────────────────────────────────────────────────────────
 function fmtDuration(sec) {
   if (!sec) return "-";
   const m = Math.floor(sec / 60), s = sec % 60;
@@ -444,6 +462,6 @@ function esc(s) {
 function makePlaceholder() {
   const d = document.createElement("div");
   d.className = "thumb-placeholder";
-  d.textContent = "🎵";
+  d.textContent = "\ud83c\udfb5";
   return d;
 }
