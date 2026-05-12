@@ -83,6 +83,19 @@ def create_app():
 
     return app
 
+    @app.route("/api/stats")
+    def api_stats():
+        stats = query_db("""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN is_valid=1 THEN 1 ELSE 0 END) AS valid,
+                SUM(CASE WHEN is_valid=0 THEN 1 ELSE 0 END) AS invalid,
+                SUM(hit_count) AS hits
+            FROM song_cache
+        """)[0]
+        aliases = query_db("SELECT COUNT(*) as c FROM query_aliases")[0]["c"]
+        return jsonify({**stats, "aliases": aliases})
+
 
 # ── Avvio standalone (test locale senza bot) ─────────────────────────────────
 if __name__ == "__main__":

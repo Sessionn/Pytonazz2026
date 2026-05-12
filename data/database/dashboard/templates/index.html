@@ -1,137 +1,148 @@
 <!DOCTYPE html>
 <html lang="it" data-theme="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pytonazz Dashboard</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>💿</text></svg>">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>💿 Pytonazz · Cache</title>
+  <link rel="icon" id="favicon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>💿</text></svg>">
+  <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-<div class="shell">
+  <div class="shell">
 
-  <nav>
-    <div class="logo">💿 <span>Pytonazz</span></div>
-    <div class="nav-section-label">Sezioni</div>
-    <a href="#" class="active" onclick="showSection('cache', this); return false;">
-      <span class="nav-icon">🎵</span> Song Cache
-    </a>
-    <a href="#" onclick="showSection('aliases', this); return false;">
-      <span class="nav-icon">🔗</span> Aliases
-    </a>
-    <div class="nav-divider"></div>
-    <div class="nav-section-label">Info</div>
-    <a style="cursor:default;pointer-events:none">
-      <span class="nav-icon">📁</span> cache.db
-    </a>
+    <!-- SIDEBAR -->
+    <nav>
+      <div class="logo">🎵 <span>Pytonazz</span></div>
 
-    <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">
-      <div class="toggle-track" id="toggle-track">
-        <div class="toggle-thumb"></div>
-      </div>
-      <span id="theme-label">Tema chiaro</span>
-    </button>
-  </nav>
+      <span class="nav-section-label">Navigazione</span>
+      <a href="#" class="active" onclick="showSection('cache', this); return false;">
+        <span class="nav-icon">💿</span> Cache Songs
+      </a>
+      <a href="#" onclick="showSection('aliases', this); return false;">
+        <span class="nav-icon">🔗</span> Aliases
+      </a>
 
-  <main>
-    <div class="page-header">
-      <h1>Cache Dashboard</h1>
-      <p id="gen-time"></p>
-    </div>
+      <div class="nav-divider"></div>
+      <span class="nav-section-label" id="gen-time">Aggiornato: —</span>
 
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="val count-up" data-target="{{ stats.total or 0 }}">0</div>
-        <div class="lbl">Entry totali</div>
-      </div>
-      <div class="stat-card">
-        <div class="val green count-up" data-target="{{ stats.valid or 0 }}">0</div>
-        <div class="lbl">Valide</div>
-      </div>
-      <div class="stat-card">
-        <div class="val red count-up" data-target="{{ stats.invalid or 0 }}">0</div>
-        <div class="lbl">Invalide</div>
-      </div>
-      <div class="stat-card">
-        <div class="val yellow count-up" data-target="{{ stats.hits or 0 }}">0</div>
-        <div class="lbl">Hit totali</div>
-      </div>
-      <div class="stat-card">
-        <div class="val count-up" data-target="{{ aliases_count }}">0</div>
-        <div class="lbl">Aliases</div>
-      </div>
-    </div>
-
-    <div id="cache-section">
-      <div class="toolbar">
-        <input type="text" id="search-input"
-          placeholder="🔍  Cerca titolo, artista, query…"
-          oninput="debouncedFetch()">
-        <div class="custom-select-wrap">
-          <select id="filter-source" onchange="fetchSongs()">
-            <option value="">Tutte le sorgenti</option>
-            <option value="youtube">YouTube</option>
-            <option value="spotify">Spotify</option>
-          </select>
+      <button class="theme-toggle" onclick="toggleTheme()">
+        <div class="toggle-track" id="toggle-track">
+          <div class="toggle-thumb"></div>
         </div>
-        <div class="custom-select-wrap">
-          <select id="filter-valid" onchange="fetchSongs()">
-            <option value="">Tutti gli stati</option>
-            <option value="1">✅ Valide</option>
-            <option value="0">❌ Invalide</option>
-          </select>
+        <span id="theme-label">Tema chiaro</span>
+      </button>
+    </nav>
+
+    <!-- MAIN -->
+    <main>
+
+      <!-- CACHE SECTION -->
+      <div id="cache-section">
+        <div class="page-header">
+          <h1>Cache Songs</h1>
+          <p>Tracce memorizzate nel database locale del bot</p>
         </div>
-        <button class="btn btn-ghost" onclick="clearFilters()">Reset</button>
+
+        <!-- STAT CARDS -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div id="stat-total" class="val count-up" data-target="{{ stats.total }}">{{ stats.total }}</div>
+            <div class="lbl">Entry totali</div>
+          </div>
+          <div class="stat-card">
+            <div id="stat-valid" class="val green count-up" data-target="{{ stats.valid }}">{{ stats.valid }}</div>
+            <div class="lbl">Valide</div>
+          </div>
+          <div class="stat-card">
+            <div id="stat-invalid" class="val red count-up" data-target="{{ stats.invalid }}">{{ stats.invalid }}</div>
+            <div class="lbl">Invalide</div>
+          </div>
+          <div class="stat-card">
+            <div id="stat-hits" class="val yellow count-up" data-target="{{ stats.hits }}">{{ stats.hits }}</div>
+            <div class="lbl">Hit totali</div>
+          </div>
+          <div class="stat-card">
+            <div id="stat-aliases" class="val count-up" data-target="{{ aliases_count }}">{{ aliases_count }}</div>
+            <div class="lbl">Aliases</div>
+          </div>
+        </div>
+
+        <!-- TOOLBAR -->
+        <div class="toolbar">
+          <input id="search-input" type="text" placeholder="🔍 Cerca titolo, artista, query…" oninput="debouncedFetch()">
+          <div class="custom-select-wrap">
+            <select id="filter-source" onchange="fetchSongs()">
+              <option value="">Tutte le sorgenti</option>
+              <option value="youtube">YouTube</option>
+              <option value="spotify">Spotify</option>
+            </select>
+          </div>
+          <div class="custom-select-wrap">
+            <select id="filter-valid" onchange="fetchSongs()">
+              <option value="">Tutti gli stati</option>
+              <option value="1">Valide</option>
+              <option value="0">Invalide</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost" onclick="clearFilters()">✖ Reset</button>
+        </div>
+
+        <!-- TABLE -->
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th data-col="id" onclick="sortBy('id')"># <span class="arrow">↕</span></th>
+                <th>Titolo / Artista</th>
+                <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">↕</span></th>
+                <th>Sorgente</th>
+                <th>Dur.</th>
+                <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">↓</span></th>
+                <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">↕</span></th>
+                <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">↕</span></th>
+                <th>Stato</th>
+                <th>Azioni</th>
+              </tr>
+            </thead>
+            <tbody id="songs-body"></tbody>
+          </table>
+        </div>
       </div>
 
-      <div class="table-wrap">
-        <table id="songs-table">
-          <thead>
-            <tr>
-              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">↕</span></th>
-              <th>Titolo / Artista</th>
-              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">↕</span></th>
-              <th>Sorgente</th>
-              <th>Dur.</th>
-              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">↓</span></th>
-              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">↕</span></th>
-              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">↕</span></th>
-              <th>Stato</th>
-              <th>Azioni</th>
-            </tr>
-          </thead>
-          <tbody id="songs-body"></tbody>
-        </table>
+      <!-- ALIASES SECTION -->
+      <div id="aliases-section" style="display:none">
+        <div class="page-header">
+          <h1>Query Aliases</h1>
+          <p>Mapping tra query utente e tracce già in cache</p>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Query originale</th>
+                <th>Canzone associata</th>
+                <th>Cache ID</th>
+              </tr>
+            </thead>
+            <tbody id="aliases-body"></tbody>
+          </table>
+        </div>
       </div>
-    </div>
 
-    <div id="aliases-section">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Query originale</th>
-              <th>Canzone associata</th>
-              <th>Cache ID</th>
-            </tr>
-          </thead>
-          <tbody id="aliases-body"></tbody>
-        </table>
-      </div>
-    </div>
-  </main>
-</div>
-
-<div class="modal-bg" id="modal-bg">
-  <div class="modal">
-    <button class="close" onclick="closeModal()">✕</button>
-    <div id="modal-content"></div>
+    </main>
   </div>
-</div>
 
-<div class="toast-container" id="toast-container"></div>
+  <!-- MODAL -->
+  <div id="modal-bg">
+    <div id="modal-box">
+      <div id="modal-content"></div>
+    </div>
+  </div>
 
-<script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
+  <!-- TOAST -->
+  <div id="toast-container"></div>
+
+  <script src="/static/js/dashboard.js"></script>
 </body>
 </html>

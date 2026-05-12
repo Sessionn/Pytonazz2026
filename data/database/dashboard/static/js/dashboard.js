@@ -2,6 +2,7 @@ let currentSort = "hit_count";
 let currentOrder = "desc";
 let debounceTimer;
 let autoRefreshInterval = null;
+let statsRefreshInterval = null;
 let _lastIds = new Set();
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -12,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   animateCounters();
   fetchSongs();
   startAutoRefresh(10);
+  startStatsRefresh(15);
   document.getElementById("gen-time").textContent =
     "Aggiornato: " + new Date().toLocaleString("it-IT");
 
@@ -46,7 +48,7 @@ function updateThemeUI(theme) {
   }
 }
 
-// ── COUNTER ANIMATION ─────────────────────────────────────────────────────────
+// ── COUNTER ANIMATION (primo caricamento) ─────────────────────────────────────
 function animateCounters() {
   document.querySelectorAll(".count-up").forEach(el => {
     const target = parseInt(el.dataset.target) || 0;
@@ -61,12 +63,47 @@ function animateCounters() {
   });
 }
 
-// ── AUTO REFRESH ──────────────────────────────────────────────────────────────
+// ── COUNTER ANIMATION (aggiornamento live) ────────────────────────────────────
+function animateCounterTo(id, target) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const from = parseInt(el.textContent.replace(/\D/g, "")) || 0;
+  if (from === target) return;
+  const duration = 600;
+  const start = performance.now();
+  const update = (now) => {
+    const p = Math.min((now - start) / duration, 1);
+    el.textContent = Math.round(from + (target - from) * (1 - Math.pow(1 - p, 3)));
+    if (p < 1) requestAnimationFrame(update);
+  };
+  requestAnimationFrame(update);
+}
+
+// ── STATS REFRESH ─────────────────────────────────────────────────────────────
+function startStatsRefresh(seconds = 15) {
+  if (statsRefreshInterval) clearInterval(statsRefreshInterval);
+  statsRefreshInterval = setInterval(() => fetchStats(), seconds * 1000);
+}
+
+function fetchStats() {
+  fetch("/api/stats")
+    .then(r => r.json())
+    .then(data => {
+      animateCounterTo("stat-total",   data.total   ?? 0);
+      animateCounterTo("stat-valid",   data.valid   ?? 0);
+      animateCounterTo("stat-invalid", data.invalid ?? 0);
+      animateCounterTo("stat-hits",    data.hits    ?? 0);
+      animateCounterTo("stat-aliases", data.aliases ?? 0);
+      document.getElementById("gen-time").textContent =
+        "Aggiornato: " + new Date().toLocaleString("it-IT");
+    })
+    .catch(() => {});
+}
+
+// ── AUTO REFRESH SONGS ────────────────────────────────────────────────────────
 function startAutoRefresh(seconds = 10) {
   stopAutoRefresh();
-  autoRefreshInterval = setInterval(() => {
-    fetchSongs(true);
-  }, seconds * 1000);
+  autoRefreshInterval = setInterval(() => fetchSongs(true), seconds * 1000);
 }
 
 function stopAutoRefresh() {
@@ -173,7 +210,7 @@ function renderSongs(data) {
 function renderSongsDiff(data) {
   const newIds = new Set(data.map(s => s.id));
 
-  // rimuovi righe eliminate dal db
+  // rimuovi righe eliminate
   document.querySelectorAll("#songs-body tr[data-id]").forEach(tr => {
     if (!newIds.has(parseInt(tr.dataset.id))) {
       tr.style.transition = "opacity .4s, transform .4s";
@@ -187,8 +224,7 @@ function renderSongsDiff(data) {
   const addedIds = [...newIds].filter(id => !_lastIds.has(id));
   if (addedIds.length > 0) {
     const tbody = document.getElementById("songs-body");
-    const newSongs = data.filter(s => addedIds.includes(s.id));
-    newSongs.reverse().forEach(s => {
+    data.filter(s => addedIds.includes(s.id)).reverse().forEach(s => {
       if (tbody.querySelector(`tr[data-id="${s.id}"]`)) return;
       const tr = buildRow(s);
       tr.style.animation = "none";
@@ -286,7 +322,7 @@ function openModal(s) {
   document.getElementById("modal-content").innerHTML = `
     ${thumbHtml}
     <h3>${esc(s.title || "")}</h3>
-    <div class="modal-artist" style="clear:none">${esc(s.artist || "")}</div>
+    <div class="modal-artist">${esc(s.artist || "")}</div>
     <div style="clear:both;margin-bottom:4px"></div>
     ${mrow("ID", s.id)}
     ${mrow("Query", s.query_raw)}
@@ -349,9 +385,8 @@ function showSection(sec, el) {
   el.classList.add("active");
   document.getElementById("cache-section").style.display   = sec === "cache"   ? "block" : "none";
   document.getElementById("aliases-section").style.display = sec === "aliases" ? "block" : "none";
-  if (sec === "aliases") fetchAliases();
-  if (sec === "cache") startAutoRefresh(10);
-  else stopAutoRefresh();
+  if (sec === "aliases") { fetchAliases(); stopAutoRefresh(); }
+  if (sec === "cache")   { startAutoRefresh(10); }
 }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
