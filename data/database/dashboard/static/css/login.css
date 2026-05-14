@@ -1,0 +1,158 @@
+/* ── Tokens (subset) ─────────────────────────────────────────── */
+:root {
+  --bg:        #0f0f0f;
+  --surface:   #1a1a1a;
+  --border:    #2e2e2e;
+  --text:      #e2e2e2;
+  --muted:     #888;
+  --accent:    #4f98a3;
+  --accent-h:  #3a7f8a;
+  --error-bg:  #2a1010;
+  --error-txt: #f08080;
+  --radius:    0.6rem;
+  --font:      'Inter', system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { height: 100%; }
+
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Card ────────────────────────────────────────────────────── */
+.login-wrap {
+  width: 100%;
+  padding: 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.5);
+  padding: 2.5rem 2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  box-shadow: 0 8px 32px rgba(0,0,0,.45);
+}
+
+.login-logo {
+  font-size: 2.4rem;
+  text-align: center;
+  margin-bottom: 0.25rem;
+}
+
+h1 {
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--text);
+}
+
+.login-sub {
+  text-align: center;
+  font-size: .8rem;
+  color: var(--muted);
+  margin-bottom: 0.75rem;
+}
+
+/* ── Errore ──────────────────────────────────────────────────── */
+.login-error {
+  background: var(--error-bg);
+  color: var(--error-txt);
+  border: 1px solid #5a2020;
+  border-radius: var(--radius);
+  padding: .6rem .9rem;
+  font-size: .85rem;
+  margin-bottom: .25rem;
+}
+
+/* ── Campi ───────────────────────────────────────────────────── */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  margin-top: .75rem;
+}
+
+label {
+  font-size: .8rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  background: #111;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: .65rem .85rem;
+  font-size: .95rem;
+  outline: none;
+  transition: border-color .18s;
+}
+
+input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79,152,163,.18);
+}
+
+/* ── Password toggle ─────────────────────────────────────────── */
+.pwd-wrap {
+  position: relative;
+}
+
+.pwd-wrap input {
+  padding-right: 2.8rem;
+}
+
+.eye-btn {
+  position: absolute;
+  right: .7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: .2rem;
+  display: flex;
+  align-items: center;
+}
+
+.eye-btn:hover { color: var(--text); }
+
+/* ── Bottone submit ──────────────────────────────────────────── */
+.btn-login {
+  margin-top: 1.4rem;
+  width: 100%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: .75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .18s;
+}
+
+.btn-login:hover  { background: var(--accent-h); }
+.btn-login:active { background: #2d666f; }

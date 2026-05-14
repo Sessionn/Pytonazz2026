@@ -1,16 +1,55 @@
 import sqlite3
 import os
 import logging
-from flask import Flask, render_template, jsonify, request
+import functools
+from flask import (
+    Flask, render_template, jsonify, request,
+    session, redirect, url_for
+)
+from dotenv import load_dotenv
+
+# Carica .env dalla root del progetto (tre livelli su rispetto a questo file)
+_ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".env")
+load_dotenv(_ENV_PATH)
+
+
+# ── Filtro werkzeug: silenzia errori 400/505 da scanner TLS/bot ──────────────
+class _ScannerFilter(logging.Filter):
+    _SKIP = (
+        "Bad request version",
+        "Bad HTTP/0.9 request",
+        "Invalid HTTP version",
+    )
+    def filter(self, record):
+        msg = record.getMessage()
+        return not any(s in msg for s in self._SKIP)
+
+
+_wz = logging.getLogger("werkzeug")
+_wz.setLevel(logging.ERROR)
+_wz.addFilter(_ScannerFilter())
 
 
 def create_app():
     app = Flask(__name__)
 
-    # ── Silenzia completamente werkzeug (log HTTP requests) ──────────────────
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    # Chiave segreta per le sessioni (leggi da .env, fallback casuale)
+    app.secret_key = os.getenv("DASH_SECRET_KEY", os.urandom(24))
+
+    # Credenziali dashboard
+    DASH_USER     = os.getenv("DASH_USER", "admin")
+    DASH_PASSWORD = os.getenv("DASH_PASSWORD", "changeme")
 
     DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cache.db")
+
+    # ── Helper auth ──────────────────────────────────────────────────────────
+    def login_required(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            if not session.get("logged_in"):
+                return redirect(url_for("login"))
+            return f(*args, **kwargs)
+        return wrapper
 
     def query_db(sql, args=()):
         conn = sqlite3.connect(DB_PATH)
@@ -19,7 +58,27 @@ def create_app():
         conn.close()
         return rows
 
+    # ── Route login ──────────────────────────────────────────────────────────
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        error = None
+        if request.method == "POST":
+            user = request.form.get("username", "").strip()
+            pwd  = request.form.get("password", "")
+            if user == DASH_USER and pwd == DASH_PASSWORD:
+                session["logged_in"] = True
+                return redirect(url_for("index"))
+            error = "Credenziali errate."
+        return render_template("login.html", error=error)
+
+    @app.route("/logout")
+    def logout():
+        session.clear()
+        return redirect(url_for("login"))
+
+    # ── Route protette ───────────────────────────────────────────────────────
     @app.route("/")
+    @login_required
     def index():
         stats = query_db("""
             SELECT
@@ -33,6 +92,7 @@ def create_app():
         return render_template("index.html", stats=stats, aliases_count=aliases_count)
 
     @app.route("/api/songs")
+    @login_required
     def api_songs():
         search = request.args.get("q", "").strip()
         source = request.args.get("source", "")
@@ -63,6 +123,7 @@ def create_app():
         return jsonify(rows)
 
     @app.route("/api/aliases")
+    @login_required
     def api_aliases():
         rows = query_db("""
             SELECT qa.id, qa.query_raw, qa.cache_id,
@@ -74,6 +135,7 @@ def create_app():
         return jsonify(rows)
 
     @app.route("/api/delete/<int:row_id>", methods=["DELETE"])
+    @login_required
     def delete_song(row_id):
         conn = sqlite3.connect(DB_PATH)
         conn.execute("DELETE FROM song_cache WHERE id = ?", (row_id,))
@@ -84,8 +146,7 @@ def create_app():
     return app
 
 
-# ── Avvio standalone (test locale senza bot) ─────────────────────────────────
+# ── Avvio standalone ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
     flask_app = create_app()
     flask_app.run(host="0.0.0.0", port=5000, debug=False)
