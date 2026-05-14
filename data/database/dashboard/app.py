@@ -8,41 +8,50 @@ from flask import (
 )
 from dotenv import load_dotenv
 
-# Carica .env dalla root del progetto (tre livelli su rispetto a questo file)
+# Carica .env dalla root del progetto
 _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".env")
 load_dotenv(_ENV_PATH)
 
 
-# ── Filtro werkzeug: silenzia errori 400/505 da scanner TLS/bot ──────────────
-class _ScannerFilter(logging.Filter):
-    _SKIP = (
-        "Bad request version",
-        "Bad HTTP/0.9 request",
-        "Invalid HTTP version",
-    )
+# ── Logger dedicato per connessioni anomale (scanner TLS/bot) ────────────
+_net_log = logging.getLogger("NET_SCAN")
+
+_SCANNER_SIGNATURES = (
+    "Bad request version",
+    "Bad HTTP/0.9 request",
+    "Invalid HTTP version",
+)
+
+_LOG_SCANNERS = os.getenv("DASH_LOG_SCANNERS", "true").lower() == "true"
+
+
+class _WerkzeugScannerFilter(logging.Filter):
+    """Intercetta i messaggi werkzeug da scanner/bot e li reinvia a NET_SCAN."""
     def filter(self, record):
         msg = record.getMessage()
-        return not any(s in msg for s in self._SKIP)
+        if any(s in msg for s in _SCANNER_SIGNATURES):
+            if _LOG_SCANNERS:
+                _net_log.warning("[NET_SCAN] %s", msg)
+            return False  # rimuove dal log werkzeug originale
+        return True
 
 
 _wz = logging.getLogger("werkzeug")
 _wz.setLevel(logging.ERROR)
-_wz.addFilter(_ScannerFilter())
+_wz.addFilter(_WerkzeugScannerFilter())
 
 
 def create_app():
     app = Flask(__name__)
 
-    # Chiave segreta per le sessioni (leggi da .env, fallback casuale)
-    app.secret_key = os.getenv("DASH_SECRET_KEY", os.urandom(24))
+    app.secret_key = os.getenv("DASH_SECRET_KEY") or os.urandom(24)
 
-    # Credenziali dashboard
     DASH_USER     = os.getenv("DASH_USER", "admin")
     DASH_PASSWORD = os.getenv("DASH_PASSWORD", "changeme")
 
     DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cache.db")
 
-    # ── Helper auth ──────────────────────────────────────────────────────────
+    # ── Helper ─────────────────────────────────────────────────────────
     def login_required(f):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
@@ -58,7 +67,7 @@ def create_app():
         conn.close()
         return rows
 
-    # ── Route login ──────────────────────────────────────────────────────────
+    # ── Login / Logout ────────────────────────────────────────────
     @app.route("/login", methods=["GET", "POST"])
     def login():
         error = None
@@ -76,7 +85,7 @@ def create_app():
         session.clear()
         return redirect(url_for("login"))
 
-    # ── Route protette ───────────────────────────────────────────────────────
+    # ── Route protette ─────────────────────────────────────────────
     @app.route("/")
     @login_required
     def index():
@@ -146,7 +155,9 @@ def create_app():
     return app
 
 
-# ── Avvio standalone ─────────────────────────────────────────────────────────
+# ── Avvio standalone ──────────────────────────────────────────────────────
 if __name__ == "__main__":
+    socket  = os.getenv("DASHBOARD_SOCKET", "0.0.0.0:5000")
+    host, port = socket.rsplit(":", 1)
     flask_app = create_app()
-    flask_app.run(host="0.0.0.0", port=5000, debug=False)
+    flask_app.run(host=host, port=int(port), debug=False)
