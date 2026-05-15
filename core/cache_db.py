@@ -51,9 +51,14 @@ _conn: Optional[sqlite3.Connection] = None
 # Flag runtime: permette di sapere se il DB e' stato inizializzato con enabled=True
 _enabled: bool = False
 
-# Regex per riconoscere URL Spotify
+# Regex per riconoscere URL Spotify.
+# Gestisce:
+#   - https://open.spotify.com/track/ID
+#   - https://open.spotify.com/intl-it/track/ID   (link localizzati)
+#   - https://open.spotify.com/intl-es/album/ID   (qualsiasi lingua)
+# Il segmento /intl-XX/ e' opzionale e viene ignorato nella normalizzazione.
 _RE_SPOTIFY = re.compile(
-    r"https?://open\.spotify\.com/(track|album|playlist)/([A-Za-z0-9]+)",
+    r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album|playlist)/([A-Za-z0-9]+)",
     re.IGNORECASE,
 )
 
@@ -66,11 +71,11 @@ def _is_spotify_url(query: str) -> bool:
 
 
 def _extract_spotify_id(url: str) -> str:
-    """Estrae l'ID Spotify (track/album/playlist) normalizzando parametri query."""
+    """Estrae l'ID Spotify (track/album/playlist) normalizzando parametri query e prefissi /intl-XX/."""
     m = _RE_SPOTIFY.search(url.strip())
     if not m:
         return url.strip()
-    # Restituisce l'URL canonico senza parametri (?si=...)
+    # Restituisce l'URL canonico senza /intl-XX/ e senza parametri (?si=...)
     return f"https://open.spotify.com/{m.group(1)}/{m.group(2)}"
 
 
@@ -340,7 +345,7 @@ def put(query: str, track) -> None:
     thumbnail   = (_g("thumbnail", "") or "").strip()
     spotify_url = (_g("spotify_url", "") or "").strip()
 
-    # Se la query e' un link Spotify, normalizza il suo ID
+    # Se la query e' un link Spotify, normalizza il suo ID (rimuove /intl-XX/ e ?si=)
     if is_spotify:
         spotify_url = spotify_url or _extract_spotify_id(query_stripped)
 

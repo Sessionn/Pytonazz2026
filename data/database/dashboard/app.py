@@ -30,14 +30,20 @@ _SCANNER_SIGNATURES = (
 
 _LOG_SCANNERS = os.getenv("DASH_LOG_SCANNERS", "true").lower() == "true"
 
+# Regex per riconoscere URL Spotify.
+# Gestisce:
+#   - https://open.spotify.com/track/ID
+#   - https://open.spotify.com/intl-it/track/ID   (link localizzati italiani)
+#   - https://open.spotify.com/intl-es/album/ID   (qualsiasi lingua)
+# Il segmento /intl-XX/ e' opzionale e viene ignorato nella normalizzazione.
 _RE_SPOTIFY = re.compile(
-    r"https?://open\.spotify\.com/(track|album|playlist)/([A-Za-z0-9]+)",
+    r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album|playlist)/([A-Za-z0-9]+)",
     re.IGNORECASE,
 )
 
 
 def _extract_spotify_id(url: str) -> str:
-    """Normalizza un link Spotify rimuovendo i parametri query (?si=...)."""
+    """Normalizza un link Spotify rimuovendo /intl-XX/ e i parametri query (?si=...)."""
     m = _RE_SPOTIFY.search(url.strip())
     if not m:
         return url.strip()
