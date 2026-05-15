@@ -16,11 +16,22 @@ API pubblica:
     prune_lru(max_entries, ttl_days) -> int
     clear()                   -> int  (numero righe eliminate)
     clear_all()               -> int  (alias di clear())
+
+Note sul comportamento degli alias:
+    - query_aliases viene popolata automaticamente da put() ogni volta che
+      la stessa traccia (stesso webpage_url) viene salvata con una query
+      testuale diversa da quella originale.
+    - I link Spotify usati come query vengono cachati intelligentemente:
+      la traccia viene salvata sotto la canonical testuale (titolo+artista)
+      e il link Spotify viene registrato come alias -> canonical, cosi'
+      successive ricerche per lo stesso link o per testo trovano lo stesso
+      record senza duplicati.
 """
 
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -39,6 +50,46 @@ _conn: Optional[sqlite3.Connection] = None
 
 # Flag runtime: permette di sapere se il DB e' stato inizializzato con enabled=True
 _enabled: bool = False
+
+# Regex per riconoscere URL Spotify
+_RE_SPOTIFY = re.compile(
+    r"https?://open\.spotify\.com/(track|album|playlist)/([A-Za-z0-9]+)",
+    re.IGNORECASE,
+)
+
+
+# ── Helpers query ──────────────────────────────────────────
+
+def _is_spotify_url(query: str) -> bool:
+    """Restituisce True se la query e' un link Spotify."""
+    return bool(_RE_SPOTIFY.search(query.strip()))
+
+
+def _extract_spotify_id(url: str) -> str:
+    """Estrae l'ID Spotify (track/album/playlist) normalizzando parametri query."""
+    m = _RE_SPOTIFY.search(url.strip())
+    if not m:
+        return url.strip()
+    # Restituisce l'URL canonico senza parametri (?si=...)
+    return f"https://open.spotify.com/{m.group(1)}/{m.group(2)}"
+
+
+def _canonical_for_track(track) -> Optional[str]:
+    """
+    Costruisce una canonical key testuale (title + artist) da un oggetto traccia.
+    Usata per salvare un link Spotify sotto la stessa entry testuale.
+    """
+    def _g(attr):
+        if isinstance(track, dict):
+            return (track.get(attr) or "").strip()
+        return (getattr(track, attr, "") or "").strip()
+
+    title  = _g("title")
+    artist = _g("artist")
+    if not title:
+        return None
+    canonical = f"{title} {artist}".strip().lower() if artist else title.lower()
+    return canonical
 
 
 # ── Connessione ────────────────────────────────────────────
@@ -99,9 +150,12 @@ CREATE TABLE IF NOT EXISTS query_aliases (
     cache_id   INTEGER NOT NULL REFERENCES song_cache(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_qhash  ON song_cache(query_hash);
-CREATE INDEX IF NOT EXISTS idx_alias  ON query_aliases(query_hash);
-CREATE INDEX IF NOT EXISTS idx_valid  ON song_cache(is_valid);
+CREATE INDEX IF NOT EXISTS idx_qhash      ON song_cache(query_hash);
+CREATE INDEX IF NOT EXISTS idx_spotify    ON song_cache(spotify_url);
+CREATE INDEX IF NOT EXISTS idx_webpage    ON song_cache(webpage_url);
+CREATE INDEX IF NOT EXISTS idx_alias      ON query_aliases(query_hash);
+CREATE INDEX IF NOT EXISTS idx_alias_cid  ON query_aliases(cache_id);
+CREATE INDEX IF NOT EXISTS idx_valid      ON song_cache(is_valid);
 """
 
 
@@ -168,12 +222,22 @@ def init_db(
 
 
 def get(query: str) -> Optional[dict]:
-    """Restituisce la riga cachata per query, o None se assente/scaduta."""
+    """
+    Cerca la query nel DB in 4 step:
+      1. Exact hash hit (query testuale identica)
+      2. Alias hash hit (query registrata come alias)
+      3. Spotify URL hit (query e' un link Spotify gia' salvato)
+      4. Lookup diretto su spotify_url nel DB (se query e' URL Spotify)
+    """
     if not query or not _enabled:
         return None
-    h = _hash(query)
+
+    query_stripped = query.strip()
+    h = _hash(query_stripped)
     cutoff = _ttl_cutoff()
+
     with _cursor() as cur:
+        # Step 1 + 2: exact hash oppure alias
         cur.execute(
             """
             SELECT sc.*
@@ -189,39 +253,137 @@ def get(query: str) -> Optional[dict]:
             (h, cutoff, h, cutoff),
         )
         row = cur.fetchone()
+
+        # Step 3 + 4: se la query e' un link Spotify, cerca per spotify_url
+        if row is None and _is_spotify_url(query_stripped):
+            spotify_id = _extract_spotify_id(query_stripped)
+            cur.execute(
+                """
+                SELECT * FROM song_cache
+                 WHERE spotify_url = ? AND is_valid = 1 AND last_used >= ?
+                 LIMIT 1
+                """,
+                (spotify_id, cutoff),
+            )
+            row = cur.fetchone()
+            if row:
+                # Promuovi anche il link come alias per evitare ricerche future
+                _promote_alias_inner(cur, query_stripped, row["id"])
+
         if row is None:
-            log.info(tag("CACHE_DB", f"\U0001f50d {hi('MISS', _GRY)}  {b(query)}"))
+            log.info(tag("CACHE_DB", f"\U0001f50d {hi('MISS', _GRY)}  {b(query_stripped)}"))
             return None
+
         cur.execute(
             "UPDATE song_cache SET last_used = strftime('%s','now'), hit_count = hit_count + 1 WHERE id = ?",
             (row["id"],),
         )
-    title  = row["title"]  or query
+
+    title  = row["title"]  or query_stripped
     artist = row["artist"] or ""
     label  = f"{b(title)}" + (f"  {artist}" if artist else "")
     log.info(tag("CACHE_DB", f"\u2705 {hi('HIT', _BGRN)}  {label}  hits={row['hit_count'] + 1}"))
     return dict(row)
 
 
+def _promote_alias_inner(cur: sqlite3.Cursor, query_raw: str, cache_id: int) -> None:
+    """
+    Registra query_raw come alias per cache_id.
+    Usato internamente (dentro un _cursor() gia' aperto).
+    """
+    h = _hash(query_raw)
+    try:
+        cur.execute(
+            """
+            INSERT INTO query_aliases (query_hash, query_raw, cache_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(query_hash) DO UPDATE SET
+                query_raw = excluded.query_raw,
+                cache_id  = excluded.cache_id
+            """,
+            (h, query_raw.strip(), cache_id),
+        )
+    except Exception:
+        pass
+
+
 def put(query: str, track) -> None:
     """
     Salva/aggiorna una TrackInfo nel DB.
     track puo' essere un oggetto TrackInfo o un dict.
+
+    Logica alias automatica:
+    - Se query e' un link Spotify:
+        * La traccia viene salvata sotto la canonical testuale (titolo+artista).
+        * Il link Spotify viene registrato come alias -> canonical entry.
+    - Se query e' testuale e webpage_url e' gia' in DB sotto un hash diverso:
+        * La nuova query viene registrata come alias -> entry esistente.
+    - In entrambi i casi lo spotify_url viene scritto sulla entry canonical
+      cosi' i lookup futuri per URL Spotify trovano hit immediato.
     """
     if not query or not _enabled:
         return
-    h = _hash(query)
+
+    query_stripped = query.strip()
+    is_spotify = _is_spotify_url(query_stripped)
 
     def _g(attr: str, default=None):
         if isinstance(track, dict):
             return track.get(attr, default)
         return getattr(track, attr, default)
 
-    title  = _g("title",  "") or query
-    artist = _g("artist", "") or ""
+    title       = (_g("title",  "") or "").strip() or query_stripped
+    artist      = (_g("artist", "") or "").strip()
+    webpage_url = (_g("webpage_url", "") or "").strip()
+    source      = (_g("source", "youtube") or "youtube").strip()
+    duration    = int(_g("duration") or 0)
+    thumbnail   = (_g("thumbnail", "") or "").strip()
+    spotify_url = (_g("spotify_url", "") or "").strip()
+
+    # Se la query e' un link Spotify, normalizza il suo ID
+    if is_spotify:
+        spotify_url = spotify_url or _extract_spotify_id(query_stripped)
+
+    # Determina la query canonical da usare come chiave principale nel DB:
+    # - se la query e' un link Spotify, usa titolo+artista come canonical
+    # - altrimenti usa la query stessa
+    if is_spotify:
+        canonical_query = _canonical_for_track(track) or title.lower()
+    else:
+        canonical_query = query_stripped
+
+    h_canonical = _hash(canonical_query)
+    h_original  = _hash(query_stripped)
 
     with _cursor() as cur:
-        cur.execute("SELECT id FROM song_cache WHERE query_hash = ?", (h,))
+        # Controlla se esiste gia' una entry per questa webpage_url
+        # (traccia stessa, query diversa -> promuovi alias)
+        row_by_url = None
+        if webpage_url:
+            cur.execute(
+                "SELECT id, query_hash FROM song_cache WHERE webpage_url = ? AND is_valid = 1 LIMIT 1",
+                (webpage_url,),
+            )
+            row_by_url = cur.fetchone()
+
+        if row_by_url and row_by_url["query_hash"] != h_canonical:
+            # Traccia gia' in cache sotto un hash diverso: promuovi alias
+            existing_id = row_by_url["id"]
+            _promote_alias_inner(cur, canonical_query, existing_id)
+            if is_spotify and h_original != h_canonical:
+                _promote_alias_inner(cur, query_stripped, existing_id)
+            # Aggiorna spotify_url se mancava
+            if spotify_url:
+                cur.execute(
+                    "UPDATE song_cache SET spotify_url = ?, last_used = strftime('%s','now'), hit_count = hit_count + 1 "
+                    "WHERE id = ? AND (spotify_url IS NULL OR spotify_url = '')",
+                    (spotify_url, existing_id),
+                )
+            log.info(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _CYN)}  {b(query_stripped)}  \u2192  {b(title)}"))
+            return
+
+        # Inserisci o aggiorna la entry canonical
+        cur.execute("SELECT id FROM song_cache WHERE query_hash = ?", (h_canonical,))
         existing = cur.fetchone()
 
         cur.execute(
@@ -231,29 +393,41 @@ def put(query: str, track) -> None:
                  duration, thumbnail, spotify_url)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(query_hash) DO UPDATE SET
-                webpage_url = excluded.webpage_url,
+                webpage_url = CASE WHEN excluded.webpage_url != '' THEN excluded.webpage_url ELSE webpage_url END,
                 source      = excluded.source,
                 title       = excluded.title,
                 artist      = excluded.artist,
                 duration    = excluded.duration,
                 thumbnail   = excluded.thumbnail,
-                spotify_url = excluded.spotify_url,
+                spotify_url = CASE WHEN excluded.spotify_url != '' THEN excluded.spotify_url ELSE spotify_url END,
                 last_used   = strftime('%s','now'),
                 hit_count   = hit_count + 1,
                 is_valid    = 1
             """,
             (
-                h,
-                query.strip(),
-                _g("webpage_url", ""),
-                _g("source", "youtube"),
+                h_canonical,
+                canonical_query,
+                webpage_url,
+                source,
                 title,
                 artist,
-                int(_g("duration") or 0),
-                _g("thumbnail", ""),
-                _g("spotify_url", ""),
+                duration,
+                thumbnail,
+                spotify_url,
             ),
         )
+
+        # Recupera l'id della entry canonical (appena inserita o gia' esistente)
+        cur.execute("SELECT id FROM song_cache WHERE query_hash = ?", (h_canonical,))
+        entry_row = cur.fetchone()
+        if entry_row:
+            entry_id = entry_row["id"]
+            # Se la query originale era un link Spotify, registrala come alias
+            if is_spotify and h_original != h_canonical:
+                _promote_alias_inner(cur, query_stripped, entry_id)
+                # Registra anche il link Spotify normalizzato come alias
+                if spotify_url and _hash(spotify_url) != h_canonical:
+                    _promote_alias_inner(cur, spotify_url, entry_id)
 
     label = f"{b(title)}" + (f"  {artist}" if artist else "")
     if existing:
