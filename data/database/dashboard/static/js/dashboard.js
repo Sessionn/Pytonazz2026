@@ -4,6 +4,8 @@ let debounceTimer;
 let autoRefreshInterval  = null;
 let statsRefreshInterval = null;
 let _lastIds = new Set();
+// Snapshot degli URL per rilevare cambi senza full re-render
+let _lastUrls = new Map(); // id -> { webpage_url, spotify_url }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
@@ -60,16 +62,11 @@ function animateCounters() {
   });
 }
 
-/**
- * Tween numerico da `from` a `to` in `duration` ms.
- * Usa easing ease-out-cubic. Anima la stat-card parent con pop+flash.
- */
 function _tweenCounter(el, from, to, duration = 600) {
-  // trova la stat-card parent per animarla
   const card = el.closest(".stat-card");
   if (card && from !== to) {
     card.classList.remove("updating");
-    void card.offsetWidth; // forza reflow per ri-triggerare l'animazione
+    void card.offsetWidth;
     card.classList.add("updating");
     const removeUpdating = () => card.classList.remove("updating");
     card.addEventListener("animationend", removeUpdating, { once: true });
@@ -152,7 +149,8 @@ function fetchSongs(silent = false) {
       if (data.length === 0) {
         document.getElementById("songs-body").innerHTML =
           `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted)">Nessun risultato trovato.</td></tr>`;
-        _lastIds = new Set();
+        _lastIds  = new Set();
+        _lastUrls = new Map();
         return;
       }
       if (silent) {
@@ -170,19 +168,23 @@ function debouncedFetch() {
 }
 
 // ── ACTION BUTTONS HELPERS ────────────────────────────────────────────────────────────
-/**
- * Genera un pulsante azione link (YouTube o Spotify).
- * Se url è presente: ancora cliccabile. Se assente: span con classe disabled.
- * @param {string|null} url
- * @param {string} label   testo/icona mostrata
- * @param {string} extraClass  classe CSS aggiuntiva (es. "sp")
- * @param {string} title   tooltip
- */
 function makeActionLink(url, label, extraClass, title) {
   if (url) {
     return `<a class="link-btn${extraClass ? " " + extraClass : ""}" href="${esc(url)}" target="_blank" title="${esc(title)}">${label}</a>`;
   }
   return `<span class="link-btn${extraClass ? " " + extraClass : ""} disabled" title="${esc(title + " (non disponibile)")}" aria-disabled="true">${label}</span>`;
+}
+
+// Aggiorna in-place i pulsanti azione di una riga esistente senza toccare il resto
+function _patchRowActions(tr, s) {
+  const actionsDiv = tr.querySelector(".row-actions");
+  if (!actionsDiv) return;
+  const webLink = makeActionLink(s.webpage_url, "▶", "",    "Apri su YouTube");
+  const spLink  = makeActionLink(s.spotify_url,  "♫", "sp", "Apri su Spotify");
+  // Sostituisce solo i due link-btn, lascia intatto il del-btn
+  const delBtn = actionsDiv.querySelector(".del-btn");
+  actionsDiv.innerHTML = webLink + spLink;
+  if (delBtn) actionsDiv.appendChild(delBtn);
 }
 
 // ── BUILD ROW ──────────────────────────────────────────────────────────────────────────────
@@ -236,19 +238,20 @@ function buildRow(s, i = 0) {
   return tr;
 }
 
-// ── RENDER SONGS (primo caricamento) ────────────────────────────────────────────────────────
+// ── RENDER SONGS (primo caricamento / ricerca / sort) ────────────────────────────────────────────────
 function renderSongs(data) {
   const tbody = document.getElementById("songs-body");
   tbody.innerHTML = "";
   data.forEach((s, i) => tbody.appendChild(buildRow(s, i)));
-  _lastIds = new Set(data.map(s => s.id));
+  _lastIds  = new Set(data.map(s => s.id));
+  _lastUrls = new Map(data.map(s => [s.id, { webpage_url: s.webpage_url, spotify_url: s.spotify_url }]));
 }
 
 // ── RENDER DIFF (silent refresh) ────────────────────────────────────────────────────────────────
 function renderSongsDiff(data) {
   const newIds = new Set(data.map(s => s.id));
 
-  // rimuovi righe eliminate dal db
+  // 1. Rimuovi righe eliminate dal db
   document.querySelectorAll("#songs-body tr[data-id]").forEach(tr => {
     if (!newIds.has(parseInt(tr.dataset.id))) {
       tr.style.transition = "opacity .4s, transform .4s";
@@ -258,40 +261,54 @@ function renderSongsDiff(data) {
     }
   });
 
-  // aggiorna hit_count delle righe gia' visibili
+  // 2. Aggiorna righe già visibili (hit_count + pulsanti se URL cambiati)
   data.forEach(s => {
     const tr = document.querySelector(`#songs-body tr[data-id="${s.id}"]`);
     if (!tr) return;
+
+    // aggiorna hit_count
     const hitsCell = tr.querySelector(".hits-num");
     if (hitsCell) {
       const old = parseInt(hitsCell.textContent.replace(/\D/g, "")) || 0;
       if (old !== s.hit_count) {
         hitsCell.textContent = s.hit_count ?? 0;
         hitsCell.classList.remove("flash");
-        void hitsCell.offsetWidth; // reflow
+        void hitsCell.offsetWidth;
         hitsCell.classList.add("flash");
         hitsCell.addEventListener("animationend",
           () => hitsCell.classList.remove("flash"), { once: true });
       }
     }
+
+    // aggiorna pulsanti azione se webpage_url o spotify_url sono cambiati
+    const prev = _lastUrls.get(s.id) || {};
+    if (prev.webpage_url !== s.webpage_url || prev.spotify_url !== s.spotify_url) {
+      _patchRowActions(tr, s);
+      _lastUrls.set(s.id, { webpage_url: s.webpage_url, spotify_url: s.spotify_url });
+    }
   });
 
-  // righe nuove: toast + re-render completo ordinato (evita riga fantasma)
+  // 3. Righe nuove: inseriscile in cima senza toccare le esistenti
   const addedIds = [...newIds].filter(id => !_lastIds.has(id));
   _lastIds = newIds;
+
   if (addedIds.length > 0) {
     showToast(`+${addedIds.length} nuova traccia in cache`, "success");
-    // Re-render completo con i dati già in memoria: la riga appare
-    // nella posizione corretta rispetto al sort attivo, senza un nuovo fetch.
-    renderSongs(data);
-    // Evidenzia brevemente le righe nuove
-    addedIds.forEach(id => {
-      const tr = document.querySelector(`#songs-body tr[data-id="${id}"]`);
-      if (tr) {
-        tr.classList.add("row-new");
-        setTimeout(() => tr.classList.remove("row-new"), 3000);
-      }
+    const tbody = document.getElementById("songs-body");
+    const newSongs = data.filter(s => addedIds.includes(s.id));
+    newSongs.forEach(s => {
+      const newTr = buildRow(s, 0);
+      // Animazione slide-in invece di rowIn
+      newTr.style.animation = "none";
+      tbody.prepend(newTr);
+      // Forza reflow poi applica rowSlideIn
+      void newTr.offsetWidth;
+      newTr.style.animation = "";
+      newTr.classList.add("row-new");
+      setTimeout(() => newTr.classList.remove("row-new"), 3000);
     });
+    // Aggiorna snapshot URLs per le nuove righe
+    newSongs.forEach(s => _lastUrls.set(s.id, { webpage_url: s.webpage_url, spotify_url: s.spotify_url }));
   }
 }
 
@@ -357,6 +374,7 @@ function deleteSong(id) {
           setTimeout(() => tr.remove(), 300);
         }
         _lastIds.delete(id);
+        _lastUrls.delete(id);
         showToast("Entry eliminata", "success");
         closeModal();
         setTimeout(refreshStats, 350);
