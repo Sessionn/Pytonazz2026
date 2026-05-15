@@ -5,7 +5,7 @@ let autoRefreshInterval  = null;
 let statsRefreshInterval = null;
 let _lastIds = new Set();
 
-// ── INIT ──────────────────────────────────────────────────────────────────────
+// ── INIT ──────────────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   const saved = localStorage.getItem("theme") || "dark";
   document.documentElement.setAttribute("data-theme", saved);
@@ -31,7 +31,7 @@ function updateGenTime() {
     "Aggiornato: " + new Date().toLocaleString("it-IT");
 }
 
-// ── THEME ─────────────────────────────────────────────────────────────────────
+// ── THEME ───────────────────────────────────────────────────────────────────────────
 function toggleTheme() {
   const html = document.documentElement;
   const newTheme = html.getAttribute("data-theme") === "light" ? "dark" : "light";
@@ -52,7 +52,7 @@ function updateThemeUI(theme) {
   }
 }
 
-// ── COUNTER ANIMATION ─────────────────────────────────────────────────────────
+// ── COUNTER ANIMATION ────────────────────────────────────────────────────────────────
 function animateCounters() {
   document.querySelectorAll(".count-up").forEach(el => {
     const target = parseInt(el.dataset.target) || 0;
@@ -62,19 +62,8 @@ function animateCounters() {
 
 /**
  * Tween numerico da `from` a `to` in `duration` ms.
- * Usa easing ease-out-cubic.
+ * Usa easing ease-out-cubic. Anima la stat-card parent con pop+flash.
  */
-function _tweenCounter(el, from, to, duration = 600) {
-  const start = performance.now();
-  const update = (now) => {
-    const p = Math.min((now - start) / duration, 1);
-    const eased = 1 - Math.pow(1 - p, 3);
-    el.textContent = Math.round(from + (to - from) * eased);
-    if (p < 1) requestAnimationFrame(update);
-  };
-  requestAnimationFrame(update);
-}
-
 function _tweenCounter(el, from, to, duration = 600) {
   // trova la stat-card parent per animarla
   const card = el.closest(".stat-card");
@@ -96,11 +85,7 @@ function _tweenCounter(el, from, to, duration = 600) {
   requestAnimationFrame(update);
 }
 
-// ── STATS REAL-TIME ───────────────────────────────────────────────────────────
-/**
- * Chiama /api/stats e aggiorna ogni .val[data-stat] con tween animato
- * se il valore e' cambiato. Aggiorna anche l'etichetta gen-time.
- */
+// ── STATS REAL-TIME ────────────────────────────────────────────────────────────────
 function refreshStats() {
   fetch("/api/stats")
     .then(r => {
@@ -120,7 +105,7 @@ function refreshStats() {
       });
       updateGenTime();
     })
-    .catch(() => { /* silenzioso: non mostrare toast per errori di stats */ });
+    .catch(() => { /* silenzioso */ });
 }
 
 function startStatsRefresh(seconds = 8) {
@@ -135,7 +120,7 @@ function stopStatsRefresh() {
   }
 }
 
-// ── AUTO REFRESH (song rows) ───────────────────────────────────────────────────
+// ── AUTO REFRESH (song rows) ──────────────────────────────────────────────────────────────────
 function startAutoRefresh(seconds = 10) {
   stopAutoRefresh();
   autoRefreshInterval = setInterval(() => {
@@ -151,7 +136,7 @@ function stopAutoRefresh() {
   }
 }
 
-// ── FETCH SONGS ───────────────────────────────────────────────────────────────
+// ── FETCH SONGS ─────────────────────────────────────────────────────────────────────────────
 function fetchSongs(silent = false) {
   const q      = document.getElementById("search-input").value;
   const source = document.getElementById("filter-source").value;
@@ -184,7 +169,7 @@ function debouncedFetch() {
   debounceTimer = setTimeout(() => fetchSongs(false), 280);
 }
 
-// ── BUILD ROW ─────────────────────────────────────────────────────────────────
+// ── BUILD ROW ──────────────────────────────────────────────────────────────────────────────
 function buildRow(s, i = 0) {
   const src = s.source || "youtube";
   const srcColor = src === "spotify" ? "#1DB954" : "#e5173f";
@@ -236,7 +221,7 @@ function buildRow(s, i = 0) {
   return tr;
 }
 
-// ── RENDER SONGS (primo caricamento) ──────────────────────────────────────────
+// ── RENDER SONGS (primo caricamento) ────────────────────────────────────────────────────────
 function renderSongs(data) {
   const tbody = document.getElementById("songs-body");
   tbody.innerHTML = "";
@@ -244,7 +229,7 @@ function renderSongs(data) {
   _lastIds = new Set(data.map(s => s.id));
 }
 
-// ── RENDER DIFF (silent refresh) ──────────────────────────────────────────────
+// ── RENDER DIFF (silent refresh) ────────────────────────────────────────────────────────────────
 function renderSongsDiff(data) {
   const newIds = new Set(data.map(s => s.id));
 
@@ -276,27 +261,23 @@ function renderSongsDiff(data) {
     }
   });
 
-  // aggiungi righe nuove con classe row-new
+  // righe nuove: toast + re-render completo ordinato (evita riga fantasma)
   const addedIds = [...newIds].filter(id => !_lastIds.has(id));
-  if (addedIds.length > 0) {
-    const tbody = document.getElementById("songs-body");
-    const newSongs = data.filter(s => addedIds.includes(s.id));
-    newSongs.reverse().forEach(s => {
-      if (tbody.querySelector(`tr[data-id="${s.id}"]`)) return;
-      const tr = buildRow(s);
-      tr.classList.add("row-new");
-      tr.style.animation = "none"; // previene rowIn, verrà rimpiazzata da row-new
-      tbody.prepend(tr);
-      // rimuovi row-new dopo 3s lasciando la riga visibile
-      setTimeout(() => {
-        tr.classList.remove("row-new");
-        tr.style.background = "";
-      }, 3000);
-    });
-    showToast(`+${addedIds.length} nuova traccia`, "success");
-  }
-
   _lastIds = newIds;
+  if (addedIds.length > 0) {
+    showToast(`+${addedIds.length} nuova traccia in cache`, "success");
+    // Re-render completo con i dati già in memoria: la riga appare
+    // nella posizione corretta rispetto al sort attivo, senza un nuovo fetch.
+    renderSongs(data);
+    // Evidenzia brevemente le righe nuove
+    addedIds.forEach(id => {
+      const tr = document.querySelector(`#songs-body tr[data-id="${id}"]`);
+      if (tr) {
+        tr.classList.add("row-new");
+        setTimeout(() => tr.classList.remove("row-new"), 3000);
+      }
+    });
+  }
 }
 
 function setSearch(val) {
@@ -304,7 +285,7 @@ function setSearch(val) {
   fetchSongs(false);
 }
 
-// ── SORT ──────────────────────────────────────────────────────────────────────
+// ── SORT ───────────────────────────────────────────────────────────────────────────────────────────
 function sortBy(col) {
   if (currentSort === col) {
     currentOrder = currentOrder === "desc" ? "asc" : "desc";
@@ -331,7 +312,7 @@ function clearFilters() {
   fetchSongs(false);
 }
 
-// ── SKELETON ──────────────────────────────────────────────────────────────────
+// ── SKELETON ──────────────────────────────────────────────────────────────────────────────────────
 function showSkeleton() {
   const tbody = document.getElementById("songs-body");
   const widths = [30, 140, 90, 60, 40, 30, 80, 80, 55, 50];
@@ -347,7 +328,7 @@ function hideSkeleton() {
     .forEach(el => el.closest("tr")?.remove());
 }
 
-// ── DELETE ────────────────────────────────────────────────────────────────────
+// ── DELETE SONG ────────────────────────────────────────────────────────────────────────────────────
 function deleteSong(id) {
   const tr = document.querySelector(`tr[data-id="${id}"]`);
   fetch("/api/delete/" + id, { method: "DELETE" })
@@ -363,14 +344,33 @@ function deleteSong(id) {
         _lastIds.delete(id);
         showToast("Entry eliminata", "success");
         closeModal();
-        // aggiorna subito le stat card dopo una delete
         setTimeout(refreshStats, 350);
       }
     })
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
 }
 
-// ── MODAL ─────────────────────────────────────────────────────────────────────
+// ── DELETE ALIAS ───────────────────────────────────────────────────────────────────────────────────
+function deleteAlias(id) {
+  const tr = document.querySelector(`tr[data-alias-id="${id}"]`);
+  fetch("/api/aliases/" + id, { method: "DELETE" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        if (tr) {
+          tr.style.transition = "opacity .3s, transform .3s";
+          tr.style.opacity = "0";
+          tr.style.transform = "translateX(20px)";
+          setTimeout(() => tr.remove(), 300);
+        }
+        showToast("Alias eliminato", "success");
+        setTimeout(refreshStats, 350);
+      }
+    })
+    .catch(() => showToast("Errore durante l'eliminazione alias", "error"));
+}
+
+// ── MODAL ───────────────────────────────────────────────────────────────────────────────────────────
 function openModal(s) {
   const thumbHtml = s.thumbnail
     ? `<img class="modal-thumb" src="${esc(s.thumbnail)}">` : "";
@@ -413,16 +413,21 @@ document.getElementById("modal-bg").addEventListener("click", e => {
   if (e.target === document.getElementById("modal-bg")) closeModal();
 });
 
-// ── ALIASES ───────────────────────────────────────────────────────────────────
+// ── ALIASES ──────────────────────────────────────────────────────────────────────────────────────────
 function fetchAliases() {
   fetch("/api/aliases").then(r => r.json()).then(data => {
     const tbody = document.getElementById("aliases-body");
     if (data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--muted)">Nessun alias registrato.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--muted)">Nessun alias registrato.</td></tr>`;
       return;
     }
-    tbody.innerHTML = data.map((a, i) => `
-      <tr style="animation-delay:${i * 25}ms">
+    tbody.innerHTML = data.map((a, i) => {
+      const spLink = a.spotify_url
+        ? `<a class="link-btn sp" href="${esc(a.spotify_url)}" target="_blank">♫</a>` : "";
+      const webLink = a.webpage_url
+        ? `<a class="link-btn" href="${esc(a.webpage_url)}" target="_blank">▶</a>` : "";
+      return `
+      <tr style="animation-delay:${i * 25}ms" data-alias-id="${a.id}">
         <td class="id-col">${a.id}</td>
         <td class="dim">${esc(a.query_raw || "")}</td>
         <td>
@@ -430,12 +435,18 @@ function fetchAliases() {
           <span class="artist-text">${esc(a.artist || "")}</span>
         </td>
         <td class="id-col">${a.cache_id}</td>
-      </tr>
-    `).join("");
+        <td>
+          <div class="row-actions">
+            ${webLink}${spLink}
+            <button class="del-btn" title="Elimina alias" onclick="deleteAlias(${a.id})">✖</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
   });
 }
 
-// ── SECTION SWITCH ────────────────────────────────────────────────────────────
+// ── SECTION SWITCH ───────────────────────────────────────────────────────────────────────────────────
 function showSection(sec, el) {
   document.querySelectorAll("nav a").forEach(a => a.classList.remove("active"));
   el.classList.add("active");
@@ -446,7 +457,7 @@ function showSection(sec, el) {
   else { stopAutoRefresh(); stopStatsRefresh(); }
 }
 
-// ── TOAST ─────────────────────────────────────────────────────────────────────
+// ── TOAST ───────────────────────────────────────────────────────────────────────────────────────────
 function showToast(msg, type = "success") {
   const container = document.getElementById("toast-container");
   const icon = type === "success" ? "✅" : "❌";
@@ -460,7 +471,7 @@ function showToast(msg, type = "success") {
   }, 2800);
 }
 
-// ── UTILS ─────────────────────────────────────────────────────────────────────
+// ── UTILS ───────────────────────────────────────────────────────────────────────────────────────────
 function fmtDuration(sec) {
   if (!sec) return "-";
   const m = Math.floor(sec / 60), s = sec % 60;
