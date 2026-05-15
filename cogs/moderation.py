@@ -5,7 +5,7 @@ from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from config import Config
 from core.log_colors import tag, b, user, ch
@@ -16,8 +16,8 @@ log = logging.getLogger("pitonazz.moderation")
 _BULK_CUTOFF = timedelta(weeks=2)
 _CROWN = "👑"
 
-# guild_id -> base_name del canale quarantena (per ricreare se eliminato)
-_QUARANTINE_BASE: dict[int, str] = {}
+# Prefisso interno per riconoscere i canali quarantena creati dal bot
+_QUARANTINE_PREFIX = "quarantena"
 
 
 class Moderation(commands.Cog):
@@ -35,6 +35,12 @@ class Moderation(commands.Cog):
         self._deafened: dict[int, set[int]] = {}
         # guild_id -> {user_id: base_name}  — nome base canale quarantena per utente
         self._quarantine_base: dict[int, dict[int, str]] = {}
+
+    def cog_load(self):
+        self._quarantine_watchdog.start()
+
+    def cog_unload(self):
+        self._quarantine_watchdog.cancel()
 
     # ── Helpers gerarchia ─────────────────────────────────────────
 
@@ -64,6 +70,85 @@ class Moderation(commands.Cog):
             if not inter.response.is_done():
                 await inter.response.send_message(f"❌ Errore: `{error}`", ephemeral=True)
 
+    # ── Watchdog quarantena (task periodico) ──────────────────────
+    # Ogni 60 secondi:
+    #   1. Aggiorna il mapping se il canale è stato ricreato (ID cambiato)
+    #   2. Elimina i canali quarantena orfani (canale esiste, nessun utente lo usa più)
+    #   3. Ributta gli utenti in quarantena che si trovano in canali sbagliati
+
+    @tasks.loop(seconds=60)
+    async def _quarantine_watchdog(self):
+        for guild in self.bot.guilds:
+            gid = guild.id
+            q_map = self._quarantined.get(gid, {})
+            q_base = self._quarantine_base.get(gid, {})
+            if not q_map:
+                continue
+
+            # --- 1. Controlla ogni utente in quarantena ---
+            for uid, cid in list(q_map.items()):
+                member = guild.get_member(uid)
+                target_ch = guild.get_channel(cid)
+
+                # Il canale esiste ancora: tutto ok
+                if target_ch is not None:
+                    # Se l'utente è in un VC diverso, ributtalo (double-check rispetto al listener)
+                    if member and member.voice and member.voice.channel and member.voice.channel.id != cid:
+                        try:
+                            await member.move_to(target_ch, reason="Watchdog quarantena — utente fuori canale")
+                            log.info(tag("MOD", f"watchdog: ributtato {user(str(member))} in {ch(target_ch.name)}"))
+                        except (discord.Forbidden, discord.HTTPException):
+                            pass
+                    continue
+
+                # Il canale è stato eliminato: ricrealo
+                base_name = q_base.get(uid, _QUARANTINE_PREFIX)
+                log.info(tag("MOD", f"watchdog: canale quarantena (id={cid}) mancante — ricreazione '{base_name}'"))
+                new_ch = await self._get_or_create_quarantine_channel(guild, base_name)
+                if new_ch is None:
+                    log.warning(tag("MOD", f"watchdog: impossibile ricreare canale per uid={uid} — sessione rimossa"))
+                    q_map.pop(uid, None)
+                    q_base.pop(uid, None)
+                    continue
+
+                # Aggiorna il mapping con il nuovo ID
+                q_map[uid] = new_ch.id
+                log.info(tag("MOD", f"watchdog: canale ricreato {ch(new_ch.name)} (id={new_ch.id})"))
+
+                # Ributta l'utente se è in un VC
+                if member and member.voice and member.voice.channel:
+                    try:
+                        await member.move_to(new_ch, reason="Watchdog quarantena — canale ricreato")
+                        log.info(tag("MOD", f"watchdog: {user(str(member))} spostato in {ch(new_ch.name)}"))
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+
+            # --- 2. Elimina canali quarantena orfani ---
+            # Un canale quarantena orfano è un canale vocale con nome che inizia con
+            # uno dei base_name usati dal bot, ma che non è più referenziato da nessun utente in _quarantined.
+            active_channel_ids = set(q_map.values())
+            known_bases = set(q_base.values()) | {_QUARANTINE_PREFIX}
+            for vc in list(guild.voice_channels):
+                is_quarantine_ch = any(
+                    vc.name == base or vc.name.startswith(base + "-")
+                    for base in known_bases
+                )
+                if not is_quarantine_ch:
+                    continue
+                if vc.id in active_channel_ids:
+                    continue
+                # Canale orfano: eliminalo solo se è vuoto
+                if len(vc.members) == 0:
+                    try:
+                        await vc.delete(reason="Watchdog quarantena — canale orfano vuoto eliminato automaticamente")
+                        log.info(tag("MOD", f"watchdog: canale orfano #{vc.name} eliminato"))
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        log.warning(tag("MOD", f"watchdog: impossibile eliminare canale orfano #{vc.name}: {exc}"))
+
+    @_quarantine_watchdog.before_loop
+    async def _before_watchdog(self):
+        await self.bot.wait_until_ready()
+
     # ── Listener quarantena ───────────────────────────────────────
     # Gestisce: spostamenti non autorizzati + canale eliminato da admin.
 
@@ -92,31 +177,29 @@ class Moderation(commands.Cog):
         # Controlla se il canale quarantena esiste ancora.
         target_ch = member.guild.get_channel(target_channel_id)
         if target_ch is None:
-            # Il canale è stato eliminato da un admin: ricrealo.
-            base_name = self._quarantine_base.get(gid, {}).get(member.id, "quarantena")
-            log.info(tag("MOD", f"quarantena canale eliminato — ricreazione '{base_name}' per {user(str(member))}"))
+            # Il canale è stato eliminato da un admin: ricrealo immediatamente.
+            base_name = self._quarantine_base.get(gid, {}).get(member.id, _QUARANTINE_PREFIX)
+            log.info(tag("MOD", f"on_voice: canale quarantena eliminato — ricreazione '{base_name}' per {user(str(member))}"))
             target_ch = await self._get_or_create_quarantine_channel(member.guild, base_name)
             if target_ch is None:
-                # Non riesce a ricreare: rimuovi la sessione.
-                quarantine_map.pop(member.id, None)
-                log.warning(tag("MOD", f"quarantena impossibile ricreare canale per {user(str(member))} — sessione rimossa"))
+                # Non riesce a ricreare: conserva la sessione ma aggiorna il base_name
+                # Il watchdog riproverà al prossimo ciclo
+                log.warning(tag("MOD", f"on_voice: impossibile ricreare canale per {user(str(member))} — watchdog riproverà"))
                 return
             # Aggiorna il mapping con il nuovo canale.
             quarantine_map[member.id] = target_ch.id
-            log.info(tag("MOD", f"quarantena canale ricreato: {ch(target_ch.name)}"))
+            log.info(tag("MOD", f"on_voice: canale ricreato: {ch(target_ch.name)}"))
 
         try:
             await asyncio.sleep(0.3)
             await member.move_to(target_ch, reason="Quarantena attiva — spostamento non autorizzato")
-            log.info(tag("MOD", f"quarantena ributtato {user(str(member))} in {ch(target_ch.name)}"))
+            log.info(tag("MOD", f"on_voice: ributtato {user(str(member))} in {ch(target_ch.name)}"))
         except discord.Forbidden:
             pass
         except discord.HTTPException:
             pass
 
     # ── Listener re-deaf/re-mute quando admin rimuove manualmente ─
-    # TODO 1: se un admin undeafena/unmuta un utente in sessione punitiva,
-    # il bot lo re-applica immediatamente.
 
     @commands.Cog.listener("on_voice_state_update")
     async def _enforce_punishments(
@@ -125,7 +208,6 @@ class Moderation(commands.Cog):
         before: discord.VoiceState,
         after: discord.VoiceState,
     ):
-        # Ignora se l'utente non è in un canale vocale.
         if after.channel is None:
             return
 
@@ -138,12 +220,10 @@ class Moderation(commands.Cog):
 
         kwargs = {}
 
-        # Re-mute: era mutato prima ma non più (admin ha rimosso il mute).
         if needs_mute and before.mute and not after.mute:
             kwargs["mute"] = True
             log.info(tag("MOD", f"museruola re-applicata a {user(str(member))} (rimossa da admin)"))
 
-        # Re-deaf: era sordato prima ma non più (admin ha rimosso il deaf).
         if needs_deaf and before.deaf and not after.deaf:
             kwargs["deafen"] = True
             log.info(tag("MOD", f"jenniserpi re-applicata a {user(str(member))} (rimossa da admin)"))
@@ -156,7 +236,6 @@ class Moderation(commands.Cog):
                 pass
 
     # ── Listener mic/deaf al join VC ──────────────────────────────
-    # Riapplica mute/deaf quando l'utente entra in un canale vocale.
 
     @commands.Cog.listener("on_voice_state_update")
     async def _apply_on_join(
@@ -585,7 +664,6 @@ class Moderation(commands.Cog):
         placed, waiting = [], []
         for m in members:
             self._quarantined[gid][m.id] = q_channel.id
-            # Salva il nome base per poter ricreare il canale se eliminato
             self._quarantine_base[gid][m.id] = nome_canale
             if m.voice and m.voice.channel:
                 try:
@@ -627,13 +705,14 @@ class Moderation(commands.Cog):
         if not members:
             return await inter.followup.send("❌ Nessun utente valido trovato.", ephemeral=True)
 
-        # Raccoglie i canali quarantena coinvolti prima di liberare
+        # Raccoglie i canali quarantena coinvolti PRIMA di rimuovere gli utenti dal mapping
         channels_to_check: set[int] = set()
         for m in members:
             cid = q_map.get(m.id)
             if cid:
                 channels_to_check.add(cid)
 
+        # Rimuove gli utenti dal mapping
         liberated = []
         for m in members:
             q_map.pop(m.id, None)
@@ -643,23 +722,37 @@ class Moderation(commands.Cog):
         await inter.followup.send(f"🔓 Liberati dalla quarantena: {', '.join(liberated)}", ephemeral=True)
         log.info(tag("MOD", f"/isolamento_off → {liberated} da {user(str(inter.user))}"))
 
-        # TODO 2: elimina i canali quarantena rimasti vuoti dopo la liberazione
+        # Elimina i canali quarantena che non sono più usati da nessun altro utente
         still_used = set(q_map.values())
         for cid in channels_to_check:
             if cid in still_used:
-                continue  # altri utenti usano ancora questo canale
+                continue  # altri utenti usano ancora questo canale — non eliminare
             q_ch = inter.guild.get_channel(cid)
             if q_ch is None:
-                continue
-            # Controlla se il canale è davvero vuoto
-            if len(q_ch.members) == 0:
+                continue  # già eliminato (da admin o watchdog)
+
+            # Butta fuori eventuali utenti rimasti dentro prima di eliminare
+            for occupant in list(q_ch.members):
                 try:
-                    await q_ch.delete(reason="Isolamento terminato — canale quarantena vuoto, eliminazione automatica")
-                    log.info(tag("MOD", f"canale quarantena #{q_ch.name} eliminato (vuoto dopo isolamento_off)"))
-                except discord.Forbidden:
-                    log.warning(tag("MOD", f"impossibile eliminare canale quarantena #{q_ch.name} (Forbidden)"))
-                except discord.HTTPException as exc:
-                    log.warning(tag("MOD", f"impossibile eliminare canale quarantena #{q_ch.name}: {exc}"))
+                    # Sposta in un canale AFK se disponibile, altrimenti disconnetti
+                    afk_ch = inter.guild.afk_channel
+                    if afk_ch:
+                        await occupant.move_to(afk_ch, reason="Isolamento terminato — canale quarantena in chiusura")
+                    else:
+                        await occupant.move_to(None, reason="Isolamento terminato — canale quarantena in chiusura")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+            # Breve pausa per permettere a Discord di aggiornare la presenza degli utenti
+            await asyncio.sleep(0.5)
+
+            try:
+                await q_ch.delete(reason="Isolamento terminato — canale quarantena eliminato automaticamente")
+                log.info(tag("MOD", f"canale quarantena #{q_ch.name} eliminato dopo isolamento_off"))
+            except discord.Forbidden:
+                log.warning(tag("MOD", f"impossibile eliminare canale quarantena #{q_ch.name} (Forbidden)"))
+            except discord.HTTPException as exc:
+                log.warning(tag("MOD", f"impossibile eliminare canale quarantena #{q_ch.name}: {exc}"))
 
     @app_commands.command(name="isolamento_lista", description=f"{_CROWN} Mostra gli utenti attualmente in quarantena")
     @perm("admin")
@@ -677,7 +770,7 @@ class Moderation(commands.Cog):
                 m = inter.guild.get_member(uid)
                 nome = m.display_name if m else f"ID:{uid}"
                 ch_obj = inter.guild.get_channel(cid)
-                ch_name = f"#{ch_obj.name}" if ch_obj else f"canale:{cid}"
+                ch_name = f"#{ch_obj.name}" if ch_obj else f"⚠️ canale eliminato (id:{cid})"
                 righe.append(f"**{nome}** → {ch_name}")
             embed.description = "\n".join(righe)
 
@@ -696,7 +789,6 @@ class Moderation(commands.Cog):
         """
         found = []
         for token in raw.split():
-            # Rimuovi qualsiasi combinazione di caratteri di menzione
             clean = token.strip("<@!>").strip()
             if not clean or not clean.isdigit():
                 if clean:
