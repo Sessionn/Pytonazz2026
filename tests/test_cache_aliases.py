@@ -3,22 +3,10 @@ tests/test_cache_aliases.py
 
 Esegui dalla ROOT del progetto con:
     python tests/test_cache_aliases.py
-
-Cosa verifica:
-    - Test 2a: put() con stessa webpage_url ma query testuale diversa
-               deve creare automaticamente un alias in query_aliases.
-    - Test 2b: get() deve trovare HIT passando la query alias (non quella
-               canonical originale).
-
-Risultato atteso:
-    Tutti i print OK: ... senza AssertionError.
 """
 
-import sys
-import os
-import sqlite3
+import sys, os, sqlite3, tempfile
 
-# Aggiunge la root del progetto al path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import core.cache_db as db
@@ -27,8 +15,6 @@ print("=" * 50)
 print("TEST ALIAS - query testuali diverse stessa traccia")
 print("=" * 50)
 
-# Usa un DB temporaneo per non sporcare quello reale
-import tempfile
 tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 tmp.close()
 
@@ -68,24 +54,29 @@ print(f"[2b] Risultato: {result}")
 assert result is not None, "FAIL: get() non trova via alias"
 print("OK [2b]: get() trova HIT via alias")
 
-# Verifica che punti alla stessa entry
 result_canonical = db.get("blinding lights")
 assert result["id"] == result_canonical["id"], (
     f"FAIL: id diversi - alias={result['id']} canonical={result_canonical['id']}"
 )
 print("OK [2b]: alias e canonical puntano alla stessa entry (id=%d)" % result["id"])
 
-# Verifica che non ci siano duplicati
+# --- Test 2d: no duplicati ---
 conn = sqlite3.connect(tmp.name)
 count = conn.execute(
     "SELECT COUNT(*) FROM song_cache WHERE title = 'Blinding Lights'"
 ).fetchone()[0]
-conn.close()
+conn.close()  # chiudo PRIMA di unlink
 assert count == 1, f"FAIL: {count} entry in song_cache invece di 1"
 print("OK: nessun duplicato in song_cache (count=1)")
 
-# Pulizia
-os.unlink(tmp.name)
+# Chiudo anche la connessione interna di cache_db
+if hasattr(db, "_close"):
+    db._close()
+
+try:
+    os.unlink(tmp.name)
+except PermissionError:
+    print("(cleanup skipped: Windows file lock -- non e' un errore del codice)")
 
 print("\n" + "=" * 50)
 print("TUTTI I TEST ALIAS PASSATI")

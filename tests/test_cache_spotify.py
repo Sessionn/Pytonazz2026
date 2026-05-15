@@ -3,24 +3,9 @@ tests/test_cache_spotify.py
 
 Esegui dalla ROOT del progetto con:
     python tests/test_cache_spotify.py
-
-Cosa verifica:
-    - Test 3a: put() con un link Spotify come query NON deve salvare
-               il link come query_raw canonical: la canonical deve essere
-               titolo+artista (es. "blinding lights the weeknd").
-    - Test 3b: get() con il link Spotify deve trovare HIT.
-    - Test 3c: get() con query testuale equivalente trova la STESSA entry
-               (stesso id nel DB), non una copia.
-    - Test 3d: nessun duplicato in song_cache (count = 1).
-    - Test 3e: il link Spotify e' registrato come alias in query_aliases.
-
-Risultato atteso:
-    Tutti i print OK: ... senza AssertionError.
 """
 
-import sys
-import os
-import sqlite3
+import sys, os, sqlite3, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,7 +15,6 @@ print("=" * 55)
 print("TEST SPOTIFY - link come query, caching intelligente")
 print("=" * 55)
 
-import tempfile
 tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 tmp.close()
 
@@ -66,7 +50,6 @@ assert "spotify.com" not in row[2], (
     f"FAIL: query_raw canonical contiene il link Spotify: {row[2]}"
 )
 print("OK [3a]: canonical e' testuale, non contiene spotify.com")
-entry_id = row[0]
 
 # --- Test 3b ---
 print("\n[3b] get() con il link Spotify (con ?si= in coda)...")
@@ -79,7 +62,6 @@ print("OK [3b]: get() HIT con link Spotify")
 print("\n[3c] get() con query testuale 'blinding lights the weeknd'...")
 result_text = db.get("blinding lights the weeknd")
 if result_text is None:
-    # Prova la canonical esatta
     result_text = db.get("blinding lights")
 print(f"[3c] Risultato: {result_text}")
 assert result_text is not None, "FAIL: get() non trova via testo"
@@ -107,8 +89,15 @@ spotify_aliases = [a for a in aliases if "spotify.com" in (a[0] or "")]
 assert len(spotify_aliases) >= 1, "FAIL: nessun alias Spotify in query_aliases"
 print(f"OK [3e]: trovato alias Spotify -> cache_id={spotify_aliases[0][1]}")
 
-conn.close()
-os.unlink(tmp.name)
+conn.close()  # chiudo PRIMA di unlink
+
+if hasattr(db, "_close"):
+    db._close()
+
+try:
+    os.unlink(tmp.name)
+except PermissionError:
+    print("(cleanup skipped: Windows file lock -- non e' un errore del codice)")
 
 print("\n" + "=" * 55)
 print("TUTTI I TEST SPOTIFY PASSATI")
