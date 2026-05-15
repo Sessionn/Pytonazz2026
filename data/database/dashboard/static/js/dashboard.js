@@ -169,6 +169,22 @@ function debouncedFetch() {
   debounceTimer = setTimeout(() => fetchSongs(false), 280);
 }
 
+// ── ACTION BUTTONS HELPERS ────────────────────────────────────────────────────────────
+/**
+ * Genera un pulsante azione link (YouTube o Spotify).
+ * Se url è presente: ancora cliccabile. Se assente: span con classe disabled.
+ * @param {string|null} url
+ * @param {string} label   testo/icona mostrata
+ * @param {string} extraClass  classe CSS aggiuntiva (es. "sp")
+ * @param {string} title   tooltip
+ */
+function makeActionLink(url, label, extraClass, title) {
+  if (url) {
+    return `<a class="link-btn${extraClass ? " " + extraClass : ""}" href="${esc(url)}" target="_blank" title="${esc(title)}">${label}</a>`;
+  }
+  return `<span class="link-btn${extraClass ? " " + extraClass : ""} disabled" title="${esc(title + " (non disponibile)")}" aria-disabled="true">${label}</span>`;
+}
+
 // ── BUILD ROW ──────────────────────────────────────────────────────────────────────────────
 function buildRow(s, i = 0) {
   const src = s.source || "youtube";
@@ -180,10 +196,9 @@ function buildRow(s, i = 0) {
   const thumbHtml = s.thumbnail
     ? `<img class="thumb" src="${esc(s.thumbnail)}" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
     : `<div class="thumb-placeholder">🎵</div>`;
-  const webLink = s.webpage_url
-    ? `<a class="link-btn" href="${esc(s.webpage_url)}" target="_blank">▶</a>` : "";
-  const spLink = s.spotify_url
-    ? `<a class="link-btn sp" href="${esc(s.spotify_url)}" target="_blank">♫</a>` : "";
+
+  const webLink = makeActionLink(s.webpage_url, "▶", "",      "Apri su YouTube");
+  const spLink  = makeActionLink(s.spotify_url,  "♫", "sp",   "Apri su Spotify");
 
   const tr = document.createElement("tr");
   tr.style.animationDelay = `${i * 28}ms`;
@@ -422,10 +437,8 @@ function fetchAliases() {
       return;
     }
     tbody.innerHTML = data.map((a, i) => {
-      const spLink = a.spotify_url
-        ? `<a class="link-btn sp" href="${esc(a.spotify_url)}" target="_blank">♫</a>` : "";
-      const webLink = a.webpage_url
-        ? `<a class="link-btn" href="${esc(a.webpage_url)}" target="_blank">▶</a>` : "";
+      const webLink = makeActionLink(a.webpage_url, "▶", "",    "Apri su YouTube");
+      const spLink  = makeActionLink(a.spotify_url,  "♫", "sp", "Apri su Spotify");
       return `
       <tr style="animation-delay:${i * 25}ms" data-alias-id="${a.id}">
         <td class="id-col">${a.id}</td>

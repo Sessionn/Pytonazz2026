@@ -542,10 +542,22 @@ tr:hover td:first-child { border-left: 2px solid var(--accent); }
   border: 1px solid rgba(137,180,250,0.2);
   transition: all .15s;
   white-space: nowrap;
+  display: inline-block;
 }
-.link-btn:hover { background: rgba(137,180,250,0.1); }
+.link-btn:not(.disabled):hover { background: rgba(137,180,250,0.1); }
 .link-btn.sp { color: #1DB954; border-color: rgba(29,185,84,0.2); }
-.link-btn.sp:hover { background: rgba(29,185,84,0.1); }
+.link-btn.sp:not(.disabled):hover { background: rgba(29,185,84,0.1); }
+
+/* Stato disabilitato: grigio, non cliccabile, nessun hover */
+.link-btn.disabled {
+  color: var(--muted);
+  border-color: var(--border);
+  opacity: 0.38;
+  pointer-events: none;
+  cursor: not-allowed;
+  user-select: none;
+  filter: grayscale(1);
+}
 
 .del-btn {
   background: rgba(243,139,168,0.08);
