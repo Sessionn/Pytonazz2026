@@ -3,115 +3,73 @@ import os
 import logging
 import functools
 import re
-from flask import (
-    Flask, render_template, jsonify, request,
-    session, redirect, url_for
-)
-from dotenv import load_dotenv
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session
 
-# Carica .env dalla root del progetto
-_ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".env")
-load_dotenv(_ENV_PATH)
+log = logging.getLogger(__name__)
 
-try:
-    from core.log_colors import tag as _lc_tag
-except ImportError:
-    def _lc_tag(label: str, msg: str) -> str:  # type: ignore
-        return f"{label}  {msg}"
-
-
-_net_log = logging.getLogger("NET_SCAN")
-
-_SCANNER_SIGNATURES = (
-    "Bad request version",
-    "Bad HTTP/0.9 request",
-    "Invalid HTTP version",
-)
-
-_LOG_SCANNERS = os.getenv("DASH_LOG_SCANNERS", "true").lower() == "true"
-
-# Regex per riconoscere URL Spotify.
-# Gestisce:
-#   - https://open.spotify.com/track/ID
-#   - https://open.spotify.com/intl-it/track/ID   (link localizzati italiani)
-#   - https://open.spotify.com/intl-es/album/ID   (qualsiasi lingua)
-# Il segmento /intl-XX/ e' opzionale e viene ignorato nella normalizzazione.
 _RE_SPOTIFY = re.compile(
-    r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album|playlist)/([A-Za-z0-9]+)",
-    re.IGNORECASE,
+    r'(open\.spotify\.com|spotify\.com)/(track|album|playlist|artist)/([A-Za-z0-9]+)',
+    re.I
 )
-
 
 def _extract_spotify_id(url: str) -> str:
-    """Normalizza un link Spotify rimuovendo /intl-XX/ e i parametri query (?si=...)."""
-    m = _RE_SPOTIFY.search(url.strip())
-    if not m:
-        return url.strip()
-    return f"https://open.spotify.com/{m.group(1)}/{m.group(2)}"
+    m = _RE_SPOTIFY.search(url)
+    if m:
+        return f"https://open.spotify.com/{m.group(2)}/{m.group(3)}"
+    return url
+
+def _hash(s: str) -> str:
+    import hashlib
+    return hashlib.sha256(s.lower().strip().encode()).hexdigest()
 
 
-class _WerkzeugScannerFilter(logging.Filter):
-    def filter(self, record):
-        msg = record.getMessage()
-        if any(s in msg for s in _SCANNER_SIGNATURES):
-            if _LOG_SCANNERS:
-                _net_log.warning(_lc_tag("NET_SCAN", msg))
-            return False
-        return True
+def create_app(db_path: str | None = None) -> Flask:
+    base_dir   = os.path.dirname(os.path.abspath(__file__))
+    db_path    = db_path or os.path.join(base_dir, "..", "cache.db")
+    db_path    = os.path.abspath(db_path)
+    secret_key = os.getenv("DASHBOARD_SECRET", "pytonazz-dev-secret-change-me")
+    dashboard_pw = os.getenv("DASHBOARD_PASSWORD", "")
 
-
-_wz = logging.getLogger("werkzeug")
-_wz.setLevel(logging.ERROR)
-_wz.addFilter(_WerkzeugScannerFilter())
-
-
-import hashlib
-
-def _hash(query: str) -> str:
-    return hashlib.sha256(query.strip().lower().encode()).hexdigest()
-
-
-def create_app():
-    app = Flask(__name__)
-    app.secret_key = os.getenv("DASH_SECRET_KEY") or os.urandom(24)
-
-    DASH_USER     = os.getenv("DASH_USER", "admin")
-    DASH_PASSWORD = os.getenv("DASH_PASSWORD", "changeme")
-
-    DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cache.db")
-
-    # ── Helper ─────────────────────────────────────────────────────────
-    def login_required(f):
-        @functools.wraps(f)
-        def wrapper(*args, **kwargs):
-            if not session.get("logged_in"):
-                return redirect(url_for("login"))
-            return f(*args, **kwargs)
-        return wrapper
+    app = Flask(
+        __name__,
+        template_folder=os.path.join(base_dir, "templates"),
+        static_folder=os.path.join(base_dir, "static"),
+    )
+    app.secret_key = secret_key
 
     def get_conn():
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
-    def query_db(sql, args=()):
+    def query_db(sql, params=None):
         conn = get_conn()
-        rows = [dict(r) for r in conn.execute(sql, args).fetchall()]
-        conn.close()
-        return rows
+        try:
+            cur = conn.execute(sql, params or [])
+            return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
 
-    # ── Login / Logout ────────────────────────────────────────────
+    def login_required(f):
+        @functools.wraps(f)
+        def wrapped(*args, **kwargs):
+            if dashboard_pw and not session.get("auth"):
+                if request.is_json:
+                    return jsonify({"error": "unauthorized"}), 401
+                return redirect(url_for("login"))
+            return f(*args, **kwargs)
+        return wrapped
+
+    # ── Login ──────────────────────────────────────────────────────
     @app.route("/login", methods=["GET", "POST"])
     def login():
         error = None
         if request.method == "POST":
-            user = request.form.get("username", "").strip()
-            pwd  = request.form.get("password", "")
-            if user == DASH_USER and pwd == DASH_PASSWORD:
-                session["logged_in"] = True
+            pw = request.form.get("password", "")
+            if pw == dashboard_pw:
+                session["auth"] = True
                 return redirect(url_for("index"))
-            error = "Credenziali errate."
+            error = "Password errata."
         return render_template("login.html", error=error)
 
     @app.route("/logout")
@@ -119,11 +77,10 @@ def create_app():
         session.clear()
         return redirect(url_for("login"))
 
-    # ── Route protette ─────────────────────────────────────────────
+    # ── Index ──────────────────────────────────────────────────────
     @app.route("/")
     @login_required
     def index():
-        # Valori iniziali per il template (poi aggiornati in real-time via /api/stats)
         stats = query_db("""
             SELECT
                 COUNT(*) AS total,
@@ -198,7 +155,7 @@ def create_app():
     def api_aliases():
         rows = query_db("""
             SELECT qa.id, qa.query_raw, qa.cache_id,
-                   sc.title, sc.artist
+                   sc.title, sc.artist, sc.spotify_url, sc.webpage_url
             FROM query_aliases qa
             LEFT JOIN song_cache sc ON sc.id = qa.cache_id
             ORDER BY qa.id DESC
@@ -307,12 +264,22 @@ def create_app():
 
         return jsonify({"ok": True, "action": "associated", "cache_id": cache_id})
 
-    # ── API: delete ────────────────────────────────────────────────
+    # ── API: delete song ───────────────────────────────────────────
     @app.route("/api/delete/<int:row_id>", methods=["DELETE"])
     @login_required
     def delete_song(row_id):
         conn = get_conn()
         conn.execute("DELETE FROM song_cache WHERE id = ?", (row_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True})
+
+    # ── API: delete alias ──────────────────────────────────────────
+    @app.route("/api/aliases/<int:alias_id>", methods=["DELETE"])
+    @login_required
+    def delete_alias(alias_id):
+        conn = get_conn()
+        conn.execute("DELETE FROM query_aliases WHERE id = ?", (alias_id,))
         conn.commit()
         conn.close()
         return jsonify({"ok": True})
