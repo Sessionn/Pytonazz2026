@@ -573,12 +573,31 @@ class SourceResolver:
     @classmethod
     async def resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
         loop = asyncio.get_running_loop()
+
+        # ── Spotify track singola ──────────────────────────────────────────────
         if track_id := extract_spotify_track_id(query):
-            return await loop.run_in_executor(None, cls._sp_track, track_id, requester, requester_id)
+            results = await loop.run_in_executor(
+                None, cls._sp_track, track_id, requester, requester_id
+            )
+            # 6.2 — cache per link Spotify diretto
+            if results and results[0].title:
+                try:
+                    qc = _get_query_cache()
+                    if qc is not None:
+                        qc.store(query, results[0])
+                except Exception as _we:
+                    log.debug(tag("CACHE", f"write path spotify-direct (ignorato): {_we}"))
+            return results
+
+        # ── Spotify playlist / album / artista → no cache (multi-traccia) ────
         if playlist_id := extract_spotify_playlist_id(query):
-            return await loop.run_in_executor(None, cls._sp_playlist, playlist_id, requester, requester_id)
+            return await loop.run_in_executor(
+                None, cls._sp_playlist, playlist_id, requester, requester_id
+            )
         if album_id := extract_spotify_album_id(query):
-            return await loop.run_in_executor(None, cls._sp_album, album_id, requester, requester_id)
+            return await loop.run_in_executor(
+                None, cls._sp_album, album_id, requester, requester_id
+            )
         if artist_id := extract_spotify_artist_id(query):
             tracks = []
             async for t in cls.resolve_artist_stream_by_id(
@@ -586,7 +605,20 @@ class SourceResolver:
             ):
                 tracks.append(t)
             return tracks
-        return await loop.run_in_executor(None, cls._search_or_url, query, requester, requester_id)
+
+        # ── URL YouTube / SoundCloud diretto ──────────────────────────────────
+        results = await loop.run_in_executor(
+            None, cls._search_or_url, query, requester, requester_id
+        )
+        # 6.2 — cache per URL diretto (YT/SC): salva solo se è effettivamente un URL
+        if results and results[0].title and _is_url_like_query(query):
+            try:
+                qc = _get_query_cache()
+                if qc is not None:
+                    qc.store(query, results[0])
+            except Exception as _we:
+                log.debug(tag("CACHE", f"write path url-direct (ignorato): {_we}"))
+        return results
 
     @classmethod
     async def resolve_choices(

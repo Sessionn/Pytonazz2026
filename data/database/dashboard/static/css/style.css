@@ -263,6 +263,88 @@ main { padding: 32px 36px; overflow-y: auto; }
   text-transform: uppercase; letter-spacing: .07em;
 }
 
+/* ═══════════════════════════════════
+   ANIMAZIONI STAT CARDS — 6.1
+═══════════════════════════════════ */
+
+/* Keyframe: pop + glow quando il valore cambia */
+@keyframes statPop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.18); }
+  65%  { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+
+/* Keyframe: flash luminoso sull'intera card */
+@keyframes statFlash {
+  0%   { box-shadow: 0 0 0px 0px transparent; border-color: var(--border); }
+  40%  { box-shadow: 0 0 18px 4px var(--glow); border-color: var(--accent); }
+  100% { box-shadow: none; border-color: var(--border); }
+}
+
+/* Keyframe: riga nuova entra da sinistra con leggero rimbalzo */
+@keyframes rowSlideIn {
+  from { opacity: 0; transform: translateX(-14px) scaleY(0.92); }
+  to   { opacity: 1; transform: translateX(0)    scaleY(1); }
+}
+
+/* Classe aggiunta via JS durante l'update del counter */
+.stat-card.updating .val {
+  animation: statPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.stat-card.updating {
+  animation: statFlash 0.7s ease forwards;
+}
+
+/* Highlight cella hits quando cambia (sostituisce il solo color inline) */
+@keyframes hitsFlash {
+  0%   { color: var(--yellow); text-shadow: 0 0 8px rgba(249,226,175,0.6); transform: scale(1.15); }
+  60%  { color: var(--yellow); text-shadow: 0 0 4px rgba(249,226,175,0.3); transform: scale(1.05); }
+  100% { color: var(--yellow); text-shadow: none; transform: scale(1); }
+}
+.hits-num.flash {
+  display: inline-block;
+  animation: hitsFlash 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Entrata righe tabella — versione più morbida */
+tbody tr {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: rowIn .32s ease forwards;
+}
+/* Righe aggiunte dinamicamente (silent refresh) usano rowSlideIn */
+tbody tr.row-new {
+  animation: rowSlideIn 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+}
+
+/* Hover riga: evidenzia l'intera riga con transizione fluida */
+tbody tr {
+  transition: background 0.18s ease;
+}
+tr:hover td { background: rgba(203,166,247,0.05); }
+tr:hover td:first-child {
+  border-left: 2px solid var(--accent);
+  padding-left: 11px;
+  transition: padding-left 0.15s ease, border-left 0.15s ease;
+}
+
+/* Indicatore "nuovo" — dot verde animato sul lato sinistro */
+tr.row-new td:first-child::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  margin-right: 6px;
+  vertical-align: middle;
+  animation: dotPulse 1.2s ease infinite;
+}
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
 /* TOOLBAR */
 .toolbar {
   display: flex;

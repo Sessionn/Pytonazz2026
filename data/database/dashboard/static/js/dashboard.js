@@ -75,6 +75,27 @@ function _tweenCounter(el, from, to, duration = 600) {
   requestAnimationFrame(update);
 }
 
+function _tweenCounter(el, from, to, duration = 600) {
+  // trova la stat-card parent per animarla
+  const card = el.closest(".stat-card");
+  if (card && from !== to) {
+    card.classList.remove("updating");
+    void card.offsetWidth; // forza reflow per ri-triggerare l'animazione
+    card.classList.add("updating");
+    const removeUpdating = () => card.classList.remove("updating");
+    card.addEventListener("animationend", removeUpdating, { once: true });
+  }
+
+  const start = performance.now();
+  const update = (now) => {
+    const p = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(from + (to - from) * eased).toLocaleString("it-IT");
+    if (p < 1) requestAnimationFrame(update);
+  };
+  requestAnimationFrame(update);
+}
+
 // ── STATS REAL-TIME ───────────────────────────────────────────────────────────
 /**
  * Chiama /api/stats e aggiorna ogni .val[data-stat] con tween animato
@@ -243,17 +264,19 @@ function renderSongsDiff(data) {
     if (!tr) return;
     const hitsCell = tr.querySelector(".hits-num");
     if (hitsCell) {
-      const old = parseInt(hitsCell.textContent) || 0;
+      const old = parseInt(hitsCell.textContent.replace(/\D/g, "")) || 0;
       if (old !== s.hit_count) {
         hitsCell.textContent = s.hit_count ?? 0;
-        hitsCell.style.transition = "color .4s";
-        hitsCell.style.color = "var(--yellow)";
-        setTimeout(() => { hitsCell.style.color = ""; }, 1200);
+        hitsCell.classList.remove("flash");
+        void hitsCell.offsetWidth; // reflow
+        hitsCell.classList.add("flash");
+        hitsCell.addEventListener("animationend",
+          () => hitsCell.classList.remove("flash"), { once: true });
       }
     }
   });
 
-  // aggiungi righe nuove
+  // aggiungi righe nuove con classe row-new
   const addedIds = [...newIds].filter(id => !_lastIds.has(id));
   if (addedIds.length > 0) {
     const tbody = document.getElementById("songs-body");
@@ -261,17 +284,14 @@ function renderSongsDiff(data) {
     newSongs.reverse().forEach(s => {
       if (tbody.querySelector(`tr[data-id="${s.id}"]`)) return;
       const tr = buildRow(s);
-      tr.style.animation = "none";
-      tr.style.opacity = "0";
-      tr.style.transform = "translateY(-10px)";
+      tr.classList.add("row-new");
+      tr.style.animation = "none"; // previene rowIn, verrà rimpiazzata da row-new
       tbody.prepend(tr);
-      requestAnimationFrame(() => {
-        tr.style.transition = "opacity .4s, transform .4s, background .8s";
-        tr.style.opacity = "1";
-        tr.style.transform = "translateY(0)";
-        tr.style.background = "rgba(166,227,161,0.12)";
-        setTimeout(() => { tr.style.background = ""; }, 1800);
-      });
+      // rimuovi row-new dopo 3s lasciando la riga visibile
+      setTimeout(() => {
+        tr.classList.remove("row-new");
+        tr.style.background = "";
+      }, 3000);
     });
     showToast(`+${addedIds.length} nuova traccia`, "success");
   }
