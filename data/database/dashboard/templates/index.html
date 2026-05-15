@@ -41,23 +41,23 @@
 
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="val count-up" data-target="{{ stats.total or 0 }}">0</div>
+        <div class="val count-up" data-target="{{ stats.total or 0 }}" data-stat="total">0</div>
         <div class="lbl">Entry totali</div>
       </div>
       <div class="stat-card">
-        <div class="val green count-up" data-target="{{ stats.valid or 0 }}">0</div>
+        <div class="val green count-up" data-target="{{ stats.valid or 0 }}" data-stat="valid">0</div>
         <div class="lbl">Valide</div>
       </div>
       <div class="stat-card">
-        <div class="val red count-up" data-target="{{ stats.invalid or 0 }}">0</div>
+        <div class="val red count-up" data-target="{{ stats.invalid or 0 }}" data-stat="invalid">0</div>
         <div class="lbl">Invalide</div>
       </div>
       <div class="stat-card">
-        <div class="val yellow count-up" data-target="{{ stats.hits or 0 }}">0</div>
+        <div class="val yellow count-up" data-target="{{ stats.hits or 0 }}" data-stat="hits">0</div>
         <div class="lbl">Hit totali</div>
       </div>
       <div class="stat-card">
-        <div class="val count-up" data-target="{{ aliases_count }}">0</div>
+        <div class="val count-up" data-target="{{ aliases_count }}" data-stat="aliases">0</div>
         <div class="lbl">Aliases</div>
       </div>
     </div>

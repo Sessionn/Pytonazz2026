@@ -1,7 +1,8 @@
-let currentSort = "hit_count";
+let currentSort  = "hit_count";
 let currentOrder = "desc";
 let debounceTimer;
-let autoRefreshInterval = null;
+let autoRefreshInterval  = null;
+let statsRefreshInterval = null;
 let _lastIds = new Set();
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -12,8 +13,8 @@ document.addEventListener("DOMContentLoaded", () => {
   animateCounters();
   fetchSongs();
   startAutoRefresh(10);
-  document.getElementById("gen-time").textContent =
-    "Aggiornato: " + new Date().toLocaleString("it-IT");
+  startStatsRefresh(8);
+  updateGenTime();
 
   // favicon animata
   const favicons = ["💿", "📀"];
@@ -24,6 +25,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (el) el.href = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>${favicons[fi]}</text></svg>`;
   }, 2000);
 });
+
+function updateGenTime() {
+  document.getElementById("gen-time").textContent =
+    "Aggiornato: " + new Date().toLocaleString("it-IT");
+}
 
 // ── THEME ─────────────────────────────────────────────────────────────────────
 function toggleTheme() {
@@ -50,22 +56,70 @@ function updateThemeUI(theme) {
 function animateCounters() {
   document.querySelectorAll(".count-up").forEach(el => {
     const target = parseInt(el.dataset.target) || 0;
-    const duration = 900;
-    const start = performance.now();
-    const update = (now) => {
-      const p = Math.min((now - start) / duration, 1);
-      el.textContent = Math.round((1 - Math.pow(1 - p, 3)) * target);
-      if (p < 1) requestAnimationFrame(update);
-    };
-    requestAnimationFrame(update);
+    _tweenCounter(el, 0, target, 900);
   });
 }
 
-// ── AUTO REFRESH ──────────────────────────────────────────────────────────────
+/**
+ * Tween numerico da `from` a `to` in `duration` ms.
+ * Usa easing ease-out-cubic.
+ */
+function _tweenCounter(el, from, to, duration = 600) {
+  const start = performance.now();
+  const update = (now) => {
+    const p = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(from + (to - from) * eased);
+    if (p < 1) requestAnimationFrame(update);
+  };
+  requestAnimationFrame(update);
+}
+
+// ── STATS REAL-TIME ───────────────────────────────────────────────────────────
+/**
+ * Chiama /api/stats e aggiorna ogni .val[data-stat] con tween animato
+ * se il valore e' cambiato. Aggiorna anche l'etichetta gen-time.
+ */
+function refreshStats() {
+  fetch("/api/stats")
+    .then(r => {
+      if (!r.ok) throw new Error("stats fetch failed");
+      return r.json();
+    })
+    .then(data => {
+      const keys = ["total", "valid", "invalid", "hits", "aliases"];
+      keys.forEach(key => {
+        const el = document.querySelector(`.val[data-stat="${key}"]`);
+        if (!el) return;
+        const current = parseInt(el.textContent.replace(/[^0-9]/g, "")) || 0;
+        const next    = data[key] ?? 0;
+        if (current !== next) {
+          _tweenCounter(el, current, next, 500);
+        }
+      });
+      updateGenTime();
+    })
+    .catch(() => { /* silenzioso: non mostrare toast per errori di stats */ });
+}
+
+function startStatsRefresh(seconds = 8) {
+  stopStatsRefresh();
+  statsRefreshInterval = setInterval(refreshStats, seconds * 1000);
+}
+
+function stopStatsRefresh() {
+  if (statsRefreshInterval) {
+    clearInterval(statsRefreshInterval);
+    statsRefreshInterval = null;
+  }
+}
+
+// ── AUTO REFRESH (song rows) ───────────────────────────────────────────────────
 function startAutoRefresh(seconds = 10) {
   stopAutoRefresh();
   autoRefreshInterval = setInterval(() => {
     fetchSongs(true);
+    refreshStats();
   }, seconds * 1000);
 }
 
@@ -183,6 +237,22 @@ function renderSongsDiff(data) {
     }
   });
 
+  // aggiorna hit_count delle righe gia' visibili
+  data.forEach(s => {
+    const tr = document.querySelector(`#songs-body tr[data-id="${s.id}"]`);
+    if (!tr) return;
+    const hitsCell = tr.querySelector(".hits-num");
+    if (hitsCell) {
+      const old = parseInt(hitsCell.textContent) || 0;
+      if (old !== s.hit_count) {
+        hitsCell.textContent = s.hit_count ?? 0;
+        hitsCell.style.transition = "color .4s";
+        hitsCell.style.color = "var(--yellow)";
+        setTimeout(() => { hitsCell.style.color = ""; }, 1200);
+      }
+    }
+  });
+
   // aggiungi righe nuove
   const addedIds = [...newIds].filter(id => !_lastIds.has(id));
   if (addedIds.length > 0) {
@@ -273,6 +343,8 @@ function deleteSong(id) {
         _lastIds.delete(id);
         showToast("Entry eliminata", "success");
         closeModal();
+        // aggiorna subito le stat card dopo una delete
+        setTimeout(refreshStats, 350);
       }
     })
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
@@ -350,8 +422,8 @@ function showSection(sec, el) {
   document.getElementById("cache-section").style.display   = sec === "cache"   ? "block" : "none";
   document.getElementById("aliases-section").style.display = sec === "aliases" ? "block" : "none";
   if (sec === "aliases") fetchAliases();
-  if (sec === "cache") startAutoRefresh(10);
-  else stopAutoRefresh();
+  if (sec === "cache") { startAutoRefresh(10); startStatsRefresh(8); }
+  else { stopAutoRefresh(); stopStatsRefresh(); }
 }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
