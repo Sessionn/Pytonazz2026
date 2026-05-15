@@ -12,6 +12,13 @@ from dotenv import load_dotenv
 _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".env")
 load_dotenv(_ENV_PATH)
 
+# Importa tag() se disponibile, altrimenti fallback semplice
+try:
+    from core.log_colors import tag as _lc_tag
+except ImportError:
+    def _lc_tag(label: str, msg: str) -> str:  # type: ignore
+        return f"{label}  {msg}"
+
 
 # ── Logger dedicato per connessioni anomale (scanner TLS/bot) ────────────
 _net_log = logging.getLogger("NET_SCAN")
@@ -31,8 +38,8 @@ class _WerkzeugScannerFilter(logging.Filter):
         msg = record.getMessage()
         if any(s in msg for s in _SCANNER_SIGNATURES):
             if _LOG_SCANNERS:
-                _net_log.warning("[NET_SCAN] %s", msg)
-            return False  # rimuove dal log werkzeug originale
+                _net_log.warning(_lc_tag("NET_SCAN", msg))
+            return False
         return True
 
 

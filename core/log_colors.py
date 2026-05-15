@@ -21,6 +21,7 @@ _BMAG = "\033[95m"
 _BBLU = "\033[94m"
 _ORG  = "\033[38;5;208m"
 _TEAL = "\033[38;5;80m"
+_PINK = "\033[38;5;218m"
 
 _LEVEL_COLOR = {
     logging.DEBUG:    _CYN,
@@ -61,6 +62,7 @@ TAG = {
     "GATEWAY" : ("GATEWAY",  _BCYN),
     "CACHE_DB": ("CACHE_DB", _BLU),
     "COOKIE"  : ("COOKIE",   _BYEL),
+    "NET_SCAN": ("NET_SCAN", _PINK),
 }
 
 _FMT  = "%(ts)s  %(levelname)s  %(source)s  %(logger_name)s  %(message)s"
@@ -113,7 +115,7 @@ class ColorFormatter(logging.Formatter):
         return result
 
 
-# ── Gateway filter ────────────────────────────────────────────────────────────
+# ── Gateway filter ────────────────────────────────────────────────────────────────
 
 _GW_CONNECTED   = re.compile(r"Shard ID (\S+) has connected to Gateway \(Session ID: ([a-f0-9]+)\)")
 _GW_RESUMED     = re.compile(r"Shard ID (\S+) has sent the RESUME payload")
@@ -164,7 +166,7 @@ class GatewayFilter(logging.Filter):
         return True
 
 
-# ── Helpers base ─────────────────────────────────────────────────────
+# ── Helpers base ───────────────────────────────────────────────────
 
 def b(text) -> str:
     return f"{_BOLD}{text}{_R}"
@@ -195,7 +197,7 @@ def tag(label: str, msg: str) -> str:
     return f"{_BOLD}{c}{t:<8}{_R} {msg}"
 
 
-# ── Messaggi di sistema centralizzati ──────────────────────────────────
+# ── Messaggi di sistema centralizzati ────────────────────────────────────
 
 def fmt_cog_loaded(cog_name: str) -> str:
     short = cog_name.split(".")[-1]
@@ -250,7 +252,7 @@ def fmt_botconfig_loaded(data: dict) -> str:
     return tag("BOOT", f"bot_config  {_GRY}{len(keys)} chiavi{_R}  {dim(str(keys))[:80]}")
 
 
-# ── Setup ────────────────────────────────────────────────────────────────────
+# ── Setup ──────────────────────────────────────────────────────────────────────
 def setup_logging(level: int = logging.INFO) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(ColorFormatter())
