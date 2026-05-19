@@ -71,7 +71,7 @@ from core.source_resolver.spotify import (
     _spotify_item_query_similarity,
     _choose_spotify_track_item,
 )
-from core.source_resolver.query import normalize_search_query
+from core.source_resolver.query import normalize_search_query, query_title_similarity, score_candidate
 from core.source_resolver.soundcloud import expand_soundcloud_short_url
 from core.source_resolver.youtube import (
     is_yt_channel_url as _is_yt_channel_url,
@@ -651,24 +651,53 @@ class SourceResolver:
         # ─────────────────────────────────────────────────────────────────────────────
 
         sp_meta_hint: Optional[dict] = None
-        yt_query = query
+        search_n = max(n, _YT_CANDIDATES)
+
         if n == 1 and not _is_url_like_query(query) and Config.SPOTIFY_CLIENT_ID:
-            try:
-                sp_meta_hint = await loop.run_in_executor(
-                    None, cls._sp_search_track_meta, query
-                )
-            except Exception:
-                sp_meta_hint = None
+            # Parallelize Spotify meta lookup and initial yt-dlp search (OBIETTIVO 2A)
+            sp_raw, results = await asyncio.gather(
+                loop.run_in_executor(None, cls._sp_search_track_meta, query),
+                loop.run_in_executor(
+                    None, cls._run_ytdlp, f"ytsearch{search_n}:{query}", requester, requester_id
+                ),
+                return_exceptions=True,
+            )
+            sp_meta_hint = None if isinstance(sp_raw, BaseException) else (sp_raw or None)
+            if isinstance(results, BaseException):
+                results = []
+
             if sp_meta_hint:
                 canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                 if canonical:
-                    yt_query = canonical
-                    log.debug(tag("SPOTIFY", f"first  {b(query)}  \u2192  {b(yt_query)}"))
-
-        search_n = max(n, _YT_CANDIDATES)
-        results  = await loop.run_in_executor(
-            None, cls._run_ytdlp, f"ytsearch{search_n}:{yt_query}", requester, requester_id
-        )
+                    log.debug(tag("SPOTIFY", f"first  {b(query)}  \u2192  {b(canonical)}"))
+                    sim = query_title_similarity(query, canonical)
+                    if sim < 0.85:
+                        # Canonical significantly differs: do a second yt-dlp call and merge
+                        canonical_results = await loop.run_in_executor(
+                            None, cls._run_ytdlp, f"ytsearch{search_n}:{canonical}",
+                            requester, requester_id,
+                        )
+                        seen_urls: set = set()
+                        merged: list = []
+                        for r in results + (canonical_results or []):
+                            url = getattr(r, "webpage_url", None)
+                            if url and url not in seen_urls:
+                                seen_urls.add(url)
+                                merged.append(r)
+                            elif not url:
+                                merged.append(r)
+                        results = merged
+                    # Re-rank with score_candidate using canonical query (OBIETTIVO 1C)
+                    if results:
+                        results = sorted(
+                            results,
+                            key=lambda t: score_candidate(canonical, t),
+                            reverse=True,
+                        )
+        else:
+            results = await loop.run_in_executor(
+                None, cls._run_ytdlp, f"ytsearch{search_n}:{query}", requester, requester_id
+            )
 
         if results:
             sp_dur = float(sp_meta_hint.get("duration", 0) or 0) if sp_meta_hint else 0.0
@@ -676,7 +705,11 @@ class SourceResolver:
                 best = _prefer_studio(results, sp_dur=sp_dur, user_query=query)
                 results = [best] if best else results[:1]
 
-            enrich_query = yt_query if sp_meta_hint else query
+            enrich_query = (
+                (f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip() or query)
+                if sp_meta_hint
+                else query
+            )
             if _should_enrich_with_spotify(enrich_query, results):
                 results = await loop.run_in_executor(
                     None, cls._enrich_with_spotify, results, enrich_query

@@ -18,9 +18,9 @@ from core.log_colors import tag
 
 # ── Cache TTL / size constants ────────────────────────────────────────────────
 
-_YTDLP_QUERY_CACHE_TTL  = 20.0
+_YTDLP_QUERY_CACHE_TTL  = 240.0
 _YTDLP_QUERY_CACHE_MAX  = 256
-_STREAM_URL_CACHE_TTL   = 45.0
+_STREAM_URL_CACHE_TTL   = 3600.0
 _STREAM_URL_CACHE_MAX   = 256
 
 log = logging.getLogger("pitonazz.resolver")

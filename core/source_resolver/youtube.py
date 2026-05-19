@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from core.source_resolver.query import query_title_similarity
+from core.source_resolver.query import score_candidate
 
 
 _YT_CHANNEL = re.compile(
@@ -19,9 +19,4 @@ def is_yt_channel_url(url: str) -> bool:
 def rank_search_results_by_query(results: list, query: str) -> list:
     if not results:
         return results
-    key = lambda t: query_title_similarity(
-        query,
-        getattr(t, "title", "") or "",
-        getattr(t, "artist", "") or "",
-    )
-    return sorted(results, key=key, reverse=True)
+    return sorted(results, key=lambda t: score_candidate(query, t), reverse=True)
