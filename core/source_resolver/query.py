@@ -48,7 +48,7 @@ def score_candidate(query: str, track: object) -> float:
 
     Combines:
     - token overlap (50%): fraction of query words found in title+artist
-    - substring boost (20%): +0.2 if normalised query is a substring of normalised title
+    - substring boost (+0.2 absolute): if normalised query is a substring of normalised title
     - SequenceMatcher (30%): ratio between query and "title artist"
 
     Applies:
