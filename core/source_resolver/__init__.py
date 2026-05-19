@@ -290,7 +290,7 @@ def _is_url_like_query(query: str) -> bool:
 async def _expand_query_if_needed(query: str) -> str:
     expanded = await expand_soundcloud_short_url(query)
     if expanded and expanded != query:
-        log.debug(tag("RESOLVE", f"soundcloud short  {b(query)}  →  {b(expanded)}"))
+        log.debug(tag("RESOLVE", f"soundcloud short {b(query)}  →  {b(expanded)}"))
     return expanded or query
 
 

@@ -39,5 +39,8 @@ meta = {
     "spotify_url": "https://open.spotify.com/track/example",
 }
 score = _compute_enrich_confidence("dark horse katy perry", track, meta)
-assert score["confidence"] < 0.85 or score["decision"] != "cover_only"
+if score["confidence"] >= 0.85:
+    assert score["decision"] != "cover_only"
+if score["decision"] == "cover_only":
+    assert score["confidence"] < 0.85
 print("OK enrich threshold/cover_only guard")
