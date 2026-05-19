@@ -91,4 +91,8 @@ def _is_soundcloud_url(url: str) -> bool:
     host = (parsed.hostname or "").lower()
     if not host:
         return False
-    return host == "soundcloud.com" or host.endswith(".soundcloud.com")
+    return (
+        host == "soundcloud.com"
+        or host.endswith(".soundcloud.com")
+        or host in {"on.soundcloud.com", "sco.lt"}
+    )

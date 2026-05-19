@@ -62,6 +62,16 @@ _SANS_B_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
 ]
+_UNICODE_FALLBACK_PATHS = [
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/seguiemj.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansJP-Regular.otf",
+    "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
 
 
 @lru_cache(maxsize=16)
@@ -76,11 +86,32 @@ def _font(path_tuple: tuple, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def _get_fonts():
+def _font_supports_text(font: ImageFont.FreeTypeFont, text: str) -> bool:
+    for ch in set(text or ""):
+        if ch.isspace():
+            continue
+        try:
+            if font.getmask(ch).getbbox() is None:
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def _pick_font_for_text(path_tuple: tuple, fallback_tuple: tuple, size: int, text: str) -> ImageFont.FreeTypeFont:
+    primary = _font(path_tuple, size)
+    if _font_supports_text(primary, text):
+        return primary
+    return _font(fallback_tuple, size)
+
+
+def _get_fonts(text: str = "", author: str = ""):
+    body_reference = f"{text or ''} {author or ''}".strip()
+    name_reference = author or text or ""
     return (
         _font(tuple(_SERIF_B_PATHS), 200),  # virgolette
-        _font(tuple(_SERIF_PATHS),    72),  # corpo testo
-        _font(tuple(_SANS_B_PATHS),   46),  # nome autore
+        _pick_font_for_text(tuple(_SERIF_PATHS), tuple(_UNICODE_FALLBACK_PATHS), 72, body_reference),
+        _pick_font_for_text(tuple(_SANS_B_PATHS), tuple(_UNICODE_FALLBACK_PATHS), 46, name_reference),
     )
 
 
@@ -176,7 +207,7 @@ async def build_quote_card(
     )
 
     def _render() -> bytes:
-        f_qm, f_body, f_name = _get_fonts()    # dal cache, 0 I/O
+        f_qm, f_body, f_name = _get_fonts(text=text, author=author)    # dal cache, 0 I/O
 
         img = Image.new("RGB", (_W, _H), _BG)
 

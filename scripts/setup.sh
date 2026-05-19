@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 echo "=== Pitonazz — Setup iniziale ==="
 
 # Python deps
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 echo "✅ Dipendenze Python installate."
 
 # FFmpeg check

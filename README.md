@@ -87,6 +87,7 @@ Pytonazz2026/
 ├── views/           ← Bottoni e UI interattiva
 ├── assets/          ← Status, prompt AI, config runtime
 ├── data/            ← Dati runtime locali (welcome_config, immagini welcome, tmp)
+├── scripts/         ← Script operativi (setup, deploy comandi, update yt-dlp)
 └── DOCS.md          ← Documentazione tecnica completa
 ```
 
@@ -99,6 +100,7 @@ Pytonazz2026/
 ## 🗂️ Script operativi
 
 - `scripts/deploy_commands.py` → script **manuale/emergency** per forzare la sync slash commands.
+- `scripts/setup.sh` → setup rapido dipendenze + check FFmpeg + bootstrap `.env`.
 - `scripts/update_ytdlp.sh` → script **maintenance** per aggiornamento rapido `yt-dlp`.
 - `tools/audit_architecture.py` → audit rapido **periodico** su coupling cog→cog e duplicazioni logiche.
 

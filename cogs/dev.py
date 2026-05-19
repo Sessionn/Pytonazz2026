@@ -157,9 +157,12 @@ class Dev(commands.Cog):
     async def maintenance(self, inter: discord.Interaction, attiva: bool):
         await cfg.set_maintenance(attiva)
         if attiva:
-            await self.bot.apply_maintenance_presence()
+            await self.bot.change_presence(
+                status=discord.Status.dnd,
+                activity=discord.Game("\U0001f527 Manutenzione in corso"),
+            )
         else:
-            await self.bot.apply_next_status()
+            await self.bot.change_presence(status=discord.Status.online, activity=None)
         stato = (
             "\U0001f6a7 **MANUTENZIONE ATTIVA** \u2014 solo tu puoi usare i comandi."
             if attiva

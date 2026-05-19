@@ -384,7 +384,7 @@ def put(query: str, track) -> None:
                     "WHERE id = ? AND (spotify_url IS NULL OR spotify_url = '')",
                     (spotify_url, existing_id),
                 )
-            log.info(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _CYN)}  {b(query_stripped)}  \u2192  {b(title)}"))
+            log.info(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _CYN)}  \u2192  {b(title)}"))
             return
 
         # Inserisci o aggiorna la entry canonical

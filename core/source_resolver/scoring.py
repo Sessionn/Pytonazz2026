@@ -44,8 +44,8 @@ class _TrackLike(Protocol):
 
 # ── Numeric constants ─────────────────────────────────────────────────────────
 
-_ENRICH_CONFIDENCE_HIGH          = 0.72
-_ENRICH_CONFIDENCE_MEDIUM        = 0.52
+_ENRICH_CONFIDENCE_HIGH          = 0.85
+_ENRICH_CONFIDENCE_MEDIUM        = 0.85
 _ENRICH_CONFIDENCE_EXTREME_LOW   = 0.22
 _ENRICH_DURATION_GOOD            = 0.62
 _DURATION_DEFAULT_SCORE          = 0.45
@@ -279,8 +279,8 @@ def _compute_enrich_confidence(
         decision = "full"
         reason   = "high_confidence"
     elif confidence >= _ENRICH_CONFIDENCE_MEDIUM and not artist_mismatch and duration_good:
-        decision = "cover_only"
-        reason   = "medium_confidence"
+        decision = "skip"
+        reason   = "cover_only_rejected"
     else:
         decision = "skip"
         if artist_mismatch:

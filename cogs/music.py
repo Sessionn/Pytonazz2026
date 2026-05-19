@@ -9,7 +9,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import Config
+from core.cache_db import put as cache_store
+from core.music_embeds import _EMBED_RULER, batch_loading_embed
+from core.music_playlist import fetch_playlist_meta
 from core.player import MusicPlayer
+from core.log_colors import tag, b, ms, guild, user, ch
 from core.source_resolver import (
     SourceResolver,
     _is_yt_channel_url,
@@ -20,10 +24,8 @@ from core.source_resolver import (
 )
 from embeds.music_embeds import queue_embed, error_embed, success_embed, queue_notification_embed
 from views.queue_view import QueueView
-from core.log_colors import tag, b, ms, guild, user, ch
 
 log = logging.getLogger("pitonazz.music")
-_EMBED_RULER = "`" + "─" * 54 + "`"
 _QUEUE_PROGRESS_STEP = 10
 _PLAY_DEBOUNCE_WINDOW_SECONDS = 1.8
 _PLAY_DEBOUNCE_CLEANUP_MULTIPLIER = 4
@@ -39,7 +41,7 @@ _RE_YT_PLAYLIST    = re.compile(
 )
 _RE_SC_COLLECTION  = re.compile(r"soundcloud\.com/[^/?#]+/(?:sets|albums)/[^/?#]+", re.IGNORECASE)
 _RE_URL_LIKE       = re.compile(
-    r"^(?:https?://)?(?:(?:www\.)?(?:open\.)?spotify\.com|(?:www\.)?youtube\.com|youtu\.be|(?:www\.)?soundcloud\.com)(?:/|$)",
+    r"^(?:https?://)?(?:(?:www\.)?(?:open\.)?spotify\.com|(?:www\.)?youtube\.com|youtu\.be|(?:www\.)?soundcloud\.com|on\.soundcloud\.com|sco\.lt)(?:/|$)",
     re.IGNORECASE,
 )
 
@@ -89,33 +91,6 @@ def _is_multi_url(query: str) -> bool:
     return bool(
         _RE_YT_PLAYLIST.search(normalized)
         or _RE_SC_COLLECTION.search(normalized)
-    )
-
-
-def _progress_bar(current: int, total: int, width: int = 18) -> str:
-    if total > 0:
-        filled = min(width, int(width * current / total))
-        pct    = int(100 * current / total)
-        bar    = "█" * filled + "░" * (width - filled)
-        return f"`{bar}` {current}/{total} ({pct}%)"
-    else:
-        dots = "." * ((current % 3) + 1)
-        return f"`caricamento{dots}` {current} tracce"
-
-
-def _batch_loading_embed(
-    nome: str,
-    requester: discord.Member,
-    current: int = 0,
-    total: int = 0,
-) -> discord.Embed:
-    return discord.Embed(
-        description=(
-            f"⏳ Caricamento tracce di **{nome}** in corso...\n"
-            f"{_progress_bar(current, total)}\n"
-            f"👥 da {requester.mention}"
-        ),
-        color=0x5865F2,
     )
 
 
@@ -212,12 +187,13 @@ class _CancelBatchView(discord.ui.View):
 
 
 class _PlaySelect(discord.ui.Select):
-    def __init__(self, player, results, channel, requester, vc_ch):
+    def __init__(self, player, results, channel, requester, vc_ch, search_query: str = ""):
         self.player    = player
         self.results   = results
         self.channel   = channel
         self.requester = requester
         self.vc_ch     = vc_ch
+        self.search_query = (search_query or "").strip()
         options = []
         for i, r in enumerate(results[:7]):
             dur    = f"{r.duration//60}:{r.duration%60:02d}" if r.duration else "?:??"
@@ -253,6 +229,14 @@ class _PlaySelect(discord.ui.Select):
                 embed=error_embed(f"Coda piena (max {Config.MAX_QUEUE} tracce)."),
                 ephemeral=True,
             )
+        try:
+            cache_query = self.search_query or getattr(chosen, "origin_query", "").strip()
+            if not cache_query:
+                cache_query = f"{chosen.title} {(getattr(chosen, 'artist', '') or '').strip()}".strip()
+            if cache_query:
+                cache_store(cache_query, chosen)
+        except Exception as cache_exc:
+            log.debug(tag("CACHE", f"search-select cache store fallito (ignorato): {cache_exc}"))
         await inter.response.defer()
         await inter.delete_original_response()
         await self.channel.send(embed=queue_notification_embed(chosen, position, self.requester))
@@ -260,9 +244,9 @@ class _PlaySelect(discord.ui.Select):
 
 
 class _PlaySelectView(discord.ui.View):
-    def __init__(self, player, results, channel, requester, vc_ch):
+    def __init__(self, player, results, channel, requester, vc_ch, search_query: str = ""):
         super().__init__(timeout=60)
-        self.add_item(_PlaySelect(player, results, channel, requester, vc_ch))
+        self.add_item(_PlaySelect(player, results, channel, requester, vc_ch, search_query=search_query))
 
 
 class _VersionSelect(discord.ui.Select):
@@ -301,73 +285,6 @@ class _VersionView(discord.ui.View):
 async def _maybe_start(player: MusicPlayer, vc: discord.VoiceClient, was_empty: bool):
     if not (vc.is_playing() or vc.is_paused()) and player.queue:
         await player.play_next()
-
-
-async def _fetch_playlist_meta(query: str) -> tuple[str, int]:
-    """
-    Recupera (nome, total_tracks) prima di avviare il generator.
-    Restituisce ("Playlist", 0) come fallback sicuro.
-    """
-    nome  = "Playlist"
-    total = 0
-    loop  = asyncio.get_running_loop()
-
-    try:
-        if pid_str := extract_spotify_playlist_id(query):
-            sp  = SourceResolver._sp_client()
-            if sp:
-                pl = await loop.run_in_executor(
-                    None,
-                    lambda _id=pid_str: sp.playlist(_id, fields="name,tracks.total"),
-                )
-                nome  = pl.get("name") or "Playlist"
-                total = pl.get("tracks", {}).get("total", 0)
-
-        elif aid_str := extract_spotify_album_id(query):
-            sp  = SourceResolver._sp_client()
-            if sp:
-                al = await loop.run_in_executor(
-                    None,
-                    lambda _id=aid_str: sp.album(_id),
-                )
-                nome  = al.get("name") or "Album"
-                total = al.get("total_tracks", 0)
-
-        elif _RE_YT_PLAYLIST.search(query) or _RE_SC_COLLECTION.search(query):
-            import yt_dlp
-            ydl_opts = {
-                **Config.YDL_OPTIONS,
-                "extract_flat": True,
-                "skip_download": True,
-                "quiet": True,
-            }
-            q = query
-            info = await loop.run_in_executor(
-                None,
-                lambda _q=q: yt_dlp.YoutubeDL(ydl_opts).extract_info(_q, download=False),
-            )
-            if info:
-                entries = info.get("entries") or []
-                valid_entries_count = sum(1 for e in entries if e)
-                if valid_entries_count > 0:
-                    nome  = info.get("title") or info.get("uploader") or "Playlist"
-                    total = valid_entries_count
-                else:
-                    # yt-dlp espone il totale con chiavi diverse in base all'estrattore.
-                    fallback_keys = ("playlist_count", "n_entries", "entry_count")
-                    raw_total = next((value for key in fallback_keys if (value := info.get(key)) is not None), None)
-                    try:
-                        fallback_total = int(raw_total) if raw_total is not None else 0
-                    except (TypeError, ValueError):
-                        fallback_total = 0
-                    if fallback_total > 0:
-                        nome  = info.get("title") or info.get("uploader") or "Playlist"
-                        total = fallback_total
-
-    except Exception as exc:
-        log.warning(tag("WARN", f"_fetch_playlist_meta: {exc}"))
-
-    return nome, total
 
 
 class Music(commands.Cog):
@@ -515,7 +432,7 @@ class Music(commands.Cog):
         cancel_view = _CancelBatchView(cancel_event, inter.user.id)
 
         await inter.edit_original_response(
-            embed=_batch_loading_embed(nome, inter.user, current=0, total=total),
+            embed=batch_loading_embed(nome, inter.user, current=0, total=total),
             view=cancel_view,
         )
         await self._load_batch(
@@ -569,7 +486,7 @@ class Music(commands.Cog):
             # La risposta originale è già la barra progresso mostrata dal
             # chiamante: aggiorniamo view con il cancel_view appena creato.
             await inter.edit_original_response(
-                embed=_batch_loading_embed(nome, inter.user, current=1, total=total),
+                embed=batch_loading_embed(nome, inter.user, current=1, total=total),
                 view=cancel_view,
             )
             load_msg = await inter.original_response()
@@ -591,7 +508,7 @@ class Music(commands.Cog):
                 )
             )
             load_msg = await inter.channel.send(
-                embed=_batch_loading_embed(nome, inter.user, current=1, total=total),
+                embed=batch_loading_embed(nome, inter.user, current=1, total=total),
                 view=cancel_view,
             )
 
@@ -739,7 +656,7 @@ class Music(commands.Cog):
             await inter.response.defer()
             vc, meta = await asyncio.gather(
                 self._ensure_voice_client(inter, vc_ch),
-                _fetch_playlist_meta(query),
+                fetch_playlist_meta(query),
             )
             nome, total = meta
             log.info(tag("CMD", f"/play playlist  {b(nome)}  total={total}  ({b(query)})"))
@@ -842,7 +759,7 @@ class Music(commands.Cog):
             description=f"Risultati per: **{query}**\n{_EMBED_RULER}",
             color=0x5865F2,
         )
-        view = _PlaySelectView(player, results, inter.channel, inter.user, vc_ch)
+        view = _PlaySelectView(player, results, inter.channel, inter.user, vc_ch, search_query=query)
         await inter.followup.send(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(name="versions", description="Scegli una versione alternativa della traccia corrente")
@@ -921,7 +838,7 @@ class Music(commands.Cog):
                     log.info(tag("QUEUE", f"Progress  [{nome}]  {b(str(added_so_far))} tracce  ({pct})"))
 
                 if requester and count % UPDATE_EVERY == 0:
-                    loading_embed = _batch_loading_embed(
+                    loading_embed = batch_loading_embed(
                         nome, requester, current=added_so_far, total=total
                     )
                     try:

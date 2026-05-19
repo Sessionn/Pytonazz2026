@@ -2,8 +2,6 @@
 
 > **Documento:** Manuale tecnico, guida operativa e indice funzionale  
 > **Repository:** `Sessionn/Pytonazz2026`  
-> **Versione:** commit `7c880a2`  
-> **Data:** 11/04/2026  
 
 ---
 
@@ -78,9 +76,14 @@ Pytonazz2026/
 │   ├── quote_card.py            ← Generatore immagine citazione (Pillow + httpx)
 │   ├── source_resolver/           ← Resolver multi-fonte (orchestratore + sotto-moduli)
 │   │   ├── __init__.py            ← Orchestratore resolver: import + flusso principale
+│   │   ├── query.py               ← Normalizzazione query + ranking risultati
 │   │   ├── scoring.py             ← Scoring puro: Jaccard, penalità varianti, confidence
+│   │   ├── soundcloud.py          ← Espansione short-link SoundCloud
 │   │   ├── spotify.py             ← Helper Spotify: client factory, selezione item
+│   │   ├── youtube.py             ← Helper YouTube (URL canale + ranking risultati)
 │   │   └── ytdlp.py               ← yt-dlp: logger, _make_opts(), _strip_yt_radio()
+│   ├── music_embeds.py            ← Helper embed/progress per caricamenti musica
+│   ├── music_playlist.py          ← Helper metadata playlist/album (Spotify/YT/SC)
 │   └── welcome_store.py           ← Persistenza config welcome/goodbye/autorole
 │
 ├── cogs/                        ← Cog Discord (auto-caricati all'avvio)
@@ -324,14 +327,17 @@ Qualsiasi `.py` in `cogs/` o `cogs/custom/` viene caricato automaticamente.
 
 ### 6.1 `source_resolver/` — Resolver Multi-fonte (orchestratore)
 
-Modulo principale (~350 righe). Importa le funzioni specializzate dai tre sotto-moduli e implementa il flusso di risoluzione completo.
+Modulo principale. Importa le funzioni specializzate dai sotto-moduli e implementa il flusso di risoluzione completo.
 
 > **Architettura a sotto-moduli (Phase 2):**
+> - `source_resolver/query.py` — normalizzazione query + ranking risultati ricerca
 > - `source_resolver/scoring.py` — scoring puro: Jaccard, `_dynamic_variant_penalty`, confidence
+> - `source_resolver/soundcloud.py` — espansione short-link (`on.soundcloud.com`, `sco.lt`)
 > - `source_resolver/spotify.py` — factory del client Spotify, helper selezione item
+> - `source_resolver/youtube.py` — helper URL canali + ranking candidati ricerca
 > - `source_resolver/ytdlp.py` — logger yt-dlp personalizzato, `_make_opts()`, `_strip_yt_radio()`
 
-Tutti e tre sono moduli senza I/O propri: `source_resolver/__init__.py` li importa e li orchestra.
+I sotto-moduli vengono orchestrati da `source_resolver/__init__.py`.
 
 #### Dataclass `TrackInfo`
 
@@ -1066,5 +1072,4 @@ python main.py
 ---
 
 > **Fine documento.**  
-> Versione basata su commit `7c880a25c50be4b4a54b9160fcbdff2fcc41289e`  
 > Per aggiornamenti: identificare la riga nella tabella [11.9](#119-cosa-aggiornare-dopo-un-commit) e intervenire nella sola sezione indicata.

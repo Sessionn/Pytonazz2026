@@ -56,7 +56,6 @@ from core.source_resolver.ytdlp import (
     _YTDLP_QUERY_CACHE_MAX,
     _STREAM_URL_CACHE_TTL,
     _STREAM_URL_CACHE_MAX,
-    _YdlLogger,
     _make_opts,
     _strip_yt_radio,
     _is_soundcloud_url,
@@ -72,6 +71,12 @@ from core.source_resolver.spotify import (
     _spotify_item_query_similarity,
     _choose_spotify_track_item,
 )
+from core.source_resolver.query import normalize_search_query
+from core.source_resolver.soundcloud import expand_soundcloud_short_url
+from core.source_resolver.youtube import (
+    is_yt_channel_url as _is_yt_channel_url,
+    rank_search_results_by_query,
+)
 
 log = logging.getLogger("pitonazz.resolver")
 enrich_log = logging.getLogger("pitonazz.spotify_enrich")
@@ -82,12 +87,6 @@ _SPOTIFY_LOCALE_SEGMENT = re.compile(
     re.IGNORECASE,
 )
 _SPOTIFY_ID_PATTERN = re.compile(r"[A-Za-z0-9]+")
-
-_YT_CHANNEL  = re.compile(
-    r"(?:https?://)?(?:www\.)?youtube\.com/"
-    r"(?:channel/UC[A-Za-z0-9_-]+|c/[^/?#]+|user/[^/?#]+|@[^/?#]+)"
-    r"(?:[/?#].*)?$"
-)
 
 _YT_CANDIDATES = 3
 
@@ -182,10 +181,6 @@ def spotify_style_shuffle(tracks: list["TrackInfo"]) -> list["TrackInfo"]:
 
 def _shuffle_pairs(pairs: list[tuple]) -> list[tuple]:
     return _bucket_shuffle(pairs, lambda p: p[1])
-
-
-def _is_yt_channel_url(url: str) -> bool:
-    return bool(_YT_CHANNEL.match(url))
 
 
 def _extract_spotify_entity_id(url: str, entity: str) -> Optional[str]:
@@ -290,6 +285,13 @@ def _is_url_like_query(query: str) -> bool:
     if q.lower().startswith("spotify:"):
         return True
     return bool(re.match(r"^(?:https?://|www\.)", q, re.IGNORECASE))
+
+
+async def _expand_query_if_needed(query: str) -> str:
+    expanded = await expand_soundcloud_short_url(query)
+    if expanded and expanded != query:
+        log.debug(tag("RESOLVE", f"soundcloud short  {b(query)}  →  {b(expanded)}"))
+    return expanded or query
 
 
 def _should_enrich_with_spotify(query: str, tracks: list["TrackInfo"]) -> bool:
@@ -572,6 +574,7 @@ class SourceResolver:
 
     @classmethod
     async def resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
+        query = await _expand_query_if_needed(query)
         loop = asyncio.get_running_loop()
 
         # ── Spotify track singola ──────────────────────────────────────────────
@@ -624,6 +627,7 @@ class SourceResolver:
     async def resolve_choices(
         cls, query: str, requester: str, requester_id: int, n: int = 7
     ) -> list:
+        query = await _expand_query_if_needed(query)
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
 
@@ -1040,16 +1044,25 @@ class SourceResolver:
 
     @classmethod
     def _run_ytdlp(cls, query: str, requester: str, requester_id: int) -> list:
-        cache_key = (int(requester_id or 0), query.strip())
+        normalized_query = query.strip()
+        search_match = re.match(r"^(ytsearch\d*:)(.*)$", normalized_query, re.IGNORECASE)
+        is_yt_search = bool(search_match)
+        origin_query = re.sub(r"^ytsearch\d*:", "", normalized_query, count=1).strip() or normalized_query
+        ytdlp_query = normalized_query
+        if is_yt_search and search_match:
+            prefix = search_match.group(1)
+            normalized_search = normalize_search_query(search_match.group(2))
+            if normalized_search:
+                ytdlp_query = f"{prefix}{normalized_search}"
+
+        cache_key = (int(requester_id or 0), ytdlp_query)
         cached = cls._get_cached_ytdlp_results(cache_key)
         if cached is not None:
-            log.debug(tag("RESOLVE", f"cache hit ytdlp  {b(query)}"))
+            log.debug(tag("RESOLVE", f"cache hit ytdlp  {b(ytdlp_query)}"))
             return cached
-        normalized_query = query.strip()
-        origin_query = re.sub(r"^ytsearch\d*:", "", normalized_query, count=1).strip() or normalized_query
         try:
             with yt_dlp.YoutubeDL(_make_opts()) as ydl:
-                info = ydl.extract_info(query, download=False)
+                info = ydl.extract_info(ytdlp_query, download=False)
         except Exception as e:
             log.error(tag("ERR", f"yt-dlp: {e}"))
             return []
@@ -1079,6 +1092,8 @@ class SourceResolver:
                 artist       = artist,
                 origin_query = origin_query,
             ))
+        if is_yt_search and origin_query:
+            results = rank_search_results_by_query(results, origin_query)
         cls._set_cached_ytdlp_results(cache_key, results)
         return results
 
