@@ -98,6 +98,8 @@ _UNAVAILABLE_AVAILABILITY = {
     "subscriber_only",
     "needs_auth",
 }
+# Guardrail: below this score we avoid persisting query→track cache pairs
+# to reduce false-positive cached matches for vague/misspelled queries.
 _CACHE_STORE_MIN_SCORE = 0.20
 
 _YT_CANDIDATES = 3
@@ -682,7 +684,7 @@ class SourceResolver:
         search_n = max(n, _YT_CANDIDATES)
 
         if n == 1 and not _is_url_like_query(query) and Config.SPOTIFY_CLIENT_ID:
-            # Parallelize Spotify meta lookup and initial yt-dlp search (OBIETTIVO 2A)
+            # Parallelize Spotify meta lookup and initial yt-dlp search (OBJECTIVE 2A)
             sp_raw, results = await asyncio.gather(
                 loop.run_in_executor(None, cls._sp_search_track_meta, query),
                 loop.run_in_executor(
@@ -715,7 +717,7 @@ class SourceResolver:
                             elif not url:
                                 merged.append(r)
                         results = merged
-                    # Re-rank with score_candidate using canonical query (OBIETTIVO 1C)
+                    # Re-rank with score_candidate using canonical query (OBJECTIVE 1C)
                     if results:
                         results = sorted(
                             results,
