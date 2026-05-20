@@ -159,16 +159,16 @@ class Dev(commands.Cog):
         if attiva:
             await self.bot.change_presence(
                 status=discord.Status.dnd,
-                activity=discord.Game("\U0001f527 Manutenzione in corso"),
+                activity=discord.Game("🚧 IN MANUTENZIONE 🚧"),
             )
         else:
             await self.bot.change_presence(status=discord.Status.online, activity=None)
         stato = (
-            "\U0001f6a7 **MANUTENZIONE ATTIVA** \u2014 solo tu puoi usare i comandi."
+            "🚧 **MANUTENZIONE ATTIVA** 🚧 solo tu puoi usare i comandi."
             if attiva
-            else "\u2705 Manutenzione **disattivata** \u2014 bot accessibile a tutti."
+            else "🚧 Manutenzione **disattivata** 🚧 bot accessibile a tutti."
         )
-        log.info(tag("DEV", f"maintenance \u2192 {b(attiva)}"))
+        log.info(tag("DEV", f"maintenance 🚧 {b(attiva)}"))
         await inter.response.send_message(stato, ephemeral=True)
 
     @app_commands.command(name="backupconfig", description=f"{_OWN} \U0001f451 Esporta la configurazione del bot in un file ZIP")
