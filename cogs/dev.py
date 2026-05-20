@@ -83,6 +83,34 @@ class Dev(commands.Cog):
         self.bot = bot
 
     @staticmethod
+    def _presence_from_entry(entry) -> tuple[discord.BaseActivity | None, discord.Status]:
+        if isinstance(entry, str):
+            return discord.Game(name=entry), discord.Status.online
+        if not isinstance(entry, dict):
+            return None, discord.Status.online
+        raw_type = entry.get("type", "playing")
+        act_type = raw_type if isinstance(raw_type, discord.ActivityType) else TYPE_MAP.get(raw_type, discord.ActivityType.playing)
+        name = str(entry.get("name", "") or "").strip()
+        if act_type == discord.ActivityType.custom:
+            activity = discord.CustomActivity(name=name)
+        else:
+            activity = discord.Activity(type=act_type, name=name)
+        raw_status = entry.get("status", "online")
+        status = raw_status if isinstance(raw_status, discord.Status) else STAT_MAP.get(raw_status, discord.Status.online)
+        return activity, status
+
+    async def _fallback_rotation_presence(self) -> None:
+        pool = list(getattr(self.bot, "_status_list", []) or [])
+        if not pool:
+            from assets.status_messages import STATUS_CYCLE
+            pool = list(STATUS_CYCLE) + _load_custom()
+        if not pool:
+            await self.bot.change_presence(status=discord.Status.online, activity=None)
+            return
+        activity, status = self._presence_from_entry(pool[0])
+        await self.bot.change_presence(status=status, activity=activity)
+
+    @staticmethod
     def _norm_cmd_name(name: str) -> str:
         return command_slug(name)
 
@@ -157,19 +185,28 @@ class Dev(commands.Cog):
     async def maintenance(self, inter: discord.Interaction, attiva: bool):
         await cfg.set_maintenance(attiva)
         if attiva:
+            self.bot._presence_before_maintenance = (
+                getattr(self.bot, "status", discord.Status.online),
+                getattr(self.bot, "activity", None),
+            )
             await self.bot.change_presence(
                 status=discord.Status.dnd,
                 activity=discord.Game("🚧 IN MANUTENZIONE 🚧"),
             )
         else:
-            await self.bot.change_presence(status=discord.Status.online, activity=None)
-        stato = (
-            "🚧 **MANUTENZIONE ATTIVA** 🚧 solo tu puoi usare i comandi."
-            if attiva
-            else "🚧 Manutenzione **disattivata** 🚧 bot accessibile a tutti."
-        )
+            prev = getattr(self.bot, "_presence_before_maintenance", None)
+            if isinstance(prev, tuple) and len(prev) == 2:
+                await self.bot.change_presence(status=prev[0], activity=prev[1])
+            else:
+                await self._fallback_rotation_presence()
+            self.bot._presence_before_maintenance = None
+        stato = "🚧 **MANUTENZIONE ATTIVA** — solo tu puoi usare i comandi." if attiva else "✅ Manutenzione **disattivata** — bot accessibile a tutti."
+        color = 0xED4245 if attiva else 0x57F287
         log.info(tag("DEV", f"maintenance 🚧 {b(attiva)}"))
-        await inter.response.send_message(stato, ephemeral=True)
+        await inter.response.send_message(
+            embed=discord.Embed(description=stato, color=color),
+            ephemeral=True,
+        )
 
     @app_commands.command(name="backupconfig", description=f"{_OWN} \U0001f451 Esporta la configurazione del bot in un file ZIP")
     @owner_check

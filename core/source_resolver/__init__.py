@@ -87,6 +87,18 @@ _SPOTIFY_LOCALE_SEGMENT = re.compile(
     re.IGNORECASE,
 )
 _SPOTIFY_ID_PATTERN = re.compile(r"[A-Za-z0-9]+")
+_UNAVAILABLE_TITLE_RE = re.compile(
+    r"(?:\bvideo\s+unavailable\b|this\s+video\s+is\s+not\s+available)",
+    re.IGNORECASE,
+)
+_UNAVAILABLE_AVAILABILITY = {
+    "unavailable",
+    "private",
+    "premium_only",
+    "subscriber_only",
+    "needs_auth",
+}
+_CACHE_STORE_MIN_SCORE = 0.20
 
 _YT_CANDIDATES = 3
 
@@ -305,6 +317,21 @@ def _should_enrich_with_spotify(query: str, tracks: list["TrackInfo"]) -> bool:
     if _is_url_like_query(q):
         return False
     return True
+
+
+def _should_store_query_cache(query: str, track: "TrackInfo") -> bool:
+    if not query or not track:
+        return False
+    if not getattr(track, "webpage_url", ""):
+        return False
+    title = (getattr(track, "title", "") or "").strip()
+    if not title or _UNAVAILABLE_TITLE_RE.search(title):
+        return False
+    score = max(
+        score_candidate(query, track),
+        query_title_similarity(query, title, getattr(track, "artist", "") or ""),
+    )
+    return score >= _CACHE_STORE_MIN_SCORE
 
 
 # ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
@@ -556,19 +583,20 @@ class SourceResolver:
             junk_pct = int(score["variant_penalty"]   * 100)
             nm_pct   = int(score["non_music_penalty"] * 100)
 
-            _sp_label = b(sp_title) + (f"  {sp_artist}" if sp_artist else "")
-            _yt_label = dim(yt_title_before) if decision == "full" else b(yt_title_before)
+            q_short = original_query if len(original_query) <= 42 else f"{original_query[:41]}…"
+            sp_full = f"{sp_title} {sp_artist}".strip()
+            sp_short = sp_full if len(sp_full) <= 42 else f"{sp_full[:41]}…"
+            yt_short = yt_title_before if len(yt_title_before) <= 42 else f"{yt_title_before[:41]}…"
             enrich_log.info(tag(
                 "SPOTIFY",
-                f"enrich[{idx}]  {b(original_query)}  →  {_sp_label}"
-                f"  |  yt: {_yt_label}"
-                f"  |  {hi(decision, _dc)}  {hi(f'{conf_pct}%', _dc)}",
+                f"enrich[{idx}] {hi(decision, _dc)} {hi(f'{conf_pct}%', _dc)}"
+                f" q={b(q_short)} yt={b(yt_short)} sp={b(sp_short)}",
             ))
             enrich_log.debug(tag(
                 "SPOTIFY",
-                f"  scores  q={q_pct}%  yt={yt_pct}%  art={art_pct}%"
-                f"  dur={dur_pct}%  junk={junk_pct}%  nm={nm_pct}%"
-                f"  reason={dim(score['reason'])}",
+                f"scores[{idx}] q={q_pct}% yt={yt_pct}% art={art_pct}%"
+                f" dur={dur_pct}% junk={junk_pct}% nm={nm_pct}%"
+                f" r={dim(score['reason'])}",
             ))
         return tracks
 
@@ -710,7 +738,7 @@ class SourceResolver:
                 if sp_meta_hint
                 else query
             )
-            if _should_enrich_with_spotify(enrich_query, results):
+            if n == 1 and sp_meta_hint and _should_enrich_with_spotify(enrich_query, results):
                 results = await loop.run_in_executor(
                     None, cls._enrich_with_spotify, results, enrich_query
                 )
@@ -719,8 +747,10 @@ class SourceResolver:
         if n == 1 and results and not _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
-                if qc is not None:
+                if qc is not None and _should_store_query_cache(query, results[0]):
                     qc.store(query, results[0])
+                elif qc is not None:
+                    log.debug(tag("CACHE", f"skip store (low confidence): {b(query)}"))
             except Exception as _we:
                 log.debug(tag("CACHE", f"write path error (ignorato): {_we}"))
         # ─────────────────────────────────────────────────────────────────────────────
@@ -1105,7 +1135,7 @@ class SourceResolver:
         entries = raw_entries if raw_entries is not None else [info]
         results = []
         for e in entries:
-            if not e or cls._is_drm(e):
+            if not e or cls._is_drm(e) or cls._is_unavailable_entry(e):
                 continue
             url = cls._best_audio_url(e)
             if not url:
@@ -1130,6 +1160,14 @@ class SourceResolver:
         cls._set_cached_ytdlp_results(cache_key, results)
         return results
 
+    @staticmethod
+    def _is_unavailable_entry(entry: dict) -> bool:
+        availability = str((entry or {}).get("availability") or "").strip().lower()
+        if availability in _UNAVAILABLE_AVAILABILITY:
+            return True
+        title_str = (entry or {}).get("title", "") or ""
+        return bool(_UNAVAILABLE_TITLE_RE.search(title_str))
+
     @classmethod
     def _fetch_stream_url(cls, webpage_url: str) -> str:
         normalized_webpage_url = (webpage_url or "").strip()
@@ -1145,7 +1183,7 @@ class SourceResolver:
         except Exception as e:
             log.error(tag("ERR", f"fetch_stream_url: {e}"))
             return ""
-        if not info or cls._is_drm(info):
+        if not info or cls._is_drm(info) or cls._is_unavailable_entry(info):
             return ""
         stream_url = cls._best_audio_url(info) or ""
         cls._set_cached_stream_url(normalized_webpage_url, stream_url)

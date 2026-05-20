@@ -9,7 +9,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.source_resolver.query import normalize_search_query
 from core.source_resolver.scoring import _compute_enrich_confidence
+from core.source_resolver.__init__ import _should_store_query_cache
 from core.source_resolver.soundcloud import is_soundcloud_short_url
+from core.quote_card import _normalize_display_text
 
 
 class _Track:
@@ -17,6 +19,7 @@ class _Track:
         self.title = title
         self.artist = artist
         self.duration = duration
+        self.webpage_url = "https://youtube.com/watch?v=test"
 
 
 print("TEST resolver helpers")
@@ -44,3 +47,12 @@ if score["confidence"] >= 0.85:
 if score["decision"] == "cover_only":
     assert score["confidence"] < 0.85
 print("OK enrich threshold/cover_only guard")
+
+good = _Track("Waka Waka (This Time for Africa)", "Shakira")
+bad = _Track("Video unavailable", "Unknown")
+assert _should_store_query_cache("waka waka shakira", good)
+assert not _should_store_query_cache("waka waka shakira", bad)
+print("OK cache guardrail for low-quality entries")
+
+assert _normalize_display_text("𝓟𝓲𝓮𝓻𝓸𝓛𝓸𝓷𝓮") == "PieroLone"
+print("OK unicode quote normalization")

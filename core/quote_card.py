@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -115,6 +116,11 @@ def _get_fonts(text: str = "", author: str = ""):
     )
 
 
+def _normalize_display_text(value: str) -> str:
+    """Normalize fancy Unicode presentation forms to stable renderable text."""
+    return unicodedata.normalize("NFKC", value or "")
+
+
 # ── Fetch avatar + cover-fit LANCZOS ───────────────────────────────────────
 async def _fetch_avatar(url: str) -> Optional[Image.Image]:
     if not _HAS_HTTPX or not url:
@@ -199,6 +205,8 @@ async def build_quote_card(
     server_name: str = "",   # mantenuto per compatibilità, non usato
 ) -> bytes:
     loop = asyncio.get_running_loop()
+    text = _normalize_display_text(text)
+    author = _normalize_display_text(author)
 
     # Avatar scaricato in async + mask precalcolata (cachata dopo la prima volta)
     avatar, fade_mask = await asyncio.gather(
