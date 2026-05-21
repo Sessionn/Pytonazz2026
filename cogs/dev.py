@@ -169,7 +169,7 @@ class Dev(commands.Cog):
         embed = discord.Embed(
             title=f"{_OWN} Modalità manutenzione",
             description=descrizione,
-            color=0x57F287 if attiva else 0xED4245,
+            color=0xED4245 if attiva else 0x57F287,
         )
         embed.add_field(name="Attiva", value=stato, inline=False)
         log.info(tag("DEV", f"maintenance \u2192 {b(attiva)}"))
