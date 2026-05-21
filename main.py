@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from config import Config
+from core.bot_config import cfg
 from core.cache_db import init_db
 from core.log_colors import setup_logging
 from core.banner import print_banner
@@ -82,6 +83,7 @@ if Config.CACHE_ENABLED:
 
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.all()
+intents.members = True
 #intents = discord.Intents.default()
 #intents.message_content = True
 #intents.guilds = True
@@ -89,6 +91,10 @@ intents = discord.Intents.all()
 #intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot._current_presence_status = discord.Status.online
+bot._current_presence_activity = None
+bot._maintenance_presence_status = None
+bot._maintenance_presence_activity = None
 
 COGS = [
     "cogs.ai",
@@ -192,15 +198,57 @@ def _build_status(entry) -> discord.Status:
     return getattr(discord.Status, raw, discord.Status.online)
 
 
-@tasks.loop(minutes=10)
-async def rotate_status():
+async def _set_managed_presence(
+    status: discord.Status,
+    activity: discord.BaseActivity | None,
+) -> None:
+    bot._current_presence_status = status
+    bot._current_presence_activity = activity
+    await bot.change_presence(status=status, activity=activity)
+
+
+async def _apply_next_status() -> None:
     pool = STATUS_CYCLE + ([entry for entry in custom_statuses] if custom_statuses else [])
     if not pool:
         return
     chosen = random.choice(pool)
-    activity = _build_activity(chosen)
-    status   = _build_status(chosen)
-    await bot.change_presence(status=status, activity=activity)
+    await _set_managed_presence(_build_status(chosen), _build_activity(chosen))
+
+
+async def _apply_maintenance_presence() -> None:
+    if not cfg.maintenance:
+        return
+    if bot._maintenance_presence_status is None:
+        bot._maintenance_presence_status = bot._current_presence_status
+        bot._maintenance_presence_activity = bot._current_presence_activity
+    await _set_managed_presence(
+        discord.Status.dnd,
+        discord.CustomActivity(name="🚧 Manutenzione"),
+    )
+
+
+async def _restore_presence_after_maintenance() -> None:
+    status = bot._maintenance_presence_status
+    activity = bot._maintenance_presence_activity
+    bot._maintenance_presence_status = None
+    bot._maintenance_presence_activity = None
+    if status is None and activity is None:
+        await _apply_next_status()
+        return
+    await _set_managed_presence(status or discord.Status.online, activity)
+
+
+bot.set_managed_presence = _set_managed_presence
+bot.apply_next_status = _apply_next_status
+bot.apply_maintenance_presence = _apply_maintenance_presence
+bot.restore_presence_after_maintenance = _restore_presence_after_maintenance
+
+
+@tasks.loop(minutes=10)
+async def rotate_status():
+    if cfg.maintenance:
+        return
+    await _apply_next_status()
 
 
 # ── Events ───────────────────────────────────────────────────────────────────
@@ -214,6 +262,10 @@ async def on_ready():
         watchdog.start()
     if not rotate_status.is_running():
         rotate_status.start()
+    if cfg.maintenance:
+        await _apply_maintenance_presence()
+    else:
+        await _apply_next_status()
 
     try:
         synced = await bot.tree.sync()

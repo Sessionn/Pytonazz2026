@@ -305,6 +305,13 @@ def _should_enrich_with_spotify(query: str, tracks: list["TrackInfo"]) -> bool:
     return True
 
 
+def _short_log_text(value: str, limit: int = 48) -> str:
+    text = (value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
 # ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
@@ -554,13 +561,14 @@ class SourceResolver:
             junk_pct = int(score["variant_penalty"]   * 100)
             nm_pct   = int(score["non_music_penalty"] * 100)
 
-            _sp_label = b(sp_title) + (f"  {sp_artist}" if sp_artist else "")
-            _yt_label = dim(yt_title_before) if decision == "full" else b(yt_title_before)
+            _sp_label = b(_short_log_text(sp_title)) + (
+                f"  {_short_log_text(sp_artist, 24)}" if sp_artist else ""
+            )
+            _yt_label = _short_log_text(yt_title_before)
             enrich_log.info(tag(
                 "SPOTIFY",
-                f"enrich[{idx}]  {b(original_query)}  →  {_sp_label}"
-                f"  |  yt: {_yt_label}"
-                f"  |  {hi(decision, _dc)}  {hi(f'{conf_pct}%', _dc)}",
+                f"enrich[{idx}]  {hi(decision, _dc)}  {hi(f'{conf_pct}%', _dc)}"
+                f"  {_yt_label}  →  {_sp_label}",
             ))
             enrich_log.debug(tag(
                 "SPOTIFY",

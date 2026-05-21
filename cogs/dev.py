@@ -159,14 +159,21 @@ class Dev(commands.Cog):
         if attiva:
             await self.bot.apply_maintenance_presence()
         else:
-            await self.bot.apply_next_status()
-        stato = (
-            "\U0001f6a7 **MANUTENZIONE ATTIVA** \u2014 solo tu puoi usare i comandi."
+            await self.bot.restore_presence_after_maintenance()
+        stato = "🟢 True" if attiva else "🔴 False"
+        descrizione = (
+            "🚧 **MANUTENZIONE ATTIVA** — solo tu puoi usare i comandi."
             if attiva
-            else "\u2705 Manutenzione **disattivata** \u2014 bot accessibile a tutti."
+            else "✅ Manutenzione **disattivata** — bot accessibile a tutti."
         )
+        embed = discord.Embed(
+            title=f"{_OWN} Modalità manutenzione",
+            description=descrizione,
+            color=0x57F287 if attiva else 0xED4245,
+        )
+        embed.add_field(name="Attiva", value=stato, inline=False)
         log.info(tag("DEV", f"maintenance \u2192 {b(attiva)}"))
-        await inter.response.send_message(stato, ephemeral=True)
+        await inter.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="backupconfig", description=f"{_OWN} \U0001f451 Esporta la configurazione del bot in un file ZIP")
     @owner_check
@@ -518,7 +525,10 @@ class Dev(commands.Cog):
             if act_type == discord.ActivityType.custom
             else discord.Activity(type=act_type, name=nome)
         )
-        await self.bot.change_presence(activity=activity, status=STAT_MAP.get(stato, discord.Status.online))
+        await self.bot.set_managed_presence(
+            status=STAT_MAP.get(stato, discord.Status.online),
+            activity=activity,
+        )
         log.info(tag("STATUS", f"set {b(nome)} tipo={tipo} stato={stato}"))
         await inter.response.send_message(
             f"\u2705 **{TYPE_LABEL.get(tipo, tipo)} {nome}** | {STATUS_LABEL.get(stato, stato)}\n"
