@@ -564,7 +564,11 @@ class SourceResolver:
             _sp_label = b(_short_log_text(sp_title)) + (
                 f"  {_short_log_text(sp_artist, 24)}" if sp_artist else ""
             )
-            _yt_label = _short_log_text(yt_title_before)
+            _yt_label = (
+                dim(_short_log_text(yt_title_before))
+                if decision == "full"
+                else b(_short_log_text(yt_title_before))
+            )
             enrich_log.info(tag(
                 "SPOTIFY",
                 f"enrich[{idx}]  {hi(decision, _dc)}  {hi(f'{conf_pct}%', _dc)}"
