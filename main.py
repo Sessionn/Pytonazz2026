@@ -223,7 +223,7 @@ async def _apply_maintenance_presence() -> None:
         bot._maintenance_presence_activity = bot._current_presence_activity
     await _set_managed_presence(
         discord.Status.dnd,
-        discord.CustomActivity(name="🚧 Manutenzione"),
+        discord.Game(name="🚧 Manutenzione"),
     )
 
 
