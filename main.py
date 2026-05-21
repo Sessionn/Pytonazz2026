@@ -81,11 +81,12 @@ if Config.CACHE_ENABLED:
     _dash_log.info(tag("CACHE_DB", f"Dashboard {hi('ON', _BGRN)}  {dim(f'http://{Config.DASHBOARD_HOST}:{Config.DASHBOARD_PORT}')}"))
 
 # ── Bot setup ────────────────────────────────────────────────────────────────
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True 
-intents.voice_states = True
+intents = discord.Intents.all()
+#intents = discord.Intents.default()
+#intents.message_content = True
+#intents.guilds = True
+#intents.members = True 
+#intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
