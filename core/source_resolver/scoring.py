@@ -44,8 +44,8 @@ class _TrackLike(Protocol):
 
 # ── Numeric constants ─────────────────────────────────────────────────────────
 
-_ENRICH_CONFIDENCE_HIGH          = 0.72
-_ENRICH_CONFIDENCE_MEDIUM        = 0.52
+_ENRICH_CONFIDENCE_HIGH          = 0.90
+_ENRICH_CONFIDENCE_MEDIUM        = 0.85
 _ENRICH_CONFIDENCE_EXTREME_LOW   = 0.22
 _ENRICH_DURATION_GOOD            = 0.62
 _DURATION_DEFAULT_SCORE          = 0.45

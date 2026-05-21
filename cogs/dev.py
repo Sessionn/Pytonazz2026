@@ -25,7 +25,7 @@ from core.bot_config import cfg
 from core.ai_client import invalidate_prompt_cache
 from core.ai_runtime import clear_conversation_memory
 from core.constants import TYPE_MAP, STAT_MAP, TYPE_LABEL, STATUS_LABEL, UNDISABLEABLE, command_slug
-from core.log_colors import tag, b, hi, user
+from core.log_colors import tag, b, hi, user, _BGRN, _BRED
 from core.paths import (
     BOT_CONFIG_PATH,
     BIRTHDAYS_PATH,
@@ -172,7 +172,8 @@ class Dev(commands.Cog):
             color=0xED4245 if attiva else 0x57F287,
         )
         embed.add_field(name="Attiva", value=stato, inline=False)
-        log.info(tag("DEV", f"maintenance \u2192 {b(attiva)}"))
+        status_log = hi("True", _BGRN) if attiva else hi("False", _BRED)
+        log.info(tag("DEV", f"maintenance \u2192 {status_log}"))
         await inter.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="backupconfig", description=f"{_OWN} \U0001f451 Esporta la configurazione del bot in un file ZIP")

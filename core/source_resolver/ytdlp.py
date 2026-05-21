@@ -92,3 +92,13 @@ def _is_soundcloud_url(url: str) -> bool:
     if not host:
         return False
     return host == "soundcloud.com" or host.endswith(".soundcloud.com")
+
+
+def _is_soundcloud_short_url(url: str) -> bool:
+    """Return True if url points to SoundCloud short host snd.sc."""
+    raw = (url or "").strip()
+    if not raw:
+        return False
+    parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+    host = (parsed.hostname or "").lower()
+    return host == "snd.sc" or host == "www.snd.sc"

@@ -9,6 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional, Callable, TypeVar
 
+import aiohttp
 import yt_dlp
 from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
@@ -60,6 +61,7 @@ from core.source_resolver.ytdlp import (
     _make_opts,
     _strip_yt_radio,
     _is_soundcloud_url,
+    _is_soundcloud_short_url,
 )
 
 from core.source_resolver.spotify import (
@@ -90,6 +92,11 @@ _YT_CHANNEL  = re.compile(
 )
 
 _YT_CANDIDATES = 3
+_SOUNDCLOUD_SHORT_RESOLVE_TIMEOUT_SECONDS = 6
+_UNAVAILABLE_VIDEO_MARKERS = (
+    "this video is not available",
+    "video unavailable",
+)
 
 _T = TypeVar("_T")
 
@@ -108,6 +115,7 @@ class TrackInfo:
     origin_query: str = field(default="", repr=False)
     spotify_url:  str = field(default="", repr=False)
     popularity:   int = field(default=0, repr=False)
+    verified:     bool = field(default=False, repr=False)
 
 
 def _clone_track(track: "TrackInfo") -> "TrackInfo":
@@ -124,6 +132,7 @@ def _clone_track(track: "TrackInfo") -> "TrackInfo":
         origin_query=track.origin_query,
         spotify_url=track.spotify_url,
         popularity=track.popularity,
+        verified=track.verified,
     )
 
 
@@ -310,6 +319,52 @@ def _short_log_text(value: str, limit: int = 48) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+def _cache_query_track(query: str, track: "TrackInfo", *, context: str = "") -> None:
+    if not query or not ((getattr(track, "title", "") or "").strip()):
+        return
+    try:
+        qc = _get_query_cache()
+        if qc is not None:
+            qc.store(query, track)
+    except Exception as _we:
+        suffix = f" {context}" if context else ""
+        log.debug(tag("CACHE", f"write path{suffix} (ignorato): {_we}"))
+
+
+def _fallback_query_from_track(track) -> str:
+    def _g(attr: str) -> str:
+        if isinstance(track, dict):
+            return (track.get(attr) or "").strip()
+        return (getattr(track, attr, "") or "").strip()
+
+    title_text = _g("title")
+    artist_text = _g("artist")
+    return f"{title_text} {artist_text}".strip()
+
+
+def _is_unavailable_video_error(error: Exception) -> bool:
+    message = str(error or "").lower()
+    return any(marker in message for marker in _UNAVAILABLE_VIDEO_MARKERS)
+
+
+async def _resolve_soundcloud_short_url(url: str) -> str:
+    normalized_url = (url or "").strip()
+    if not _is_soundcloud_short_url(normalized_url):
+        return normalized_url
+
+    timeout = aiohttp.ClientTimeout(total=_SOUNDCLOUD_SHORT_RESOLVE_TIMEOUT_SECONDS)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.head(normalized_url, allow_redirects=True) as response:
+                resolved_url = str(response.url).strip()
+                if resolved_url:
+                    log.debug(tag("RESOLVE", f"snd.sc  {b(normalized_url)}  →  {b(resolved_url)}"))
+                    return resolved_url
+    except Exception as exc:
+        log.debug(tag("RESOLVE", f"snd.sc resolve skip  {b(normalized_url)}  {exc}"))
+    return normalized_url
 
 
 # ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
@@ -535,6 +590,7 @@ class SourceResolver:
                 continue
 
             decision = score["decision"]
+            track.verified = decision == "full"
             sp_title = meta.get("title", "")
             sp_artist = meta.get("artist", "")
             yt_title_before = track.title
@@ -585,20 +641,14 @@ class SourceResolver:
     @classmethod
     async def resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
         loop = asyncio.get_running_loop()
+        query = (query or "").strip()
 
         # ── Spotify track singola ──────────────────────────────────────────────
         if track_id := extract_spotify_track_id(query):
             results = await loop.run_in_executor(
                 None, cls._sp_track, track_id, requester, requester_id
             )
-            # 6.2 — cache per link Spotify diretto
-            if results and results[0].title:
-                try:
-                    qc = _get_query_cache()
-                    if qc is not None:
-                        qc.store(query, results[0])
-                except Exception as _we:
-                    log.debug(tag("CACHE", f"write path spotify-direct (ignorato): {_we}"))
+            _cache_query_track(query, results[0] if results else None, context="spotify-direct")
             return results
 
         # ── Spotify playlist / album / artista → no cache (multi-traccia) ────
@@ -619,17 +669,12 @@ class SourceResolver:
             return tracks
 
         # ── URL YouTube / SoundCloud diretto ──────────────────────────────────
+        resolved_query = await _resolve_soundcloud_short_url(query)
         results = await loop.run_in_executor(
-            None, cls._search_or_url, query, requester, requester_id
+            None, cls._search_or_url, resolved_query, requester, requester_id
         )
-        # 6.2 — cache per URL diretto (YT/SC): salva solo se è effettivamente un URL
-        if results and results[0].title and _is_url_like_query(query):
-            try:
-                qc = _get_query_cache()
-                if qc is not None:
-                    qc.store(query, results[0])
-            except Exception as _we:
-                log.debug(tag("CACHE", f"write path url-direct (ignorato): {_we}"))
+        if results and _is_url_like_query(query):
+            _cache_query_track(query, results[0], context="url-direct")
         return results
 
     @classmethod
@@ -646,8 +691,9 @@ class SourceResolver:
                 if qc is not None:
                     hit = qc.lookup(query)
                     if hit and hit.get("webpage_url"):
+                        fallback_query = _fallback_query_from_track(hit)
                         stream_url = await loop.run_in_executor(
-                            None, cls._fetch_stream_url, hit["webpage_url"]
+                            None, cls._fetch_stream_url, hit["webpage_url"], fallback_query
                         )
                         if stream_url:
                             track = _cache_hit_to_track(hit, requester, requester_id, stream_url)
@@ -1033,7 +1079,8 @@ class SourceResolver:
     async def resolve_fresh_url(cls, track) -> str:
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
-        url  = await loop.run_in_executor(None, cls._fetch_stream_url, track.webpage_url)
+        fallback_query = _fallback_query_from_track(track)
+        url  = await loop.run_in_executor(None, cls._fetch_stream_url, track.webpage_url, fallback_query)
         elapsed = (time.perf_counter() - t0) * 1000
         status  = hi("OK", _BGRN) if url else hi("FAIL", _BRED)
         log.info(tag("STREAM", f"{title(track.title)}  {ms(elapsed)}  {status}"))
@@ -1095,7 +1142,7 @@ class SourceResolver:
         return results
 
     @classmethod
-    def _fetch_stream_url(cls, webpage_url: str) -> str:
+    def _fetch_stream_url(cls, webpage_url: str, fallback_query: str = "") -> str:
         normalized_webpage_url = (webpage_url or "").strip()
         if not normalized_webpage_url:
             return ""
@@ -1107,6 +1154,11 @@ class SourceResolver:
             with yt_dlp.YoutubeDL(_make_opts({"noplaylist": True})) as ydl:
                 info = ydl.extract_info(normalized_webpage_url, download=False)
         except Exception as e:
+            if fallback_query and _is_unavailable_video_error(e):
+                log.warning(tag("FALLBACK", f"url non disponibile  {b(normalized_webpage_url)}  →  {b(fallback_query)}"))
+                fallback_tracks = cls._run_ytdlp(f"ytsearch1:{fallback_query}", "", 0)
+                if fallback_tracks:
+                    return fallback_tracks[0].stream_url or ""
             log.error(tag("ERR", f"fetch_stream_url: {e}"))
             return ""
         if not info or cls._is_drm(info):

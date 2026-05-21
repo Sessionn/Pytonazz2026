@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import core.cache_db as cache_db
 from config import Config
 from core.player import MusicPlayer
 from core.source_resolver import (
@@ -145,6 +146,15 @@ def _autoplay_status_embed(enabled: bool) -> discord.Embed:
     return success_embed(f"Autoplay: **{state}**")
 
 
+def _cache_selected_track(query: str, track) -> None:
+    if not query or not ((getattr(track, "title", "") or "").strip()):
+        return
+    try:
+        cache_db.put(query, track)
+    except Exception as exc:
+        log.debug(tag("CACHE", f"search selection cache skip: {exc}"))
+
+
 class _AutoplaySelect(discord.ui.Select):
     def __init__(self, player: MusicPlayer, owner_id: int):
         self.player = player
@@ -212,12 +222,13 @@ class _CancelBatchView(discord.ui.View):
 
 
 class _PlaySelect(discord.ui.Select):
-    def __init__(self, player, results, channel, requester, vc_ch):
+    def __init__(self, player, results, channel, requester, vc_ch, query: str):
         self.player    = player
         self.results   = results
         self.channel   = channel
         self.requester = requester
         self.vc_ch     = vc_ch
+        self.query     = (query or "").strip()
         options = []
         for i, r in enumerate(results[:7]):
             dur    = f"{r.duration//60}:{r.duration%60:02d}" if r.duration else "?:??"
@@ -241,6 +252,7 @@ class _PlaySelect(discord.ui.Select):
                 embed=error_embed("Selezione non valida."),
                 ephemeral=True,
             )
+        _cache_selected_track(self.query, chosen)
         vc = inter.guild.voice_client
         if not vc:
             vc = await current_vc_ch.connect()
@@ -260,9 +272,9 @@ class _PlaySelect(discord.ui.Select):
 
 
 class _PlaySelectView(discord.ui.View):
-    def __init__(self, player, results, channel, requester, vc_ch):
+    def __init__(self, player, results, channel, requester, vc_ch, query: str):
         super().__init__(timeout=60)
-        self.add_item(_PlaySelect(player, results, channel, requester, vc_ch))
+        self.add_item(_PlaySelect(player, results, channel, requester, vc_ch, query))
 
 
 class _VersionSelect(discord.ui.Select):
@@ -842,7 +854,7 @@ class Music(commands.Cog):
             description=f"Risultati per: **{query}**\n{_EMBED_RULER}",
             color=0x5865F2,
         )
-        view = _PlaySelectView(player, results, inter.channel, inter.user, vc_ch)
+        view = _PlaySelectView(player, results, inter.channel, inter.user, vc_ch, query)
         await inter.followup.send(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(name="versions", description="Scegli una versione alternativa della traccia corrente")
