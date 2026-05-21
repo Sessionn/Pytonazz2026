@@ -84,6 +84,7 @@ if Config.CACHE_ENABLED:
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
+intents.members = True 
 intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
