@@ -1,182 +1,113 @@
-# Query Cache — Guida Setup
+# 🗄️ Architettura del Sottosistema Query Cache Database
 
-Il sistema di cache salva i risultati delle ricerche musicali in un database SQLite locale.  
-Alle query successive con la stessa canzone (o varianti simili), il bot bypassa yt-dlp e parte direttamente dal link salvato, riducendo i tempi di risoluzione **da ~3-5 secondi a meno di 1 secondo**.
-
----
-
-## Requisiti
-
-- Python 3.10+
-- `aiosqlite>=0.20.0` (gia' incluso in `requirements.txt`)
-- Nessun servizio esterno: il DB e' un semplice file `.db` sulla stessa macchina del bot
+Il modulo `cache_db` implementa un'architettura proprietaria di caching persistente basata su **SQLite**, progettata specificamente per azzerare i tempi di latenza legati alle API di risoluzione musicale ed evitare il throttling/ban degli indirizzi IP da parte dei provider multimediali (es: YouTube rate limiting).
 
 ---
 
-## Attivazione rapida
+## 🛠️ Architettura e Thread-Safety
 
-### 1. Installa la dipendenza
-
-```bash
-pip install -U aiosqlite
-# oppure, se usi requirements.txt
-pip install -r requirements.txt
-```
-
-### 2. Aggiungi le variabili al `.env`
-
-```env
-# Abilita il sistema
-CACHE_ENABLED=true
-
-# Path del file SQLite (relativo alla root del bot)
-DB_PATH=data/database/cache.db
-
-# Scadenza entry in giorni (default: 30)
-CACHE_TTL_DAYS=30
-
-# Numero massimo di entry (le piu' vecchie vengono rimosse automaticamente)
-CACHE_MAX_ENTRIES=500
-```
-
-### 3. Riavvia il bot
-
-All'avvio vedrai nel log:
-
-```
-[CACHE_DB] attiva  db='data/database/cache.db'  ttl=30d  max=500
-```
-
-Se la cache e' disabilitata:
-
-```
-[CACHE_DB] cache disabilitata (CACHE_ENABLED=false)
-```
+Il motore è incapsulato all'interno della classe `QueryCache` (`cache_db/engine.py`). 
+* **Zero Dipendenze Esterne:** Utilizza esclusivamente la libreria standard `sqlite3` combinata con operazioni non bloccanti basate sui thread.
+* **Thread-Isolation:** Utilizza un meccanismo basato su `threading.Lock()` globale integrato a istanze di connessione locali isolate per singolo thread (`threading.local()`), configurando le opzioni SQLite `check_same_thread=False`.
+* **Ottimizzazione I/O:** All'apertura della connessione vengono abilitati i pragma ad alte prestazioni:
+  * `PRAGMA journal_mode=WAL` (Write-Ahead Logging per letture e scritture concorrenti fulminee).
+  * `PRAGMA synchronous=NORMAL` (Ottimizzazione del sync su disco senza rischio di corruzione dei dati).
+  * `PRAGMA foreign_keys=ON` (Integrità referenziale).
 
 ---
 
-## Comandi dev (solo owner)
+## 📊 Schema Relazionale del Database
 
-| Comando | Effetto |
-|---|---|
-| `/cache-status` | Mostra se la cache e' abilitata o meno. |
-| `/cache-stats` | Entry totali, valide, alias, hit totali, dimensione DB, query top. |
-| `/cache-prune` | Rimuove entry scadute o in eccesso (parametri: `max_entries`, `ttl_days`). |
-| `/cache-invalidate` | Invalida una singola entry per query (per forzare un re-fetch). |
-| `/cache-clear` | Svuota completamente il DB (richiede `CONFERMA` come argomento). |
-
-> I comandi sono accessibili solo all'utente con `OWNER_ID` nel `.env`.
-
----
-
-## Come funziona
-
-### Flusso lookup
-
-```
-Utente: /play <query>
-           │
-           ▼
-     normalize(query)
-     → lowercase + hash SHA-256
-           │
-           ▼
-     lookup in DB
-     (song_cache + query_aliases)
-           │
-     ┌─────┴─────┐
-     HIT              MISS
-      │                │
-      ▼                ▼
-  fetch solo       resolve normale
-  stream_url       (yt-dlp + Spotify)
-  (< 1ms DB)            │
-      │                ▼
-      │           store() in DB
-      │                │
-      └─────┬─────┘
-              │
-              ▼
-           play()
-```
-
-### Tabelle DB
+Il database è strutturato su due tabelle principali ottimizzate tramite indici B-Tree speculativi:
 
 ```sql
-song_cache      -- entry principale per ogni brano unico
-query_aliases   -- query alternative che puntano alla stessa entry
+CREATE TABLE IF NOT EXISTS song_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_key TEXT NOT NULL,         -- Chiave normalizzata e ordinata dei token
+    variant_tag TEXT NOT NULL DEFAULT '', -- Tag di variazione (es: nightcore, spedup)
+    webpage_url TEXT NOT NULL,           -- URL definitivo di riproduzione (YouTube)
+    title TEXT NOT NULL DEFAULT '',       -- Titolo pulito della traccia
+    artist TEXT NOT NULL DEFAULT '',      -- Artista o Creatore del contenuto
+    duration INTEGER NOT NULL DEFAULT 0,  -- Durata espressa in secondi
+    thumbnail TEXT NOT NULL DEFAULT '',   -- URL della copertina
+    source TEXT NOT NULL DEFAULT 'youtube',
+    spotify_url TEXT,                     -- Traccia speculare su Spotify (se integrata)
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    last_used TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    hit_count INTEGER NOT NULL DEFAULT 1, -- Contatore di utilizzo della traccia
+    is_valid INTEGER NOT NULL DEFAULT 1,  -- Flag logico di validità (0 = Scaduto/Soft Delete)
+    UNIQUE(canonical_key, variant_tag)
+);
+
+CREATE TABLE IF NOT EXISTS query_alias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alias_key TEXT NOT NULL UNIQUE,       -- Query normalizzata alternativa
+    canonical_key TEXT NOT NULL,          -- Riferimento alla chiave primaria di song_cache
+    variant_tag TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
 ```
 
-Le entry scadute (oltre `CACHE_TTL_DAYS`) vengono rimosse automaticamente ogni 5 minuti
-tramite un thread in background, senza bisogno di un job separato.
+### Indici Ottimizzati:
+
+* `idx_sc_canonical` su `song_cache(canonical_key, variant_tag)` -> Velocizza i primi step di lookup.
+* `idx_sc_spotify` su `song_cache(spotify_url)` filtrato `WHERE spotify_url != ''`.
+* `idx_sc_webpage` su `song_cache(webpage_url)` -> Risoluzione diretta degli URL.
+* `idx_sc_last_used` e `idx_sc_hit_count` DESC -> Utilizzati per le routine di manutenzione e statistiche.
 
 ---
 
-## Setup su VM Ubuntu (consigliato)
+## ⚡ L'Algoritmo di Lookup a 5 Step
 
-```bash
-# Nella cartella del bot
-echo "CACHE_ENABLED=true" >> .env
-echo "DB_PATH=data/database/cache.db" >> .env
+Quando un utente inserisce una stringa di ricerca in `/play` o `/search`, la stringa subisce un processo di **Normalizzazione NFC**, rimozione della punteggiatura e delle parole di rumore (*Noise Words* come articoli e preposizioni in italiano e inglese), isolando i token in ordine alfabetico e intercettando eventuali keyword di variazione (`speed up`, `nightcore`, `slowed`, `remix`, `live`).
 
-# Installa dipendenza
-source venv/bin/activate   # se usi venv
-pip install aiosqlite
+Il motore esegue quindi una ricerca sequenziale basata su 5 livelli di costo computazionale crescente:
 
-# Riavvia il bot (systemd)
-sudo systemctl restart pitonazz
-
-# Controlla il log di avvio
-sudo journalctl -u pitonazz -n 30
+```text
+[ Query Utente ]
+       │
+       ▼
+ ┌───────────┐      HIT      ┌───────────────────────┐
+ │  Step 1   ├──────────────>│ Exact Match (O(log n))│ ──> [ Restituisce Traccia ]
+ └─────┬─────┘               └───────────────────────┘
+       │ MISS
+       ▼
+ ┌───────────┐      HIT      ┌───────────────────────┐
+ │  Step 2   ├──────────────>│   Alias Cache Match   │ ──> [ Restituisce Traccia ]
+ └─────┬─────┘               └───────────────────────┘
+       │ MISS
+       ▼
+ ┌───────────┐      HIT      ┌───────────────────────┐
+ │  Step 3   ├──────────────>│   Spotify URL Match   │ ──> [ Restituisce Traccia ]
+ └─────┬─────┘               └───────────────────────┘
+       │ MISS
+       ▼
+ ┌───────────┐      HIT      ┌───────────────────────┐
+ │  Step 4   ├──────────────>│  Webpage URL Match    │ ──> [ Restituisce Traccia ]
+ └─────┬─────┘               └───────────────────────┘
+       │ MISS
+       ▼
+ ┌───────────┐    Score >=   ┌───────────────────────┐
+ │  Step 5   ├──────────────>│ Jaccard Fuzzy Scan    │ ──> [ Restituisce Traccia come Candidato ]
+ └─────┬─────┘      0.82     └───────────────────────┘
+       │ MISS
+       ▼
+[ Esegui Network Fetch (yt-dlp) ] ──> [ Memorizza via store() ]
 ```
 
-Il file `cache.db` viene creato automaticamente nella directory `data/database/` al primo avvio
-con la cache abilitata. Non e' necessario crearlo a mano.
+1. **Step 1: Exact Hit (`song_cache`):** Cerca una corrispondenza esatta dell'indice combinato delle chiavi normalizzate. Tempo di risposta stimato: `~0.1 ms`.
+2. **Step 2: Alias Hit (`query_alias`):** Controlla se la query corrisponde a un sinonimo precedentemente associato o promosso.
+3. **Step 3: Spotify URL Hit:** Se l'input contiene un link Spotify, esegue un match istantaneo sull'indice della colonna `spotify_url`.
+4. **Step 4: Webpage URL Hit:** Se l'input è un link di riproduzione diretto (YouTube), esegue un match sulla colonna `webpage_url`.
+5. **Step 5: Fuzzy Scan (Top-300):** Estrae le 300 tracce con il più alto indice di gradimento (`hit_count`) ed esegue un calcolo di similarità testuale combinando l'indice di **Jaccard** con una ponderazione di stringa pura (peso del 35%). Se lo score supera la **soglia di tolleranza di 0.82**, la traccia viene restituita come candidato.
 
-> **Consiglio:** aggiungi `data/database/cache.db` al `.gitignore` se non lo e' gia',
-> per evitare di committare il database.
+> ⚠️ **Policy di Promozione degli Alias:** Il meccanismo di Fuzzy Match (Step 5) **NON** memorizza l'alias in modo automatico per prevenire l'inquinamento del database. L'alias viene promosso e scritto in tabella `query_alias` solo in seguito, quando il metodo `store()` conferma esplicitamente la correttezza della traccia riprodotta.
 
 ---
 
-## Backup e manutenzione
+## 🧹 Routine Automatizzate di Manutenzione e Pruning
 
-```bash
-# Backup manuale
-cp data/database/cache.db data/database/cache.db.bak
+Il database gestisce in autonomia la propria occupazione di memoria per evitare saturazione disco su server VPS:
 
-# Ispeziona il DB da terminale
-sqlite3 data/database/cache.db "SELECT title, artist, hit_count FROM song_cache ORDER BY hit_count DESC LIMIT 20;"
-
-# Svuota il DB via comando Discord
-/cache-clear
-
-# Oppure da terminale
-sqlite3 data/database/cache.db "DELETE FROM query_aliases; DELETE FROM song_cache;"
-```
-
----
-
-## Variabili ENV — Riferimento completo
-
-| Variabile | Tipo | Default | Descrizione |
-|---|---|---|---|
-| `CACHE_ENABLED` | `true`/`false` | `false` | Abilita/disabilita il sistema |
-| `DB_PATH` | path | `data/database/cache.db` | Path del file SQLite |
-| `CACHE_TTL_DAYS` | int | `30` | Giorni prima che un'entry venga considerata scaduta |
-| `CACHE_MAX_ENTRIES` | int | `500` | Limite massimo entry nel DB |
-
----
-
-## Troubleshooting
-
-**Il DB non viene creato**  
-Verifica che il percorso in `DB_PATH` sia scrivibile dal processo del bot:
-```bash
-ls -la $(dirname $DB_PATH)
-```
-
-**Log: `[CACHE_DB] cache disabilitata`**  
-Il bot ha trovato `CACHE_ENABLED=false` oppure la variabile non e' impostata. Aggiornala a `true` e riavvia.
-
-**La cache e' attiva ma i tempi non migliorano**  
-Normale al primo avvio: il DB e' vuoto. I benefici si vedono a partire dalla seconda richiesta dello stesso brano. Usa `/cache-stats` per monitorare gli hit.
+* **Pruning LRU (Least Recently Used):** Ogni volta che viene inserita una nuova traccia tramite `store()`, il bot verifica il volume di righe. Se le righe superano la costante `CACHE_MAX_ENTRIES` (configurabile da `.env`), viene istanziato un **Thread Demone in background** che elimina le vecchie entry ordinate per la data `last_used` più remota, rimuovendo a cascata gli alias orfani.
+* **Pruning Stale (Invalidazione TTL):** Eseguibile anche tramite i comandi sviluppatore, invalida in modalità soft (`is_valid = 0`) tutte le tracce la cui data di ultimo utilizzo supera il tempo massimo stabilito in `CACHE_TTL_DAYS` (Default: 30 giorni).
