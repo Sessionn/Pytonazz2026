@@ -1,98 +1,283 @@
-# 📖 Documentazione Tecnica & Manuale dei Comandi
+# 📖 Manuale Tecnico Esteso e Legenda dei Comandi
 
-Benvenuto nella documentazione tecnica interna di **Pitonazz**. Questo documento descrive l'elenco esaustivo dei comandi slash applicativi (Application Commands) suddivisi per modulo operativo e la gestione avanzata dei permessi di runtime.
-
----
-
-## 👑 Gerarchia dei Permessi
-
-Il bot prevede tre livelli di autorizzazione per l'esecuzione dei comandi:
-1. **Utente Standard:** Accesso ai moduli Musica, TTS e Fun.
-2. **Server Admin (Permesso "Gestisci Server"):** Accesso alle configurazioni di gilda dei compleanni e dei messaggi di Benvenuto/Arrivederci.
-3. **Bot Developer / Owner:** Contrassegnati dal prefisso `⚙️ 👑`. Richiedono la corrispondenza degli ID all'interno delle configurazioni `.env` ed eludono le restrizioni standard.
+Questo documento costituisce il manuale operativo e la specifica tecnica dettagliata di tutti i moduli funzionali ed i comandi applicativi presenti all'interno di **Pitonazz**. Ciascun comando viene analizzato sotto il profilo sintattico, dei vincoli di runtime e dei requisiti autorizzativi.
 
 ---
 
-## 🎵 Modulo Musica (`/play`, `/search`, ecc.)
-
-Il modulo gestisce flussi audio asincroni interfacciandosi con `yt-dlp` e integrando un algoritmo predittivo di enrichment dei metadati per i link Spotify.
-
-* `/play <testo o link>`: Riproduce musica nel canale vocale corrente. Supporta ricerche testuali libere, URL singoli o playlist di YouTube, traccie/playlist/album di Spotify e flussi SoundCloud. *Nota: Non accetta profili artista Spotify o canali YouTube.*
-* `/search <testo>`: Esegue una ricerca approfondita e restituisce un menu interattivo con i primi 7 risultati rilevati.
-* `/versions`: Analizza la traccia in riproduzione e propone un menu con 5 versioni alternative (es: Speed up, Slowed, Nightcore, Cover).
-* `/artistshuffle <nome_artista> [n]`: Genera una stazione radio dedicata a un artista caricando le sue Top Tracks e combinandole con brani di artisti simili (Default: 20 tracce, max 50).
-* `/skip`: Salta immediatamente il brano corrente.
-* `/skipto <posizione>`: Salta direttamente alla traccia *N* della coda, rimuovendo istantaneamente tutte le tracce intermedie.
-* `/pause` / `/resume`: Mette in pausa o riprende la riproduzione musicale.
-* `/stop`: Interrompe definitivamente lo streaming, svuota completamente la coda d'attesa e disconnette il bot.
-* `/disconnect`: Disconnette il bot dal canale vocale preservando intatta la coda corrente.
-* `/queue`: Mostra lo stato della coda d'attesa tramite un sistema di pagine interattive navigabili con bottoni.
-* `/nowplaying`: Genera un Rich Embed grafico della traccia in riproduzione provvisto di controlli multimediali interattivi.
-* `/loop <off|track|queue>`: Imposta il ciclo di ripetizione (Disattivato, Traccia Singola, Intera Coda).
-* `/shuffle`: Attiva o disattiva la miscelazione casuale standard della coda.
-* `/smartshuffle`: Algoritmo di riordinamento intelligente basato sull'isolamento degli artisti: garantisce che non vengano mai riprodotti due brani consecutivi dello stesso autore.
-* `/remove <posizione>`: Rimuove la traccia posizionata all'indice *N* della coda.
-* `/move <da> <a>`: Cambia la priorità di una traccia spostandola all'interno della coda d'attesa.
-* `/history`: Mostra la cronologia degli ultimi 10 brani riprodotti nel server.
-* `/join [utente]`: Forza l'ingresso del bot nel canale vocale dell'utente specificato o di chi lancia il comando.
-* `/filter <filtro>`: Applica filtri di equalizzazione in tempo reale al flusso FFmpeg (`nightcore`, `vaporwave`, `8d`, `off`).
-
-> **Regole di Inattività Vocale:** Il bot esegue un auto-disconnessione di sicurezza dopo **10 minuti continui** di inattività o qualora il canale vocale rimanga vuoto. Non si disconnette se il player è esplicitamente in stato di pausa.
+## 📍 Indice
+1. [Architettura dei Cogs (Moduli Applicativi)](#-architettura-dei-cogs-moduli-applicativi)
+2. [Modello di Gestione dei Permessi](#-modello-di-gestione-dei-permessi)
+3. [Manuale dei Comandi: Modulo Musica](#-manuale-des-comandi-modulo-musica)
+4. [Manuale dei Comandi: Modulo Intelligenza Artificiale & TTS](#-manuale-dei-comandi-modulo-intelligenza-artificiale--tts)
+5. [Manuale dei Comandi: Modulo Compleanni (`/bday`)](#-manuale-dei-comandi-modulo-compleanni-bday)
+6. [Manuale dei Comandi: Modulo Developer & Gestione Interna](#-manuale-dei-comandi-modulo-developer--gestione-interna)
+7. [Automazioni di Runtime e Ciclo di Vita](#-automazioni-di-runtime-e-ciclo-of-vita)
 
 ---
 
-## 🧠 Modulo Intelligenza Artificiale & TTS
+## 🧩 Architettura dei Cogs (Moduli Applicativi)
 
-Questo modulo espone l'integrazione con i modelli linguistici di ultima generazione gestendo lo stato conversazionale (`core/ai_runtime.py`) tramite deque isolati per canale.
+Il bot sposa un'architettura modulare guidata dalla classe `discord.ext.commands.Cog`. Ogni file presente nella cartella `cogs/` isola un dominio funzionale:
 
-* **Interazione Naturale (@Pitonazz / DM):** Menzionando il bot nei canali testuali abilitati o scrivendogli direttamente in DM, si attiva la chat conversazionale. Possiede memoria storica degli ultimi 20 messaggi del canale e supporta la comprensione di allegati di tipo immagine (PNG, JPEG, WEBP, GIF, BMP).
-* **Funzionalità `#web`:** Digitando all'inizio o all'interno del messaggio i marker `cerca web:`, `web:` o il tag `#web`, l'AI interroga in tempo reale le Wikipedia Search API estraendo fino a 3 snippet informativi accurati per aggiornare il proprio contesto operativo.
-* `/tts <testo> [voce]`: Sintetizza il testo inserito (max 500 caratteri) all'interno del canale vocale. Le voci selezionabili sono:
-  * `Diego` (Italiano Maschile - Default)
+
+cogs/
+├── ai.py # Gestione LLM, chat contestuale ed immagini
+├── birthdays.py # Logica applicativa e scadenziario dei compleanni
+├── dev.py # Utility di base dell'owner (riavvio, sync)
+├── dev_audio.py # Debug avanzato dello stream FFmpeg e volumi tts
+├── dev_cache.py # Strumenti di ispezione diretta sulla cache SQLite
+├── filters.py # Manipolazione dei parametri audio di FFmpeg
+├── fun.py # Comandi ricreativi e d'interazione della community
+├── help.py # Generatore dinamico della guida ai comandi
+├── moderation.py # Strumenti di controllo dei canali e dei membri
+├── music.py # Core operativo del player, delle code e delle interfacce
+├── tts.py # Interfaccia con i motori di sintesi vocale Edge-TTS
+└── welcome.py # Trigger e generazione eventi d'ingresso nuovi membri
+
+---
+
+## 👑 Modello di Gestione dei Permessi
+
+I comandi sono protetti da verifiche gerarchiche strutturate su tre livelli logici:
+
+| Livello | Definizione | Criterio di Verifica |
+| :--- | :--- | :--- |
+| **L1: Utente Standard** | Qualsiasi membro della gilda. | Nessuna restrizione di ID o ruolo di gilda. |
+| **L2: Amministratore** | Gestori della community locale. | Controllo del flag Discord `manage_guild` o `administrator` nel contesto del comando. |
+| **L3: Bot Developer / Owner** | Sviluppatori dell'infrastruttura. | Controllo di corrispondenza binaria dell'ID utente con i campi `OWNER_ID` o `DEV_IDS` nel file `.env`. |
+
+---
+
+## 🎵 Manuale dei Comandi: Modulo Musica
+
+I comandi musicali richiedono che l'utente sia connesso a un canale vocale all'interno della stessa gilda. La dimensione massima invalicabile della coda è impostata a **200 tracce**.
+
+### `/play`
+* **Livello Permessi:** L1
+* **Argomenti:** `query` (Stringa, Obbligatorio)
+* **Descrizione:** Accetta testo libero (esegue lookup su cache e poi ricerca su YouTube), URL di YouTube (singoli o playlist), URL di Spotify (singoli brani, album interi o playlist commerciali/pubbliche), e URL SoundCloud.
+* **Eccezioni:** Restituisce un errore se l'URL appartiene a un profilo artista Spotify o a un canale YouTube privato.
+
+### `/search`
+* **Livello Permessi:** L1
+* **Argomenti:** `query` (Stringa, Obbligatorio)
+* **Descrizione:** Interroga la rete e propone un menu a tendina interattivo (`discord.ui.Select`) contenente i primi 7 risultati trovati. L'utente ha 60 secondi per selezionare la traccia, pena l'annullamento della richiesta.
+
+### `/versions`
+* **Livello Permessi:** L1
+* **Argomenti:** Nessuno
+* **Descrizione:** Analizza i metadati del brano attualmente in riproduzione e genera un menu di selezione proponendo 5 varianti acustiche sintetiche pre-elaborate (es: *Nightcore, Slowed, Speed Up, Bass Boosted*).
+
+### `/artistshuffle`
+* **Livello Permessi:** L1
+* **Argomenti:** `artista` (Stringa, Obbligatorio), `quantita` (Intero, Opzionale - Default: 20, Max: 50)
+* **Descrizione:** Sfrutta le API di Spotify per estrarre le Top Tracks dell'artista specificato e dei suoi artisti correlati, mixandole ed immettendole istantaneamente nella coda di riproduzione.
+
+### `/skip`
+* **Livello Permessi:** L1
+* **Descrizione:** Interrompe immediatamente la traccia corrente e passa alla successiva. Se la coda è vuota, il player si ferma mantenendo la connessione vocale.
+
+### `/skipto`
+* **Livello Permessi:** L1
+* **Argomenti:** `posizione` (Intero, Obbligatorio)
+* **Descrizione:** Salta direttamente all'indice specificato all'interno della coda. Tutte le tracce intermedie vengono rimosse dalla memoria volatile del player.
+
+### `/pause` / `/resume`
+* **Livello Permessi:** L1
+* **Descrizione:** Modificano lo stato di riproduzione del player audio asincrono. Lo stato di pausa inibisce temporaneamente il timer di disconnessione automatica del bot.
+
+### `/stop`
+* **Livello Permessi:** L1
+* **Descrizione:** Resetta la coda, interrompe l'istanza FFmpeg corrente, pulisce lo stato del player e disconnette il bot dal canale vocale.
+
+### `/disconnect`
+* **Livello Permessi:** L1
+* **Descrizione:** Disconnette il bot dal canale vocale lasciando intatta la coda dei brani per un utilizzo futuro all'interno della sessione di runtime attuale.
+
+### `/clearqueue`
+* **Livello Permessi:** L1
+* **Descrizione:** Rimuove tutti i brani dalla coda ad eccezione di quello correntemente in riproduzione.
+
+### `/queue`
+* **Livello Permessi:** L1
+* **Descrizione:** Mostra un Rich Embed paginato provvisto di bottoni di navigazione (`Prec / Succ`) per scorrere la coda dei brani a blocchi di 10 elementi per pagina.
+
+### `/nowplaying`
+* **Livello Permessi:** L1
+* **Descrizione:** Invia un embed grafico dettagliato che mostra la barra di avanzamento della traccia in tempo reale, la thumbnail, la sorgente e l'utente che ha richiesto il brano. Include bottoni interattivi per Play/Pause, Skip e Stop.
+
+### `/loop`
+* **Livello Permessi:** L1
+* **Argomenti:** `modalita` (Scelta fissa: `off`, `track`, `queue`, Obbligatorio)
+* **Descrizione:** Modifica il comportamento del loop: `off` disattiva il riciclo, `track` ripete la traccia corrente all'infinito, `queue` rimette in coda i brani esauriti in fondo alla lista.
+
+### `/shuffle`
+* **Livello Permessi:** L1
+* **Descrizione:** Attiva/disattiva la modalità di miscelazione casuale standard della coda utilizzando l'algoritmo nativo di sampling pseudo-casuale.
+
+### `/smartshuffle`
+* **Livello Permessi:** L1
+* **Descrizione:** Algoritmo avanzato di shuffle: riordina la coda applicando un vincolo di isolamento acustico che impedisce la riproduzione consecutiva di brani dello stesso artista.
+
+### `/remove`
+* **Livello Permessi:** L1
+* **Argomenti:** `posizione` (Intero, Obbligatorio)
+* **Descrizione:** Elimina permanentemente dalla coda la singola traccia presente all'indice inserito.
+
+### `/move`
+* **Livello Permessi:** L1
+* **Argomenti:** `da` (Intero, Obbligatorio), `a` (Intero, Obbligatorio)
+* **Descrizione:** Sposta un brano internamente alla coda modificando la sua priorità di riproduzione.
+
+### `/history`
+* **Livello Permessi:** L1
+* **Descrizione:** Restituisce un embed contenente lo storico degli ultimi 10 brani effettivamente riprodotti e completati all'interno della sessione corrente della gilda.
+
+### `/join`
+* **Livello Permessi:** L1
+* **Argomenti:** `canale` (Canale Vocale, Opzionale)
+* **Descrizione:** Sposta o connette il bot al canale vocale specificato o a quello in cui si trova l'utente che impartisce il comando.
+
+### `/filter`
+* **Livello Permessi:** L1
+* **Argomenti:** `tipo` (Scelta fissa: `nightcore`, `vaporwave`, `8d`, `off`, Obbligatorio)
+* **Descrizione:** Riavvia a caldo l'istanza di streaming FFmpeg modificando i parametri audio della pipeline (`-af`) per applicare l'effetto selezionato senza interrompere bruscamente l'ascolto.
+
+---
+
+## 🧠 Manuale dei Comandi: Modulo Intelligenza Artificiale & TTS
+
+Il modulo AI risponde alle menzioni dirette nei canali abilitati e gestisce in parallelo la sintesi vocale multilingua.
+
+### 💬 Chat Conversazionale Naturale (Trigger: `@Pitonazz` o Messaggio Diretto DM)
+* **Funzionamento:** Il bot analizza il contesto del canale mantenendo in un oggetto `deque` gli ultimi **20 messaggi** scambiati per non perdere il filo del discorso.
+* **Riconoscimento Vision:** Se al messaggio viene allegata un'immagine (formati supportati: `PNG, JPEG, WEBP, GIF, BMP`), il bot effettua una codifica asincrona in Base64 e interroga l'LLM attivando le funzionalità multimodali per descrivere o commentare il file multimediale.
+* **Modalità Ricerca Live (`#web`):** Se il testo contiene i token `cerca web:`, `web:` o l'omonimo tag `#web`, il bot interrope la pipeline standard, interroga Wikipedia tramite le sue Search API, estrae i 3 snippet informativi più rilevanti e li inserisce all'interno del prompt di sistema prima di formulare la risposta finale dell'LLM.
+
+### `/tts`
+* **Livello Permessi:** L1
+* **Argomenti:** `testo` (Stringa, Obbligatorio, Max 500 caratteri), `voce` (Scelta a tendina, Opzionale)
+* **Descrizione:** Converte il testo in un flusso vocale e lo riproduce nel canale audio. Le voci disponibili emulano i profili neurali standard:
+  * `Diego` (Italiano Maschile - Standard predefinito)
   * `Elsa` / `Isabella` (Italiano Femminile)
   * `Ryan` (Inglese UK Maschile)
   * `Aria` (Inglese US Femminile)
 
 ---
 
-## 🎂 Modulo Compleanni (`/bday`)
+## 🎂 Manuale dei Comandi: Modulo Compleanni (`/bday`)
 
-* `/bday set <giorno> <mese> [anno]`: Registra la propria data di nascita. L'anno è opzionale: se fornito, abilita il calcolo automatico dell'età durante l'annuncio.
-* `/bday check [@utente]`: Mostra la data di compleanno registrata per l'utente selezionato o per se stessi.
-* `/bday list`: Mostra la timeline ordinata cronologicamente di tutti i compleanni della community.
-* `/bday remove`: Consente all'utente di cancellare definitivamente la propria entry dal database.
+Il modulo organizza l'anagrafica interna memorizzando i dati all'interno del file locale `assets/data/birthdays.json`.
 
-### 🛡️ Comandi Amministrativi Compleanni (Richiede Gestisci Server):
-* `/bday adminset <@utente> <giorno> <mese> [anno]`: Forza la registrazione del compleanno di un utente.
-* `/bday adminremove <@utente>`: Rimuove l'entry di un utente specifico.
-* `/bday channel [#canale]`: Imposta o disabilita il canale testuale dedicato alla pubblicazione automatica dei messaggi di auguri giornalieri.
-* `/bday messages_set <messaggi>`: Sovrascrive l'intera lista dei messaggi di auguri del server (una stringa per riga). Accetta placeholder dinamici come `{mention}`, `{age}`, `{display_name}`, `{guild}`.
-* `/bday messages_add <messaggio>`: Aggiunge un nuovo template di auguri plain-text alla rotazione casuale.
-* `/bday messages_remove <indice>`: Rimuove un template in base al suo indice identificativo.
-* `/bday messages_list`: Mostra l'elenco numerato di tutti i messaggi inseriti.
-* `/bday test`: Esegue una simulazione istantanea in modalità effimera (visibile solo all'admin) per verificare la formattazione dei placeholder.
+### `/bday set`
+* **Livello Permessi:** L1
+* **Argomenti:** `giorno` (Intero, Obbligatorio), `mese` (Intero, Obbligatorio), `anno` (Intero, Opzionale)
+* **Descrizione:** Registra la data di nascita dell'utente. Se viene inserito l'anno, il bot calcolerà automaticamente l'età esatta della persona nel messaggio di auguri pubblico.
+
+### `/bday remove`
+* **Livello Permessi:** L1
+* **Descrizione:** Cancella definitivamente l'utente dal database dei compleanni.
+
+### `/bday check`
+* **Livello Permessi:** L1
+* **Argomenti:** `utente` (Membro Discord, Opzionale)
+* **Descrizione:** Mostra un embed riepilogativo con i dati del compleanno dell'utente target o dell'esecutore, indicando i giorni mancanti alla ricorrenza.
+
+### `/bday list`
+* **Livello Permessi:** L1
+* **Descrizione:** Genera la lista completa di tutti i compleanni della gilda ordinati cronologicamente a partire dal giorno corrente.
+
+### `/bday adminset`
+* **Livello Permessi:** L2
+* **Argomenti:** `utente` (Membro, Obbligatorio), `giorno` (Intero, Obbligatorio), `mese` (Intero, Obbligatorio), `anno` (Intero, Opzionale)
+* **Descrizione:** Permette ad un amministratore di inserire o correggere manualmente i dati di un utente del server.
+
+### `/bday adminremove`
+* **Livello Permessi:** L2
+* **Argomenti:** `utente` (Membro, Obbligatorio)
+* **Descrizione:** Forza la rimozione dei dati di un utente specifico dal database gilda.
+
+### `/bday channel`
+* **Livello Permessi:** L2
+* **Argomenti:** `canale` (Canale Testuale, Opzionale)
+* **Descrizione:** Configura il canale dove verranno inviati gli auguri automatici alle **00:00 UTC** di ogni giorno. Se non viene specificato alcun canale, la funzione di annuncio automatico viene disattivata.
+
+### `/bday tags`
+* **Livello Permessi:** L2
+* **Descrizione:** Mostra la legenda dei tag di formattazione dinamica supportati dai messaggi di auguri:
+  * `{mention}`: Menziona l'utente festeggiato con tag cliccabile.
+  * `{name}`: Mostra il nome utente nativo di Discord.
+  * `{display_name}`: Mostra il nickname del membro all'interno del server corrente.
+  * `{age}`: Inserisce l'età calcolata (es: "18"). Se l'anno non è configurato nel DB, restituisce una stringa vuota.
+  * `{guild}`: Inserisce il nome del server Discord corrente.
+
+### `/bday messages_set`
+* **Livello Permessi:** L2
+* **Argomenti:** `messaggi` (Stringa, Obbligatorio)
+* **Descrizione:** Sostituisce in blocco tutti i messaggi di auguri impostati per il server. Accetta testi multi-linea: ogni riga viene interpretata come un template di augurio singolo che verrà poi estratto casualmente dal bot a runtime.
+
+### `/bday messages_add` / `/bday messages_remove`
+* **Livello Permessi:** L2
+* **Descrizione:** Aggiungono o rimuovono un singolo template di auguri dalla lista di rotazione del server. Rimozione guidata dall'indice numerico ricavabile da `/bday messages_list`.
+
+### `/bday messages_list`
+* **Livello Permessi:** L2
+* **Descrizione:** Mostra l'elenco completo e numerato di tutti i template di auguri configurati nella gilda corrente.
+
+### `/bday test`
+* **Livello Permessi:** L2
+* **Descrizione:** Genera un messaggio di test immediato in modalità effimera simulando l'annuncio dei compleanni per verificare l'effettivo rendering grafico dei tag dinamici.
 
 ---
 
-## ⚙️ 👑 Modulo Developer (`/status`, `/cache`, ecc.)
+## ⚙️ Manuale dei Comandi: Modulo Developer & Gestione Interna
 
-Comandi esclusivi ad altissimo privilegio per la manutenzione a caldo del backend del bot.
+I seguenti comandi sono rigorosamente accessibili solo dagli utenti inclusi nel livello di permessi **L3**.
 
-* `/restart`: Chiude in sicurezza le connessioni attive di `discord.py` e riavvia il processo software rigenerando l'istanza tramite l'esecutibile di sistema di Python.
-* `/sync [clear_global]`: Sincronizza l'albero applicativo dei comandi slash con l'API di Discord. Può ripulire le entry globali corrotte o forzare il push sulle gilde indicate in `GUILD_IDS`.
-* `/maintenance <attiva>`: Attiva lo stato di manutenzione. Il bot rifiuterà l'interazione con gli utenti standard e applicherà un flag grafico allo status di Discord.
-* `/backupconfig`: Genera istantaneamente un archivio compresso `.zip` contenente tutti i file critici di configurazione di runtime, database JSON e immagini di benvenuto memorizzate, restituendolo in chat.
-* `/restoreconfig <allegato_zip>`: Legge un file di backup valido generato dal bot, sovrascrive a caldo i file di configurazione corrotti ed esegue il reload automatico delle classi.
-* `/disable_command <comando>` / `/enable_command <comando>`: Abilita o disabilita a runtime l'utilizzo di uno specifico comando slash in tutto il bot (I comandi critici di amministrazione sono protetti e non disabilitabili).
-* `/command_list`: Mostra un pannello di controllo diagnostico con lo stato di runtime di tutti i comandi (Abilitati, Disabilitati, Protetti).
-* `/set_log_channel [canale]`: Configura un canale di log centralizzato dove il bot inoltrerà in tempo reale gli stacktrace degli errori eccezione non gestiti.
-* `/tts_volume <valore>`: Modifica l'ampiezza persistente (moltiplicatore da 0.1 a 3.0) del modulo TTS.
-* `/say <testo> [canale]`: Consente allo sviluppatore di inviare messaggi testuali o Embed impersonando direttamente l'identità del bot all'interno di qualsiasi gilda condivisa.
+### `/restart`
+* **Descrizione:** Chiude in sicurezza i loop asincroni attivi, interrompe le connessioni di rete e lancia un sottoprocesso OS per rieseguire `main.py`, applicando a caldo gli aggiornamenti del codice sorgente.
 
-### Gruppo `/status` (Rotazione Attività):
-* `/status add <tipo> <nome> <stato>`: Aggiunge uno stato personalizzato alla rotazione ciclica del bot (Giocando, Guardando, Ascoltando, Gareggiando, Custom) associandolo a un marker di presenza (`online`, `idle`, `dnd`, `invisible`).
-* `/status remove <indice>`: Rimuove uno stato custom dalla coda di rotazione.
-* `/status edit <indice> [nome] [tipo] [stato]`: Modifica i parametri di un'attività inserita.
-* `/status list`: Mostra l'intera pipeline di rotazione dividendo gli stati nativi (statici) da quelli custom introdotti a runtime.
-* `/status set <tipo> <nome> <stato>`: Forza l'applicazione immediata di uno status ignorando temporaneamente il ciclo di rotazione.
-* `/status interval <secondi>`: Modifica la frequenza di aggiornamento del ciclo delle attività (Minimo 10 secondi, persistente ai riavvii).
+### `/sync`
+* **Argomenti:** `clear_global` (Booleano, Opzionale)
+* **Descrizione:** Forza la sincronizzazione dell'albero dei comandi slash applicativi verso le API di Discord. Se `clear_global` è impostato su True, ripulisce la cache globale dei comandi di Discord prima di eseguire il push locale sulle gilde.
+
+### `/maintenance`
+* **Argomenti:** `attiva` (Booleano, Obbligatorio)
+* **Descrizione:** Muta lo stato operativo del bot. Se attiva, il bot rifiuta qualsiasi interazione proveniente da utenti di livello L1 ed L2, rispondendo con un messaggio di alert temporaneo ed applicando uno status visivo dedicato ("*In Manutenzione*").
+
+### `/backupconfig`
+* **Descrizione:** Compila a caldo un archivio `.zip` binario contenente i database JSON, i file `.env`, `cache.db` e le impostazioni, inviandolo direttamente nel canale Discord sotto forma di allegato protetto.
+
+### `/restoreconfig`
+* **Argomenti:** `file_zip` (Allegato Discord, Obbligatorio)
+* **Descrizione:** Accetta l'archivio generato da `/backupconfig`, estrae i file sovrascrivendo le configurazioni corrotte o obsolete sul disco ed esegue un reload a caldo di tutti i moduli software core.
+
+### `/disable_command` / `/enable_command`
+* **Argomenti:** `comando` (Stringa, Obbligatorio)
+* **Descrizione:** Inibisce o riabilita globalmente l'utilizzo di uno specifico comando all'interno del bot a runtime. I comandi di sicurezza del modulo Dev (come `/enable_command` e `/restart`) sono protetti nativamente e non possono essere disabilitati.
+
+### `/command_list`
+* **Descrizione:** Mostra una tabella riepilogativa dello stato operativo di ciascun comando applicativo, distinguendo tra quelli *Abilitati*, *Disabilitati a runtime* o *Protetti di Sistema*.
+
+### `/set_log_channel`
+* **Argomenti:** `canale` (Canale Testuale, Opzionale)
+* **Descrizione:** Configura un canale di log centralizzato all'interno di Discord. Tutte le eccezioni non gestite (Error 500, crash di moduli, timeout di rete) genereranno un dump completo dello stacktrace in questo canale per facilitare il debugging.
+
+### `/say`
+* **Argomenti:** `testo` (Stringa, Obbligatorio), `canale` (Canale Testuale, Opzionale)
+* **Descrizione:** Permette allo sviluppatore di inviare stringhe o comunicazioni ufficiali parlando direttamente attraverso l'identità del bot all'interno del canale specificato.
+
+### Gruppo `/status` (Gestione Presenza)
+* `/status add`: Aggiunge una stringa di attività custom (es: "*Watching my code*") alla rotazione dinamica del bot memorizzandola nel file JSON.
+* `/status remove`: Elimina una presenza custom tramite il suo indice identificativo.
+* `/status list`: Mostra la coda complessiva delle presenze registrate e dei relativi stati di connessione (`online`, `idle`, `dnd`).
+* `/status interval <secondi>`: Imposta il tempo di polling del loop asincrono che si occupa di cambiare l'attività visibile sul profilo Discord del bot.
+
+---
+
+## 📊 Automazioni di Runtime e Ciclo di Vita
+
+Il bot implementa una serie di routine in background guidate dal modulo `discord.ext.tasks`:
+1. **Loop di Inattività Vocale:** Ogni 60 secondi il bot analizza lo stato dei propri player attivi. Se rileva che il bot è l'unico membro rimasto nel canale vocale, o se lo stream è fermo da più di **10 minuti continui**, avvia autonomamente la procedura di disconnessione e pulizia della memoria per risparmiare risorse di rete sulla macchina ospitante.
+2. **Ciclo degli Auguri (Task Giornaliero):** Un ciclo impostato ad intervalli regolari controlla il superamento della mezzanotte UTC. Al trigger temporale, interroga il database dei compleanni e formula i messaggi di auguri inviandoli nei rispettivi canali registrati nelle gilde.
+3. **Auditing Dashboard Flask:** La web dashboard gira su un thread parallelo isolato dal loop principale di Discord. Monitora la saturazione della memoria RAM, la latenza delle API di Discord (espressa in millisecondi) e blocca gli IP anomali che tentano scansioni di rete non autorizzate sul socket della dashboard, registrandoli nei log con l'identificativo `[NET_SCAN]`.
