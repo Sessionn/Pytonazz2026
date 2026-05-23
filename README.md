@@ -1,121 +1,141 @@
-# 🐍 Pytonazz 2026
+# Pytonazz2026
 
-> Bot Discord multiuso scritto in Python — musica, AI, TTS, moderazione e molto altro.
-
----
-
-## ✨ Funzionalità
-
-- 🎵 **Musica** — YouTube, Spotify (track/playlist/album/artista), SoundCloud, filtri audio dedicati (`/nightcore`, `/vaporwave`, `/audio8d`, `/bassboost`, `/trebleboost`, `/vocalboost`, `/radio`, `/nightmode`, `/filteroff`), `/seek` relativo, loop, `/shuffle` casuale e `/smartshuffle` stile Spotify per artisti, `/autoplay` intelligente a fine coda, coda fino a 200 tracce, `/search` con menu select, `/versions` per alternative, `/artistshuffle` radio artista
-- 🤖 **AI** — risponde alle @mention e ai DM con fallback a più provider (Gemini primary/fallback + Groq emergency), memoria conversazionale per canale e tono colloquiale diretto
-- 🔊 **TTS** — text-to-speech con voci neurali Microsoft Edge in italiano e inglese
-- 👋 **Welcome/Goodbye** — embed personalizzabili per server, con placeholder dinamici e AutoRole
-- 🎂 **Compleanni** — tracciamento e notifiche automatiche giornaliere per server
-- 🛡️ **Moderazione** — `/purge`, `/ruolo` con controlli gerarchia
-- 🎲 **Fun** — roulette, sondaggi, 8ball, generatore card citazioni (immagine PNG)
-- ❓ **Help** — sistema `/help` interattivo paginato con menu Discord per categoria
-- 🔧 **Pannello Dev** — gestione comandi, status, backup config, manutenzione (solo owner)
+> Bot Discord per server italiani — musica multi-sorgente, AI contestuale, moderazione, compleanni e molto altro.
 
 ---
 
-## 🚀 Avvio Rapido
+## Panoramica
+
+Pytonazz2026 è un bot Discord scritto in Python con `discord.py` (slash commands via `app_commands`). Ogni funzionalità è incapsulata in un **cog** separato e il bot si avvia tramite `main.py`. La configurazione avviene interamente via variabili d'ambiente (`.env`).
+
+---
+
+## Struttura del progetto
+
+```
+Pytonazz2026/
+├── main.py                  # Avvio bot, caricamento cog, sync comandi
+├── config.py                # Lettura env + costanti globali
+├── requirements.txt
+├── .env.example
+├── cogs/
+│   ├── music.py             # Player musicale completo
+│   ├── filters.py           # Filtri audio (EQ, effetti)
+│   ├── tts.py               # Text-to-speech in voce
+│   ├── ai.py                # AI conversazionale (mention / DM / reply)
+│   ├── fun.py               # Comandi divertimento
+│   ├── moderation.py        # Moderazione server
+│   ├── birthdays.py         # Gestione compleanni
+│   ├── welcome.py           # Welcome/goodbye + ruoli automatici
+│   ├── help.py              # Comando /help dinamico
+│   ├── dev.py               # Comandi sviluppatore (owner-only)
+│   ├── dev_audio.py         # Debug audio (owner-only)
+│   └── dev_cache.py         # Gestione cache (owner-only)
+├── core/
+│   ├── player.py            # Logica MusicPlayer
+│   ├── source_resolver.py   # Risoluzione sorgenti (YT, Spotify, SoundCloud)
+│   ├── ai_client.py         # Client AI multi-provider
+│   ├── ai_runtime.py        # Stato in-memory AI
+│   ├── quote_card.py        # Generatore card citazioni
+│   └── log_colors.py        # Helper log colorati
+├── embeds/
+│   └── music_embeds.py      # Embed riusabili per la musica
+├── views/
+│   └── queue_view.py        # UI paginata per la coda
+├── assets/
+│   └── prompts/
+│       └── ai_prompt.txt    # System prompt AI (modificabile a caldo)
+├── data/                    # JSON persistenti (compleanni, config welcome…)
+├── cache_db/                # Cache SQLite per le query musicali
+└── tools/                   # Script di utilità
+```
+
+---
+
+## Requisiti
+
+- Python 3.11+
+- FFmpeg installato e nel PATH
+- Token bot Discord con intent `MESSAGE_CONTENT`, `GUILD_MEMBERS`, `GUILDS`
+- Dipendenze: vedi `requirements.txt`
 
 ```bash
-git clone https://github.com/Sessionn/Pytonazz2026
-cd Pytonazz2026
 pip install -r requirements.txt
 ```
 
-Crea un file `.env` nella root:
+---
+
+## Configurazione
+
+Copia `.env.example` in `.env` e compila tutti i campi:
 
 ```env
-DISCORD_TOKEN=il_tuo_token
-
-# Opzionale — OWNER_ID + DEV_IDS (CSV). DEV_ID resta alias legacy.
-OWNER_ID=il_tuo_id_discord
-DEV_IDS=il_tuo_id_discord,altro_id
-DEV_ID=il_tuo_id_discord  # alias legacy/fallback
-
-# Opzionale
+DISCORD_TOKEN=...
+OWNER_ID=...
+# Provider AI (almeno uno)
+OPENAI_API_KEY=...
+# Spotify (opzionale, per link Spotify)
 SPOTIFY_CLIENT_ID=...
 SPOTIFY_CLIENT_SECRET=...
-GEMINI_API_KEY=...
-GROQ_API_KEY=...
-YTDLP_PROXY=socks5://127.0.0.1:40000  # solo per VM/VPS
-FFMPEG_PROXY=http://127.0.0.1:3128   # opzionale (fallback su YTDLP_PROXY solo se HTTP/HTTPS)
+# Canali/ruoli del server
+BIRTHDAY_CHANNEL_ID=...
+WELCOME_CHANNEL_ID=...
+# ecc. — vedi .env.example per la lista completa
 ```
+
+---
+
+## Avvio
 
 ```bash
 python main.py
 ```
 
-> Richiede **Python 3.10+** e **FFmpeg** installato nel sistema.
+Al primo avvio i comandi slash vengono sincronizzati automaticamente. Con `DEV_GUILD_ID` impostato la sync è istantanea sul guild di sviluppo; senza, la sync globale può richiedere fino a 1 ora.
 
 ---
 
-## 📚 Documentazione
+## Moduli principali
 
-Per la documentazione tecnica completa — architettura, meccanismi interni, guida ai comandi, configurazione dettagliata e istruzioni di manutenzione:
+| Cog | Descrizione |
+|---|---|
+| `music` | Player completo: play, queue, skip, loop, shuffle, seek, volume, autoplay |
+| `filters` | Filtri audio applicabili in tempo reale |
+| `tts` | Text-to-speech in canale vocale |
+| `ai` | Risponde a mention, reply e DM con AI contestuale + ricerca Wikipedia |
+| `fun` | `/8ball`, `/citazione`, `/roulette`, menu contestuale "Citazione" |
+| `moderation` | Ban, kick, mute, timeout, purge, warn, case log |
+| `birthdays` | Registra compleanni e invia auguri automatici |
+| `welcome` | Messaggio benvenuto/addio, assegnazione ruoli automatica |
+| `help` | Lista comandi dinamica per categoria |
+| `dev` | Reload cog, eval, status, sync (owner-only) |
 
-**[→ DOCS.md](./DOCS.md)**
-
-> Convenzione: **README** resta una panoramica rapida, **DOCS.md** è la fonte tecnica completa.
-
-### Merge su `main` (workflow consigliato)
-
-1. Apri la PR del branch di lavoro (es. `copilot/fix-music-logical-errors`)
-2. Fai review + CI green
-3. Premi **Merge** su GitHub
-4. In locale:
-
-```bash
-git checkout main
-git pull origin main
-```
+Per i dettagli di ogni comando vedi **[DOCS.md](DOCS.md)**.
 
 ---
 
-## 📁 Struttura
+## Sorgenti musicali supportate
 
-```
-Pytonazz2026/
-├── main.py          ← Entrypoint
-├── config.py        ← Configurazione e variabili d'ambiente
-├── core/            ← Moduli interni (player, resolver, AI, queue...)
-├── cogs/            ← Funzionalità del bot (auto-caricati)
-├── embeds/          ← Embed Discord
-├── views/           ← Bottoni e UI interattiva
-├── assets/          ← Status, prompt AI, config runtime
-├── data/            ← Dati runtime locali (welcome_config, immagini welcome, tmp)
-└── DOCS.md          ← Documentazione tecnica completa
-```
-
-## 🧭 Convenzioni naming
-
-- Repository: `Pytonazz2026` (nome progetto su GitHub)
-- Nome bot mostrato agli utenti: `Pitonazz`
-- Namespace logger Python: `pitonazz.*` (minuscolo)
-
-## 🗂️ Script operativi
-
-- `scripts/deploy_commands.py` → script **manuale/emergency** per forzare la sync slash commands.
-- `scripts/update_ytdlp.sh` → script **maintenance** per aggiornamento rapido `yt-dlp`.
-- `tools/audit_architecture.py` → audit rapido **periodico** su coupling cog→cog e duplicazioni logiche.
-
-## 🧩 Strategia Refactor
-
-- Niente refactor massivo preventivo.
-- Refactor a settori solo quando ci sono segnali tecnici chiari (duplicazioni, coupling cog→cog, complessità eccessiva, fix/test con side-effect).
-- Audit periodico consigliato:
-
-```bash
-python tools/audit_architecture.py
-```
-
-- Linea guida completa in `DOCS.md` (sezione **10.8**).
+- **YouTube** — URL video, playlist (`?list=PL…`), canale, ricerca testuale
+- **Spotify** — track, playlist, album, artista (risolti via YouTube)
+- **SoundCloud** — URL traccia, set/album
+- **Ricerca testuale** — query generica risolta su YouTube
 
 ---
 
-## 🛠️ Tecnologie
+## AI
 
-`discord.py 2.x` · `yt-dlp` · `spotipy` · `edge-tts` · `google-genai` · `groq` · `Pillow` · `FFmpeg` · `watchdog` · `davey`
+Il bot risponde tramite AI quando:
+- viene **menzionato** (`@Pytonazz`)
+- riceve un **DM**
+- qualcuno **risponde** a un suo messaggio
+
+La conversazione è mantenuta **per canale** (o per utente in DM) con una cronologia a finestra scorrevole. Il system prompt è caricato da `assets/prompts/ai_prompt.txt` e invalidabile a caldo tramite `/dev reload ai`.
+
+La ricerca Wikipedia viene attivata aggiungendo `cerca web:`, `search:`, `web:` o `#web` prima della query, oppure automaticamente quando il modello AI esprime incertezza.
+
+---
+
+## Licenza
+
+Uso privato / progetto personale. Nessuna licenza aperta.
