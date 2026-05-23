@@ -155,4 +155,4 @@ Pitonazz/
 
 ## 📜 Licenza e Sviluppo
 
-Il progetto è sviluppato a scopo didattico e di intrattenimento per la community. Tutti i diritti sui moduli interni appartengono agli sviluppatori configurati nel file sorgente. Per maggiori dettagli sull'utilizzo dei singoli comandi o sulla logica del database, consultare rispettivamente i file `DOCS.md` e `QUERY_CACHE_SETUP.md`.
+Ho sviluppato questo progetto personale a per scopo puramente ludico e didattico. Per maggiori dettagli sull'utilizzo dei singoli comandi o sulla logica del database, consultare rispettivamente i file **[`DOCS.md`](DOCS.md)** e **[`QUERY_CACHE_SETUP.md`](QUERY_CACHE_SETUP.md)**.
