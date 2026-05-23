@@ -9,7 +9,7 @@ Questo documento costituisce il manuale operativo e la specifica tecnica dettagl
 2. [Modello di Gestione dei Permessi](#-modello-di-gestione-dei-permessi)
 3. [Manuale dei Comandi: Modulo Musica](#-manuale-des-comandi-modulo-musica)
 4. [Manuale dei Comandi: Modulo Intelligenza Artificiale & TTS](#-manuale-dei-comandi-modulo-intelligenza-artificiale--tts)
-5. [Manuale dei Comandi: Modulo Compleanni (`/bday`)](#-manuale-dei-comandi-modulo-compleanni-bday)
+5. [Manuale dei Comandi: Modulo Compleanni](#-manuale-dei-comandi-modulo-compleanni-bday)
 6. [Manuale dei Comandi: Modulo Developer & Gestione Interna](#-manuale-dei-comandi-modulo-developer--gestione-interna)
 7. [Automazioni di Runtime e Ciclo di Vita](#-automazioni-di-runtime-e-ciclo-of-vita)
 
