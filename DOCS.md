@@ -1,303 +1,98 @@
-# DOCS — Pytonazz2026
+# 📖 Documentazione Tecnica & Manuale dei Comandi
 
-Riferimento tecnico completo di tutti i comandi slash, listener e comportamenti del bot.
-
-> **Legenda permessi** — 🟢 Tutti | 🟡 Moderatori | 🔴 Owner bot
+Benvenuto nella documentazione tecnica interna di **Pitonazz**. Questo documento descrive l'elenco esaustivo dei comandi slash applicativi (Application Commands) suddivisi per modulo operativo e la gestione avanzata dei permessi di runtime.
 
 ---
 
-## Indice
+## 👑 Gerarchia dei Permessi
 
-1. [Musica](#-musica)
-2. [Filtri Audio](#-filtri-audio)
-3. [TTS](#-tts)
-4. [AI](#-ai)
-5. [Divertimento](#-divertimento)
-6. [Moderazione](#-moderazione)
-7. [Compleanni](#-compleanni)
-8. [Welcome / Goodbye](#-welcome--goodbye)
-9. [Help](#-help)
-10. [Dev / Admin](#-dev--admin)
-11. [Architettura interna](#architettura-interna)
+Il bot prevede tre livelli di autorizzazione per l'esecuzione dei comandi:
+1. **Utente Standard:** Accesso ai moduli Musica, TTS e Fun.
+2. **Server Admin (Permesso "Gestisci Server"):** Accesso alle configurazioni di gilda dei compleanni e dei messaggi di Benvenuto/Arrivederci.
+3. **Bot Developer / Owner:** Contrassegnati dal prefisso `⚙️ 👑`. Richiedono la corrispondenza degli ID all'interno delle configurazioni `.env` ed eludono le restrizioni standard.
 
 ---
 
-## 🎵 Musica
+## 🎵 Modulo Musica (`/play`, `/search`, ecc.)
 
-Il player musicale è basato su `discord.py` voice + FFmpeg. Ogni guild ha un'istanza `MusicPlayer` indipendente.
+Il modulo gestisce flussi audio asincroni interfacciandosi con `yt-dlp` e integrando un algoritmo predittivo di enrichment dei metadati per i link Spotify.
 
-### Comandi
+* `/play <testo o link>`: Riproduce musica nel canale vocale corrente. Supporta ricerche testuali libere, URL singoli o playlist di YouTube, traccie/playlist/album di Spotify e flussi SoundCloud. *Nota: Non accetta profili artista Spotify o canali YouTube.*
+* `/search <testo>`: Esegue una ricerca approfondita e restituisce un menu interattivo con i primi 7 risultati rilevati.
+* `/versions`: Analizza la traccia in riproduzione e propone un menu con 5 versioni alternative (es: Speed up, Slowed, Nightcore, Cover).
+* `/artistshuffle <nome_artista> [n]`: Genera una stazione radio dedicata a un artista caricando le sue Top Tracks e combinandole con brani di artisti simili (Default: 20 tracce, max 50).
+* `/skip`: Salta immediatamente il brano corrente.
+* `/skipto <posizione>`: Salta direttamente alla traccia *N* della coda, rimuovendo istantaneamente tutte le tracce intermedie.
+* `/pause` / `/resume`: Mette in pausa o riprende la riproduzione musicale.
+* `/stop`: Interrompe definitivamente lo streaming, svuota completamente la coda d'attesa e disconnette il bot.
+* `/disconnect`: Disconnette il bot dal canale vocale preservando intatta la coda corrente.
+* `/queue`: Mostra lo stato della coda d'attesa tramite un sistema di pagine interattive navigabili con bottoni.
+* `/nowplaying`: Genera un Rich Embed grafico della traccia in riproduzione provvisto di controlli multimediali interattivi.
+* `/loop <off|track|queue>`: Imposta il ciclo di ripetizione (Disattivato, Traccia Singola, Intera Coda).
+* `/shuffle`: Attiva o disattiva la miscelazione casuale standard della coda.
+* `/smartshuffle`: Algoritmo di riordinamento intelligente basato sull'isolamento degli artisti: garantisce che non vengano mai riprodotti due brani consecutivi dello stesso autore.
+* `/remove <posizione>`: Rimuove la traccia posizionata all'indice *N* della coda.
+* `/move <da> <a>`: Cambia la priorità di una traccia spostandola all'interno della coda d'attesa.
+* `/history`: Mostra la cronologia degli ultimi 10 brani riprodotti nel server.
+* `/join [utente]`: Forza l'ingresso del bot nel canale vocale dell'utente specificato o di chi lancia il comando.
+* `/filter <filtro>`: Applica filtri di equalizzazione in tempo reale al flusso FFmpeg (`nightcore`, `vaporwave`, `8d`, `off`).
 
-| Comando | Parametri | Permessi | Descrizione |
-|---|---|---|---|
-| `/play` | `query` | 🟢 | Aggiunge alla coda o avvia la riproduzione. Accetta URL YouTube, Spotify, SoundCloud o testo libero |
-| `/skip` | — | 🟢 | Salta la traccia corrente |
-| `/stop` | — | 🟢 | Ferma la riproduzione e svuota la coda |
-| `/pause` | — | 🟢 | Mette in pausa |
-| `/resume` | — | 🟢 | Riprende dalla pausa |
-| `/queue` | — | 🟢 | Mostra la coda con paginazione interattiva |
-| `/nowplaying` | — | 🟢 | Mostra la traccia in riproduzione con barra di avanzamento |
-| `/volume` | `livello` (1–200) | 🟢 | Imposta il volume |
-| `/seek` | `posizione` (mm:ss o secondi) | 🟢 | Salta a una posizione nella traccia corrente |
-| `/loop` | `modalità` | 🟢 | Modalità loop: `off` / `track` / `queue` |
-| `/shuffle` | — | 🟢 | Mescola casualmente la coda |
-| `/remove` | `posizione` | 🟢 | Rimuove una traccia dalla coda per posizione |
-| `/move` | `da` `a` | 🟢 | Sposta una traccia da una posizione a un'altra |
-| `/clear` | — | 🟢 | Svuota la coda (non ferma la traccia corrente) |
-| `/autoplay` | — | 🟢 | Attiva/disattiva autoplay: suggerisce tracce simili quando la coda finisce |
-| `/disconnect` | — | 🟢 | Disconnette il bot dal canale vocale |
-| `/join` | — | 🟢 | Entra nel canale vocale dell'utente |
-
-### Sorgenti supportate
-
-- **YouTube**: URL video, URL playlist (`?list=PL/OLAK/RDCLAK/UU/LL/FL/WL`), URL canale, ricerca testuale
-- **Spotify**: link `track`, `playlist`, `album`, `artist` — risolti tramite YouTube
-- **SoundCloud**: URL singola traccia, `sets/` o `albums/`
-- **Testo libero**: qualsiasi stringa non riconosciuta come URL viene ricercata su YouTube
-
-### Comportamento playlist/album
-
-Quando viene rilevata una collezione (playlist YouTube, album/playlist Spotify, set SoundCloud), il bot avvia il caricamento in background mostrando una barra di avanzamento nell'embed. Il caricamento può essere interrotto se il bot viene fermato nel frattempo.
-
-### Debounce `/play`
-
-Per prevenire doppi click, i comandi `/play` dallo stesso utente entro una finestra di ~1,8 secondi vengono ignorati silenziosamente.
-
-### Autoplay
-
-Quando la coda è esaurita e autoplay è attivo, il bot suggerisce e carica automaticamente fino a 8 tracce simili a quella appena terminata.
+> **Regole di Inattività Vocale:** Il bot esegue un auto-disconnessione di sicurezza dopo **10 minuti continui** di inattività o qualora il canale vocale rimanga vuoto. Non si disconnette se il player è esplicitamente in stato di pausa.
 
 ---
 
-## 🎛️ Filtri Audio
+## 🧠 Modulo Intelligenza Artificiale & TTS
 
-Filtri applicabili in tempo reale alla riproduzione audio tramite il cog `filters.py`.
+Questo modulo espone l'integrazione con i modelli linguistici di ultima generazione gestendo lo stato conversazionale (`core/ai_runtime.py`) tramite deque isolati per canale.
 
-| Comando | Descrizione |
-|---|---|
-| `/filter` | Applica o rimuove un filtro audio. Mostra la lista dei filtri disponibili se invocato senza parametri |
-
-I filtri vengono passati direttamente a FFmpeg come opzioni audio. L'insieme dei filtri disponibili è definito nel cog.
-
----
-
-## 🗣️ TTS
-
-Text-to-speech in canale vocale tramite il cog `tts.py`.
-
-| Comando | Parametri | Permessi | Descrizione |
-|---|---|---|---|
-| `/tts` | `testo` | 🟢 | Legge il testo nel canale vocale corrente dell'utente |
-
-Richiede che l'utente sia in un canale vocale. Il bot entra, legge il testo e, se non c'è musica in coda, si disconnette automaticamente.
+* **Interazione Naturale (@Pitonazz / DM):** Menzionando il bot nei canali testuali abilitati o scrivendogli direttamente in DM, si attiva la chat conversazionale. Possiede memoria storica degli ultimi 20 messaggi del canale e supporta la comprensione di allegati di tipo immagine (PNG, JPEG, WEBP, GIF, BMP).
+* **Funzionalità `#web`:** Digitando all'inizio o all'interno del messaggio i marker `cerca web:`, `web:` o il tag `#web`, l'AI interroga in tempo reale le Wikipedia Search API estraendo fino a 3 snippet informativi accurati per aggiornare il proprio contesto operativo.
+* `/tts <testo> [voce]`: Sintetizza il testo inserito (max 500 caratteri) all'interno del canale vocale. Le voci selezionabili sono:
+  * `Diego` (Italiano Maschile - Default)
+  * `Elsa` / `Isabella` (Italiano Femminile)
+  * `Ryan` (Inglese UK Maschile)
+  * `Aria` (Inglese US Femminile)
 
 ---
 
-## 🤖 AI
+## 🎂 Modulo Compleanni (`/bday`)
 
-Il cog `ai.py` implementa un listener `on_message` — non ci sono comandi slash dedicati.
+* `/bday set <giorno> <mese> [anno]`: Registra la propria data di nascita. L'anno è opzionale: se fornito, abilita il calcolo automatico dell'età durante l'annuncio.
+* `/bday check [@utente]`: Mostra la data di compleanno registrata per l'utente selezionato o per se stessi.
+* `/bday list`: Mostra la timeline ordinata cronologicamente di tutti i compleanni della community.
+* `/bday remove`: Consente all'utente di cancellare definitivamente la propria entry dal database.
 
-### Trigger
-
-| Modalità | Come attivarlo |
-|---|---|
-| **Mention** | `@Pytonazz <messaggio>` in qualsiasi canale |
-| **DM** | Qualsiasi messaggio privato al bot |
-| **Reply** | Rispondere a un messaggio del bot |
-
-### Funzionalità
-
-- **Memoria per canale**: cronologia a finestra scorrevole (fino a 20 scambi), separata per canale/DM.
-- **Contesto utenti menzionati**: se il messaggio menziona altri utenti, il bot inietta nel prompt un breve riassunto del loro comportamento recente nel canale (tono, argomenti trattati, ultimi messaggi — cache 10 min).
-- **Risposta multi-chunk**: le risposte lunghe (>1990 char) vengono spezzate in più messaggi Discord.
-- **Rate limit**: ogni utente può interrogare il bot una volta ogni `AI_COOLDOWN_SECONDS` secondi (configurabile in `config.py`).
-- **Allegati immagine**: il bot riconosce immagini allegate e ne include metadati nel contesto (nome file, dimensioni, hint).
-
-### Ricerca Wikipedia
-
-Il bot attiva automaticamente una ricerca su Wikipedia italiana quando:
-- il messaggio contiene i trigger espliciti `cerca web:`, `search:`, `web:` o `#web`
-- oppure la risposta AI esprime incertezza (frasi come "non so", "boh", "non ricordo"…) su un messaggio che sembra una domanda
-
-### System prompt
-
-Caricato da `assets/prompts/ai_prompt.txt`. La cache del prompt viene invalidata automaticamente al ricaricamento del cog (`/dev reload ai`) e può essere forzata via dev tools.
-
-### Provider AI
-
-Il client (`core/ai_client.py`) supporta più provider con fallback automatico. Almeno un API key deve essere configurata in `.env`.
+### 🛡️ Comandi Amministrativi Compleanni (Richiede Gestisci Server):
+* `/bday adminset <@utente> <giorno> <mese> [anno]`: Forza la registrazione del compleanno di un utente.
+* `/bday adminremove <@utente>`: Rimuove l'entry di un utente specifico.
+* `/bday channel [#canale]`: Imposta o disabilita il canale testuale dedicato alla pubblicazione automatica dei messaggi di auguri giornalieri.
+* `/bday messages_set <messaggi>`: Sovrascrive l'intera lista dei messaggi di auguri del server (una stringa per riga). Accetta placeholder dinamici come `{mention}`, `{age}`, `{display_name}`, `{guild}`.
+* `/bday messages_add <messaggio>`: Aggiunge un nuovo template di auguri plain-text alla rotazione casuale.
+* `/bday messages_remove <indice>`: Rimuove un template in base al suo indice identificativo.
+* `/bday messages_list`: Mostra l'elenco numerato di tutti i messaggi inseriti.
+* `/bday test`: Esegue una simulazione istantanea in modalità effimera (visibile solo all'admin) per verificare la formattazione dei placeholder.
 
 ---
 
-## 🎲 Divertimento
+## ⚙️ 👑 Modulo Developer (`/status`, `/cache`, ecc.)
 
-### Comandi slash
+Comandi esclusivi ad altissimo privilegio per la manutenzione a caldo del backend del bot.
 
-| Comando | Parametri | Descrizione |
-|---|---|---|
-| `/8ball` | `domanda` | Interroga la Magic 8-Ball. Risposta casuale tra positivo, negativo o incerto, con embed colorato |
-| `/citazione` | `testo` `autore?` `utente?` `immagine_url?` | Genera una card PNG con la citazione. L'avatar viene preso dall'utente Discord se specificato, altrimenti dall'invocante o da URL custom |
-| `/roulette` | — | Roulette russa: 1 possibilità su 6 di "morire". Mostra il cilindro con la camera estratta |
+* `/restart`: Chiude in sicurezza le connessioni attive di `discord.py` e riavvia il processo software rigenerando l'istanza tramite l'esecutibile di sistema di Python.
+* `/sync [clear_global]`: Sincronizza l'albero applicativo dei comandi slash con l'API di Discord. Può ripulire le entry globali corrotte o forzare il push sulle gilde indicate in `GUILD_IDS`.
+* `/maintenance <attiva>`: Attiva lo stato di manutenzione. Il bot rifiuterà l'interazione con gli utenti standard e applicherà un flag grafico allo status di Discord.
+* `/backupconfig`: Genera istantaneamente un archivio compresso `.zip` contenente tutti i file critici di configurazione di runtime, database JSON e immagini di benvenuto memorizzate, restituendolo in chat.
+* `/restoreconfig <allegato_zip>`: Legge un file di backup valido generato dal bot, sovrascrive a caldo i file di configurazione corrotti ed esegue il reload automatico delle classi.
+* `/disable_command <comando>` / `/enable_command <comando>`: Abilita o disabilita a runtime l'utilizzo di uno specifico comando slash in tutto il bot (I comandi critici di amministrazione sono protetti e non disabilitabili).
+* `/command_list`: Mostra un pannello di controllo diagnostico con lo stato di runtime di tutti i comandi (Abilitati, Disabilitati, Protetti).
+* `/set_log_channel [canale]`: Configura un canale di log centralizzato dove il bot inoltrerà in tempo reale gli stacktrace degli errori eccezione non gestiti.
+* `/tts_volume <valore>`: Modifica l'ampiezza persistente (moltiplicatore da 0.1 a 3.0) del modulo TTS.
+* `/say <testo> [canale]`: Consente allo sviluppatore di inviare messaggi testuali o Embed impersonando direttamente l'identità del bot all'interno di qualsiasi gilda condivisa.
 
-### Menu contestuale
-
-| Nome | Come usarlo | Descrizione |
-|---|---|---|
-| **Citazione** | Tasto destro su un messaggio → Apps → "Citazione" | Genera una card PNG con il testo del messaggio selezionato |
-
----
-
-## 🔨 Moderazione
-
-Il cog `moderation.py` copre le operazioni standard di moderazione server. Tutti i comandi richiedono i permessi Discord appropriati.
-
-| Comando | Parametri principali | Permessi | Descrizione |
-|---|---|---|---|
-| `/ban` | `utente` `motivo?` | 🟡 Ban Members | Banna un utente dal server |
-| `/unban` | `utente_id` `motivo?` | 🟡 Ban Members | Rimuove il ban |
-| `/kick` | `utente` `motivo?` | 🟡 Kick Members | Espelle un utente |
-| `/mute` | `utente` `durata?` `motivo?` | 🟡 Moderate Members | Silenzia (timeout Discord) |
-| `/unmute` | `utente` | 🟡 Moderate Members | Rimuove il timeout |
-| `/warn` | `utente` `motivo` | 🟡 Moderate Members | Aggiunge un avvertimento al registro del membro |
-| `/warnings` | `utente` | 🟡 Moderate Members | Mostra il registro degli avvertimenti |
-| `/clearwarnings` | `utente` | 🟡 Moderate Members | Azzera gli avvertimenti |
-| `/purge` | `quantità` `utente?` | 🟡 Manage Messages | Elimina messaggi in massa (con filtro utente opzionale) |
-| `/slowmode` | `secondi` | 🟡 Manage Channels | Imposta slowmode nel canale corrente |
-| `/lock` | — | 🟡 Manage Channels | Blocca il canale (impedisce l'invio messaggi a @everyone) |
-| `/unlock` | — | 🟡 Manage Channels | Sblocca il canale |
-| `/cases` | `utente?` | 🟡 Moderate Members | Mostra il log dei casi di moderazione |
-
-Tutte le azioni vengono loggate internamente con ID caso progressivo.
-
----
-
-## 🎂 Compleanni
-
-Il cog `birthdays.py` gestisce la registrazione e gli auguri automatici.
-
-| Comando | Parametri | Permessi | Descrizione |
-|---|---|---|---|
-| `/birthday set` | `giorno` `mese` | 🟢 | Registra il proprio compleanno |
-| `/birthday remove` | — | 🟢 | Rimuove il proprio compleanno |
-| `/birthday show` | `utente?` | 🟢 | Mostra il compleanno di un utente (o il proprio) |
-| `/birthday list` | — | 🟢 | Lista tutti i compleanni registrati nel server |
-| `/birthday next` | — | 🟢 | Mostra il prossimo compleanno in arrivo |
-| `/birthday config` | `canale?` `ruolo?` | 🟡 Manage Guild | Configura canale e ruolo per gli auguri automatici |
-
-**Auguri automatici**: ogni giorno a mezzanotte il bot controlla i compleanni del giorno e invia un messaggio nel canale configurato, assegnando temporaneamente il ruolo compleanno se configurato.
-
-I dati sono persistiti in `data/birthdays.json`.
-
----
-
-## 👋 Welcome / Goodbye
-
-Il cog `welcome.py` gestisce messaggi di entrata/uscita e assegnazione ruoli automatica.
-
-| Comando | Parametri | Permessi | Descrizione |
-|---|---|---|---|
-| `/welcome config` | — | 🟡 Manage Guild | Wizard di configurazione interattivo |
-| `/welcome set channel` | `canale` | 🟡 Manage Guild | Imposta il canale per i messaggi di benvenuto |
-| `/welcome set goodbye` | `canale` | 🟡 Manage Guild | Imposta il canale per i messaggi di addio |
-| `/welcome set message` | `testo` | 🟡 Manage Guild | Personalizza il messaggio di benvenuto |
-| `/welcome set role` | `ruolo` | 🟡 Manage Guild | Ruolo assegnato automaticamente ai nuovi membri |
-| `/welcome test` | — | 🟡 Manage Guild | Simula un messaggio di benvenuto |
-| `/welcome disable` | — | 🟡 Manage Guild | Disabilita welcome/goodbye |
-
-**Comportamento automatico** (`on_member_join` / `on_member_remove`):
-- invia il messaggio configurato nel canale apposito
-- assegna il ruolo automatico al nuovo membro (se configurato)
-
-La configurazione è persistita per guild in `data/`.
-
----
-
-## ❓ Help
-
-| Comando | Parametri | Descrizione |
-|---|---|---|
-| `/help` | `categoria?` | Mostra la lista comandi raggruppata per categoria. Se si specifica una categoria, mostra solo i comandi di quel modulo |
-
-Il cog `help.py` costruisce dinamicamente la lista leggendo i metadati (`COG_ICON`, `COG_LABEL`, `COG_TYPE`) da ogni cog caricato.
-
----
-
-## 🔧 Dev / Admin
-
-Tutti i comandi di questo gruppo sono riservati all'**owner** del bot (ID configurato in `.env`).
-
-### `dev.py` — Gestione bot
-
-| Comando | Descrizione |
-|---|---|
-| `/dev reload <cog>` | Ricarica un cog a caldo (hot-reload) |
-| `/dev load <cog>` | Carica un cog non attivo |
-| `/dev unload <cog>` | Scarica un cog |
-| `/dev sync` | Sincronizza i comandi slash (globale o guild) |
-| `/dev eval <codice>` | Esegue codice Python inline nel contesto del bot |
-| `/dev status <testo>` | Cambia lo status/activity del bot |
-| `/dev cogs` | Lista tutti i cog caricati e il loro stato |
-
-### `dev_audio.py` — Debug audio
-
-| Comando | Descrizione |
-|---|---|
-| `/devaudio info` | Mostra lo stato interno del player audio per il guild corrente |
-| `/devaudio reset` | Forza il reset del player (in caso di stato corrotto) |
-
-### `dev_cache.py` — Gestione cache
-
-| Comando | Descrizione |
-|---|---|
-| `/devcache stats` | Statistiche del database SQLite di cache (hit rate, dimensione, entries) |
-| `/devcache clear` | Svuota la cache delle query musicali |
-| `/devcache inspect <query>` | Mostra l'entry di cache per una query specifica |
-
----
-
-## Architettura interna
-
-### Stack tecnologico
-
-| Componente | Tecnologia |
-|---|---|
-| Runtime | Python 3.11+ |
-| Framework bot | discord.py 2.x (`app_commands`) |
-| Audio | FFmpeg + `discord.py` voice client |
-| Persistenza leggera | JSON in `data/` |
-| Cache query musicali | SQLite in `cache_db/` |
-| AI client | Multi-provider con fallback (`core/ai_client.py`) |
-| Ricerca web AI | Wikipedia Search API (it.wikipedia.org) |
-
-### Flusso avvio (`main.py`)
-
-1. Lettura configurazione da `.env` via `config.py`
-2. Caricamento di tutti i cog in `cogs/`
-3. Connessione a Discord e sync comandi slash
-4. Loop eventi `discord.py`
-
-### MusicPlayer
-
-Ogni guild ha un'istanza `MusicPlayer` separata (gestita in `core/player.py`). Il player mantiene:
-- coda tracce (list)
-- stato corrente (paused/playing/idle)
-- modalità loop (`off` / `track` / `queue`)
-- volume
-- flag autoplay
-
-La risoluzione delle sorgenti (URL → stream URL + metadati) avviene in `core/source_resolver.py` con cache SQLite per evitare lookup ripetuti.
-
-### Stato AI in-memory
-
-`core/ai_runtime.py` espone un oggetto `_state` singleton con:
-- `conversation_memory`: dizionario `channel_id → deque` (max 20 messaggi)
-- `rate_limit_map`: dizionario `user_id → timestamp` ultimo messaggio
-- `channel_recent_messages`: buffer messaggi recenti per canale (per context building)
-- `mention_background_cache`: cache profili utenti menzionati (TTL 10 min)
-- `web_retry_metrics`: contatori metriche ricerca web
-
-Lo stato viene resettato al ricaricamento del cog AI (`cog_unload`).
-
-### Logging
-
-Ogni cog usa un logger dedicato (`pitonazz.<nome_cog>`) con output colorato via `core/log_colors.py`. Il livello di log è configurabile in `config.py`.
+### Gruppo `/status` (Rotazione Attività):
+* `/status add <tipo> <nome> <stato>`: Aggiunge uno stato personalizzato alla rotazione ciclica del bot (Giocando, Guardando, Ascoltando, Gareggiando, Custom) associandolo a un marker di presenza (`online`, `idle`, `dnd`, `invisible`).
+* `/status remove <indice>`: Rimuove uno stato custom dalla coda di rotazione.
+* `/status edit <indice> [nome] [tipo] [stato]`: Modifica i parametri di un'attività inserita.
+* `/status list`: Mostra l'intera pipeline di rotazione dividendo gli stati nativi (statici) da quelli custom introdotti a runtime.
+* `/status set <tipo> <nome> <stato>`: Forza l'applicazione immediata di uno status ignorando temporaneamente il ciclo di rotazione.
+* `/status interval <secondi>`: Modifica la frequenza di aggiornamento del ciclo delle attività (Minimo 10 secondi, persistente ai riavvii).
