@@ -19,20 +19,21 @@ Questo documento costituisce il manuale operativo e la specifica tecnica dettagl
 
 Il bot sposa un'architettura modulare guidata dalla classe `discord.ext.commands.Cog`. Ogni file presente nella cartella `cogs/` isola un dominio funzionale:
 
-
+```text
 cogs/
-├── ai.py # Gestione LLM, chat contestuale ed immagini
-├── birthdays.py # Logica applicativa e scadenziario dei compleanni
-├── dev.py # Utility di base dell'owner (riavvio, sync)
-├── dev_audio.py # Debug avanzato dello stream FFmpeg e volumi tts
-├── dev_cache.py # Strumenti di ispezione diretta sulla cache SQLite
-├── filters.py # Manipolazione dei parametri audio di FFmpeg
-├── fun.py # Comandi ricreativi e d'interazione della community
-├── help.py # Generatore dinamico della guida ai comandi
-├── moderation.py # Strumenti di controllo dei canali e dei membri
-├── music.py # Core operativo del player, delle code e delle interfacce
-├── tts.py # Interfaccia con i motori di sintesi vocale Edge-TTS
-└── welcome.py # Trigger e generazione eventi d'ingresso nuovi membri
+├── ai.py           # Gestione LLM, chat contestuale ed immagini
+├── birthdays.py    # Logica applicativa e scadenziario dei compleanni
+├── dev.py          # Utility di base dell'owner (riavvio, sync)
+├── dev_audio.py    # Debug avanzato dello stream FFmpeg e volumi TTS
+├── dev_cache.py    # Strumenti di ispezione diretta sulla cache SQLite
+├── filters.py      # Manipolazione dei parametri audio di FFmpeg
+├── fun.py          # Comandi ricreativi e d'interazione della community
+├── help.py         # Generatore dinamico della guida ai comandi
+├── moderation.py   # Strumenti di controllo dei canali e dei membri
+├── music.py        # Core operativo del player, delle code e delle interfacce
+├── tts.py          # Interfaccia con i motori di sintesi vocale Edge-TTS
+└── welcome.py      # Trigger e generazione eventi d'ingresso nuovi membri
+```
 
 ---
 
