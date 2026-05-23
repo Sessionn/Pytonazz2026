@@ -76,44 +76,44 @@ Quando un comando musicale riceve un input stringa, quest'ultimo viene normalizz
 
 ```text
 [ Input Stringa ] ──> Normalizzazione dei Token ──> Estrazione Variant Tag
-│
-▼
+                               │
+                               ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│ STEP 1: MATCH DIRETTO CANONICO (Fascia di Costo: ~0.1ms)             │
+│ STEP 1: MATCH DIRETTO CANONICO (Fascia di Costo: ~0.1ms)               │
 │ Query: SELECT * FROM song_cache WHERE canonical_key = ? AND variant = ?│
 └──────────────────────────────┬─────────────────────────────────────────┘
-│ MISS
-▼
+                               │ MISS
+                               ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│ STEP 2: RICERCA NEGLI ALIAS DI QUERY (Fascia di Costo: ~0.3ms)       │
-│ Query: SELECT canonical_key FROM query_alias WHERE alias_key = ?     │
+│ STEP 2: RICERCA NEGLI ALIAS DI QUERY (Fascia di Costo: ~0.3ms)         │
+│ Query: SELECT canonical_key FROM query_alias WHERE alias_key = ?       │
 └──────────────────────────────┬─────────────────────────────────────────┘
-│ MISS
-▼
+                               │ MISS
+                               ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│ STEP 3: MATCH PARZIALE INDEXED URL SPOTIFY (Fascia di Costo: ~0.2ms) │
-│ Query: SELECT * FROM song_cache WHERE spotify_url = ?                │
+│ STEP 3: MATCH PARZIALE INDEXED URL SPOTIFY (Fascia di Costo: ~0.2ms)   │
+│ Query: SELECT * FROM song_cache WHERE spotify_url = ?                  │
 └──────────────────────────────┬─────────────────────────────────────────┘
-│ MISS
-▼
+                               │ MISS
+                               ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│ STEP 4: MATCH DIRETTO URL SORGENTE WEBPAGE (Fascia di Costo: ~0.2ms) │
-│ Query: SELECT * FROM song_cache WHERE webpage_url = ?                │
+│ STEP 4: MATCH DIRETTO URL SORGENTE WEBPAGE (Fascia di Costo: ~0.2ms)   │
+│ Query: SELECT * FROM song_cache WHERE webpage_url = ?                  │
 └──────────────────────────────┬─────────────────────────────────────────┘
-│ MISS
-▼
+                               │ MISS
+                               ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│ STEP 5: CORRISPONDENZA SFUMATA "JACCARD FUZZY SCAN"                 │
-│ Estrarre TOP-300 record per hit_count. Computazione algoritmica:     │
-│ Score = (0.65 * Jaccard_Distance) + (0.35 * Levenshtein_Ratio)       │
-│ Soglia di Accettazione Sottosistema: Score >= 0.82                   │
+│ STEP 5: CORRISPONDENZA SFUMATA "JACCARD FUZZY SCAN"                    │
+│ Estrarre TOP-300 record per hit_count. Computazione algoritmica:       │
+│ Score = (0.65 * Jaccard_Distance) + (0.35 * Levenshtein_Ratio)         │
+│ Soglia di Accettazione Sottosistema: Score >= 0.82                     │
 └──────────────────────────────┬─────────────────────────────────────────┘
-│ MISS (Sotto la soglia)
-▼
-[ ESEGUI NETWORK FETCH VIA YT-DLP ]
-│
-▼
-Store() dei Risultati e Scrittura DB
+                               │ MISS (Sotto la soglia)
+                               ▼
+              [ ESEGUI NETWORK FETCH VIA YT-DLP ]
+                               │
+                               ▼
+              Store() dei Risultati e Scrittura DB
 ```
 
 ### Regola di Promozione degli Alias nello Step 5
