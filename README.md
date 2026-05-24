@@ -1,6 +1,7 @@
 # 🐍 Pitonazz Discord Bot
+![Alt Text](https://i.imgur.com/xY0Zvya.gif)
 
-Pitonazz è un'applicazione bot modulare e multifunzionale di livello enterprise per Discord, sviluppata in Python sull'architettura asincrona di `discord.py`. Progettato per coniugare l'intrattenimento multimediale ad alta fedeltà con l'automazione di community e l'intelligenza artificiale, il bot si appoggia su un motore di caching persistente SQLite custom e su un'interfaccia di monitoraggio via web dashboard integrata in Flask.
+### <div style="text-align: justify"> Pitonazz è un'applicazione bot modulare e multifunzionale di livello enterprise per Discord, sviluppata in Python sull'architettura asincrona di `discord.py`. Progettato per coniugare l'intrattenimento multimediale ad alta fedeltà con l'automazione di community e l'intelligenza artificiale, il bot si appoggia su un motore di caching persistente SQLite custom e su un'interfaccia di monitoraggio via web dashboard integrata in Flask. </div>
 
 ---
 
