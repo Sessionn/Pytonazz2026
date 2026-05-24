@@ -3,6 +3,7 @@ let currentOrder = "desc";
 let debounceTimer;
 let autoRefreshInterval  = null;
 let statsRefreshInterval = null;
+let statsEventSource     = null;
 let _lastIds = new Set();
 // Snapshot degli URL per rilevare cambi senza full re-render
 let _lastUrls = new Map(); // id -> { webpage_url, spotify_url }
@@ -16,6 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchSongs();
   startAutoRefresh(10);
   startStatsRefresh(8);
+  startRealtimeStats();
   updateGenTime();
 
   // favicon animata
@@ -90,19 +92,41 @@ function refreshStats() {
       return r.json();
     })
     .then(data => {
-      const keys = ["total", "valid", "invalid", "hits", "aliases"];
-      keys.forEach(key => {
-        const el = document.querySelector(`.val[data-stat="${key}"]`);
-        if (!el) return;
-        const current = parseInt(el.textContent.replace(/[^0-9]/g, "")) || 0;
-        const next    = data[key] ?? 0;
-        if (current !== next) {
-          _tweenCounter(el, current, next, 500);
-        }
-      });
-      updateGenTime();
+      applyStatsPayload(data);
     })
     .catch(() => { /* silenzioso */ });
+}
+
+function applyStatsPayload(data) {
+  const keys = ["total", "valid", "invalid", "hits", "aliases"];
+  keys.forEach(key => {
+    const el = document.querySelector(`.val[data-stat="${key}"]`);
+    if (!el) return;
+    const current = parseInt(el.textContent.replace(/[^0-9]/g, "")) || 0;
+    const next    = data[key] ?? 0;
+    if (current !== next) {
+      _tweenCounter(el, current, next, 500);
+    }
+  });
+  updateGenTime();
+}
+
+function startRealtimeStats() {
+  if (!window.EventSource || statsEventSource) return;
+  statsEventSource = new EventSource("/api/events");
+  statsEventSource.addEventListener("stats", event => {
+    try {
+      applyStatsPayload(JSON.parse(event.data));
+    } catch (_) { /* noop */ }
+  });
+  statsEventSource.onerror = () => {
+    if (statsEventSource) {
+      statsEventSource.close();
+      statsEventSource = null;
+    }
+    startStatsRefresh(8);
+  };
+  stopStatsRefresh();
 }
 
 function startStatsRefresh(seconds = 8) {
@@ -451,7 +475,7 @@ function fetchAliases() {
   fetch("/api/aliases").then(r => r.json()).then(data => {
     const tbody = document.getElementById("aliases-body");
     if (data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--muted)">Nessun alias registrato.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Nessun alias registrato.</td></tr>`;
       return;
     }
     tbody.innerHTML = data.map((a, i) => {
@@ -461,6 +485,7 @@ function fetchAliases() {
       <tr style="animation-delay:${i * 25}ms" data-alias-id="${a.id}">
         <td class="id-col">${a.id}</td>
         <td class="dim">${esc(a.query_raw || "")}</td>
+        <td><span class="badge ${esc(a.alias_type || "text")}">${esc(a.alias_type || "text")}</span></td>
         <td>
           <span class="title-text">${esc(a.title || "")}</span>
           <span class="artist-text">${esc(a.artist || "")}</span>

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import urllib.parse
+import urllib.request
 
 from config import Config
 from core.log_colors import tag
@@ -92,3 +93,26 @@ def _is_soundcloud_url(url: str) -> bool:
     if not host:
         return False
     return host == "soundcloud.com" or host.endswith(".soundcloud.com")
+
+
+def _is_soundcloud_short_url(url: str) -> bool:
+    raw = (url or "").strip()
+    if not raw:
+        return False
+    parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+    return (parsed.hostname or "").lower() == "on.soundcloud.com"
+
+
+def _resolve_soundcloud_short_url(url: str, timeout: float = 5.0) -> str:
+    """Resolve on.soundcloud.com short links before yt-dlp sees them."""
+    raw = (url or "").strip()
+    if not _is_soundcloud_short_url(raw):
+        return raw
+    target = raw if "://" in raw else f"https://{raw}"
+    req = urllib.request.Request(target, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.geturl() or target
+    except Exception as exc:
+        log.debug(tag("RESOLVE", f"SoundCloud short resolve skipped: {exc}"))
+        return target

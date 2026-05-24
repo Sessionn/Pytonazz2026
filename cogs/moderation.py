@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import Config
+from core.isolation_registry import load_quarantine_groups, save_quarantine_groups
 from core.log_colors import tag, b, user, ch
 from core.permissions import admin_check, perm
 
@@ -105,7 +106,13 @@ class Moderation(commands.Cog):
         # guild_id -> {group_key: {"members": set, "label": str}}
         self._deafened_groups: dict[int, dict[int, dict]] = {}
         # guild_id -> {group_key: {"members": set, "channel_id": int, "base_name": str, "pre_channels": dict}}
-        self._quarantine_groups: dict[int, dict[int, dict]] = {}
+        self._quarantine_groups: dict[int, dict[int, dict]] = load_quarantine_groups()
+
+    def _save_quarantine_state(self) -> None:
+        try:
+            save_quarantine_groups(self._quarantine_groups)
+        except OSError as exc:
+            log.warning(tag("MOD", f"isolation registry save failed: {exc}"))
 
     # ── Helpers gerarchia ─────────────────────────────────────────
 
@@ -182,6 +189,7 @@ class Moderation(commands.Cog):
             if not q_groups:
                 continue
 
+            changed = False
             for gkey, info in list(q_groups.items()):
                 cid       = info["channel_id"]
                 base_name = info["base_name"]
@@ -196,6 +204,7 @@ class Moderation(commands.Cog):
                         continue
                     info["channel_id"] = new_ch.id
                     target_ch = new_ch
+                    changed = True
                     log.info(tag("MOD", f"watchdog: canale ricreato {ch(new_ch.name)} (id={new_ch.id})"))
 
                 # Ributta gli utenti fuori canale
@@ -223,6 +232,9 @@ class Moderation(commands.Cog):
                         log.info(tag("MOD", f"watchdog: canale orfano #{vc.name} eliminato"))
                     except (discord.Forbidden, discord.HTTPException) as exc:
                         log.warning(tag("MOD", f"watchdog: impossibile eliminare #{vc.name}: {exc}"))
+
+            if changed:
+                self._save_quarantine_state()
 
     @_quarantine_watchdog.before_loop
     async def _before_watchdog(self):
@@ -262,6 +274,7 @@ class Moderation(commands.Cog):
                 log.warning(tag("MOD", f"on_voice: impossibile ricreare canale — watchdog riproverà"))
                 return
             info["channel_id"] = target_ch.id
+            self._save_quarantine_state()
             log.info(tag("MOD", f"on_voice: canale ricreato: {ch(target_ch.name)}"))
 
         if target_ch is None:
@@ -273,6 +286,39 @@ class Moderation(commands.Cog):
             log.info(tag("MOD", f"on_voice: ributtato {user(str(member))} in {ch(target_ch.name)}"))
         except (discord.Forbidden, discord.HTTPException):
             pass
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        if not isinstance(channel, discord.VoiceChannel):
+            return
+        guild = channel.guild
+        q_groups = self._quarantine_groups.get(guild.id, {})
+        if not q_groups:
+            return
+
+        changed = False
+        for gkey, info in list(q_groups.items()):
+            if info.get("channel_id") != channel.id:
+                continue
+            base_name = info.get("base_name") or _QUARANTINE_PREFIX
+            log.info(tag("MOD", f"channel_delete: quarantine channel {channel.id} missing, recreating '{base_name}'"))
+            new_ch = await self._get_or_create_quarantine_channel(guild, base_name)
+            if new_ch is None:
+                log.warning(tag("MOD", f"channel_delete: cannot recreate quarantine channel for group {gkey}"))
+                continue
+            info["channel_id"] = new_ch.id
+            changed = True
+
+            for uid in info.get("members", set()):
+                member = guild.get_member(uid)
+                if member and member.voice and member.voice.channel:
+                    try:
+                        await member.move_to(new_ch, reason="Quarantine channel recreated")
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+
+        if changed:
+            self._save_quarantine_state()
 
     # ── Listener re-deaf/re-mute ──────────────────────────────────
 
@@ -809,6 +855,7 @@ class Moderation(commands.Cog):
             "label":        nomi_label if len(members) > 1 else members[0].display_name,
             "pre_channels": pre_channels,
         }
+        self._save_quarantine_state()
 
         tipo = "Gruppo" if len(members) > 1 else "Utente"
         lines = [f"🔒 **Isolamento attivo** [{tipo}] nel canale **#{q_channel.name}**"]
@@ -846,6 +893,7 @@ class Moderation(commands.Cog):
             info = q_groups.pop(gkey, None)
             if not info:
                 return [], set()
+            self._save_quarantine_state()
             cid_set = {info["channel_id"]}
             liberated = []
             for uid in info["members"]:
@@ -947,6 +995,7 @@ class Moderation(commands.Cog):
                 info["members"].discard(m.id)
                 if not info["members"]:
                     q_groups.pop(gkey, None)
+                self._save_quarantine_state()
 
                 if m.voice and m.voice.channel:
                     if ripristina_canale:

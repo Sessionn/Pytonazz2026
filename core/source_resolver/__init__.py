@@ -6,12 +6,12 @@ import threading
 import time
 import urllib.parse
 from collections import defaultdict
-from dataclasses import dataclass, field
 from typing import Optional, Callable, TypeVar
 
 import yt_dlp
 from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
+from core.source_resolver.models import TrackInfo, clone_track as _clone_track
 
 # ── Sub-module imports ─────────────────────────────────────────────────────────────────────────────
 from core.source_resolver.scoring import (
@@ -60,6 +60,7 @@ from core.source_resolver.ytdlp import (
     _make_opts,
     _strip_yt_radio,
     _is_soundcloud_url,
+    _resolve_soundcloud_short_url,
 )
 
 from core.source_resolver.spotify import (
@@ -92,39 +93,6 @@ _YT_CHANNEL  = re.compile(
 _YT_CANDIDATES = 3
 
 _T = TypeVar("_T")
-
-
-@dataclass
-class TrackInfo:
-    title:        str
-    webpage_url:  str
-    duration:     int
-    thumbnail:    str
-    requester:    str
-    requester_id: int
-    source:       str
-    stream_url:   str = field(default="", repr=False)
-    artist:       str = field(default="", repr=False)
-    origin_query: str = field(default="", repr=False)
-    spotify_url:  str = field(default="", repr=False)
-    popularity:   int = field(default=0, repr=False)
-
-
-def _clone_track(track: "TrackInfo") -> "TrackInfo":
-    return TrackInfo(
-        title=track.title,
-        webpage_url=track.webpage_url,
-        duration=track.duration,
-        thumbnail=track.thumbnail,
-        requester=track.requester,
-        requester_id=track.requester_id,
-        source=track.source,
-        stream_url=track.stream_url,
-        artist=track.artist,
-        origin_query=track.origin_query,
-        spotify_url=track.spotify_url,
-        popularity=track.popularity,
-    )
 
 
 def _popularity_tier_shuffle(pairs: list[tuple]) -> list[tuple]:
@@ -1052,6 +1020,7 @@ class SourceResolver:
             if _is_yt_channel_url(query):
                 log.debug(tag("RESOLVER", f"URL canale YouTube ignorato: {b(query)}"))
                 return []
+            query = _resolve_soundcloud_short_url(query)
             query = _strip_yt_radio(query)
         else:
             query = "ytsearch:" + query

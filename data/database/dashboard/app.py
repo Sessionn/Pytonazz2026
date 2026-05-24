@@ -3,12 +3,14 @@ import os
 import logging
 import functools
 import re
-from flask import Flask, render_template, jsonify, request, redirect, url_for, session
+import json
+import time
+from flask import Flask, Response, render_template, jsonify, request, redirect, url_for, session, stream_with_context
 
 log = logging.getLogger(__name__)
 
 _RE_SPOTIFY = re.compile(
-    r'(open\.spotify\.com|spotify\.com)/(track|album|playlist|artist)/([A-Za-z0-9]+)',
+    r'(open\.spotify\.com|spotify\.com)/(?:intl-[a-z]{2}/)?(track|album|playlist|artist)/([A-Za-z0-9]+)',
     re.I
 )
 
@@ -20,15 +22,17 @@ def _extract_spotify_id(url: str) -> str:
 
 def _hash(s: str) -> str:
     import hashlib
-    return hashlib.sha256(s.lower().strip().encode()).hexdigest()
+    norm = re.sub(r"[^\w\s:/.-]+", " ", (s or "").lower().strip())
+    norm = re.sub(r"\s+", " ", norm).strip()
+    return hashlib.sha256(norm.encode()).hexdigest()
 
 
 def create_app(db_path: str | None = None) -> Flask:
     base_dir   = os.path.dirname(os.path.abspath(__file__))
     db_path    = db_path or os.path.join(base_dir, "..", "cache.db")
     db_path    = os.path.abspath(db_path)
-    secret_key = os.getenv("DASHBOARD_SECRET", "pytonazz-dev-secret-change-me")
-    dashboard_pw = os.getenv("DASHBOARD_PASSWORD", "")
+    secret_key = os.getenv("DASH_SECRET_KEY") or os.getenv("DASHBOARD_SECRET") or "pytonazz-dev-secret-change-me"
+    dashboard_pw = os.getenv("DASH_PASSWORD") or os.getenv("DASHBOARD_PASSWORD") or ""
 
     app = Flask(
         __name__,
@@ -49,6 +53,25 @@ def create_app(db_path: str | None = None) -> Flask:
             return [dict(r) for r in cur.fetchall()]
         finally:
             conn.close()
+
+    def _stats_payload() -> dict:
+        row = query_db("""
+            SELECT
+                COUNT(*)                                           AS total,
+                SUM(CASE WHEN is_valid=1 THEN 1 ELSE 0 END)       AS valid,
+                SUM(CASE WHEN is_valid=0 THEN 1 ELSE 0 END)       AS invalid,
+                COALESCE(SUM(hit_count), 0)                        AS hits
+            FROM song_cache
+        """)[0]
+        aliases = query_db("SELECT COUNT(*) AS c FROM query_aliases")[0]["c"]
+        return {
+            "total":   row["total"]   or 0,
+            "valid":   row["valid"]   or 0,
+            "invalid": row["invalid"] or 0,
+            "hits":    row["hits"]    or 0,
+            "aliases": aliases,
+            "ts":      int(time.time()),
+        }
 
     def login_required(f):
         @functools.wraps(f)
@@ -100,22 +123,24 @@ def create_app(db_path: str | None = None) -> Flask:
         Ritorna le stat card in JSON per aggiornamento real-time lato JS.
         Leggero: una sola query aggregata + una COUNT su query_aliases.
         """
-        row = query_db("""
-            SELECT
-                COUNT(*)                                           AS total,
-                SUM(CASE WHEN is_valid=1 THEN 1 ELSE 0 END)       AS valid,
-                SUM(CASE WHEN is_valid=0 THEN 1 ELSE 0 END)       AS invalid,
-                COALESCE(SUM(hit_count), 0)                        AS hits
-            FROM song_cache
-        """)[0]
-        aliases = query_db("SELECT COUNT(*) AS c FROM query_aliases")[0]["c"]
-        return jsonify({
-            "total":   row["total"]   or 0,
-            "valid":   row["valid"]   or 0,
-            "invalid": row["invalid"] or 0,
-            "hits":    row["hits"]    or 0,
-            "aliases": aliases,
-        })
+        return jsonify(_stats_payload())
+
+    @app.route("/api/events")
+    @login_required
+    def api_events():
+        @stream_with_context
+        def events():
+            last = None
+            while True:
+                payload = _stats_payload()
+                encoded = json.dumps(payload, separators=(",", ":"))
+                if encoded != last:
+                    yield f"event: stats\ndata: {encoded}\n\n"
+                    last = encoded
+                else:
+                    yield ": keepalive\n\n"
+                time.sleep(5)
+        return Response(events(), mimetype="text/event-stream")
 
     # ── API: songs ─────────────────────────────────────────────────
     @app.route("/api/songs")
@@ -155,7 +180,7 @@ def create_app(db_path: str | None = None) -> Flask:
     def api_aliases():
         rows = query_db("""
             SELECT qa.id, qa.query_raw, qa.cache_id,
-                   sc.title, sc.artist, sc.spotify_url, sc.webpage_url
+                   qa.alias_type, sc.title, sc.artist, sc.spotify_url, sc.webpage_url
             FROM query_aliases qa
             LEFT JOIN song_cache sc ON sc.id = qa.cache_id
             ORDER BY qa.id DESC
@@ -250,13 +275,14 @@ def create_app(db_path: str | None = None) -> Flask:
             # Registra il link Spotify come alias
             cur.execute(
                 """
-                INSERT INTO query_aliases (query_hash, query_raw, cache_id)
-                VALUES (?, ?, ?)
+                INSERT INTO query_aliases (query_hash, query_raw, alias_type, cache_id)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(query_hash) DO UPDATE SET
                     query_raw = excluded.query_raw,
+                    alias_type = excluded.alias_type,
                     cache_id  = excluded.cache_id
                 """,
-                (h_spotify, spotify_url, cache_id)
+                (h_spotify, spotify_url, "spotify", cache_id)
             )
             conn.commit()
         finally:

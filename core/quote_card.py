@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -42,21 +43,32 @@ _BORDER = (60,  60,  60)
 
 # ── Font paths ─────────────────────────────────────────────────────────────
 _SERIF_PATHS = [
+    "C:/Windows/Fonts/NotoSans-Regular.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/arialuni.ttf",
+    "C:/Windows/Fonts/msgothic.ttc",
     "C:/Windows/Fonts/georgia.ttf",
     "/System/Library/Fonts/Supplemental/Georgia.ttf",
     "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
 ]
 _SERIF_B_PATHS = [
+    "C:/Windows/Fonts/NotoSans-Bold.ttf",
+    "C:/Windows/Fonts/segoeuib.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
     "C:/Windows/Fonts/georgiab.ttf",
     "/System/Library/Fonts/Supplemental/Georgia Bold.ttf",
     "/usr/share/fonts/truetype/noto/NotoSerif-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
 ]
 _SANS_B_PATHS = [
+    "C:/Windows/Fonts/NotoSans-Bold.ttf",
     "C:/Windows/Fonts/segoeuib.ttf",
+    "C:/Windows/Fonts/seguisym.ttf",
     "C:/Windows/Fonts/arialbd.ttf",
     "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -160,6 +172,10 @@ def _wrap(text: str, font: ImageFont.FreeTypeFont,
     return lines
 
 
+def _clean_text(text: str) -> str:
+    return unicodedata.normalize("NFKC", text or "").strip()
+
+
 # ── Entry point ─────────────────────────────────────────────────────────────
 async def build_quote_card(
     text: str,
@@ -168,6 +184,8 @@ async def build_quote_card(
     server_name: str = "",   # mantenuto per compatibilità, non usato
 ) -> bytes:
     loop = asyncio.get_running_loop()
+    text = _clean_text(text)
+    author = _clean_text(author)
 
     # Avatar scaricato in async + mask precalcolata (cachata dopo la prima volta)
     avatar, fade_mask = await asyncio.gather(

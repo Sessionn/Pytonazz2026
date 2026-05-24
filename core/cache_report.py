@@ -44,7 +44,7 @@ def _read_db() -> tuple[list[dict], list[dict]]:
         songs = [dict(r) for r in cur.fetchall()]
 
         cur.execute("""
-            SELECT qa.query_raw AS alias, sc.query_raw AS canonical, sc.title
+            SELECT qa.query_raw AS alias, qa.alias_type, sc.query_raw AS canonical, sc.title
               FROM query_aliases qa
               JOIN song_cache sc ON sc.id = qa.cache_id
              ORDER BY qa.id
@@ -183,6 +183,7 @@ def build_html() -> str:
     if aliases:
         ali_rows = "".join(
             f"<tr><td class='dim' style='font-size:11px'>{a['alias']}</td>"
+            f"<td><span class='badge'>{a.get('alias_type') or 'text'}</span></td>"
             f"<td>{a['canonical']}</td>"
             f"<td class='title'>{a['title'] or '-'}</td></tr>"
             for a in aliases
@@ -191,7 +192,7 @@ def build_html() -> str:
         <h2>&#128279; query_aliases &nbsp;<span class="dim" style="font-size:11px">{ali_cnt} righe</span></h2>
         <div class="table-wrap">
         <table>
-            <thead><tr><th>Alias</th><th>Query canonica</th><th>Titolo</th></tr></thead>
+            <thead><tr><th>Alias</th><th>Tipo</th><th>Query canonica</th><th>Titolo</th></tr></thead>
             <tbody>{ali_rows}</tbody>
         </table>
         </div>

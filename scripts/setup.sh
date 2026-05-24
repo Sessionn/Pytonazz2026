@@ -1,28 +1,52 @@
 #!/usr/bin/env bash
-set -e
-echo "=== Pitonazz — Setup iniziale ==="
+set -euo pipefail
 
-# Python deps
-pip install -r requirements.txt
-echo "✅ Dipendenze Python installate."
+echo "=== Pitonazz - Setup iniziale ==="
 
-# FFmpeg check
-if command -v ffmpeg &>/dev/null; then
-  echo "✅ FFmpeg: $(ffmpeg -version 2>&1 | head -1)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+fi
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  echo "ERRORE: Python non trovato. Installa Python 3.11+ e riprova."
+  exit 1
+fi
+
+if [ ! -d ".venv" ]; then
+  "$PYTHON_BIN" -m venv .venv
+  echo "OK: virtualenv creato in .venv"
+fi
+
+if [ -f ".venv/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  source ".venv/bin/activate"
+elif [ -f ".venv/Scripts/activate" ]; then
+  # shellcheck disable=SC1091
+  source ".venv/Scripts/activate"
+fi
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+echo "OK: dipendenze Python installate."
+
+if command -v ffmpeg >/dev/null 2>&1; then
+  echo "OK: FFmpeg: $(ffmpeg -version 2>&1 | head -1)"
 else
   echo ""
-  echo "❌ FFmpeg NON trovato! Installalo:"
+  echo "ERRORE: FFmpeg non trovato. Installalo:"
   echo "   Ubuntu/Debian : sudo apt install ffmpeg"
   echo "   macOS          : brew install ffmpeg"
   echo "   Windows        : https://ffmpeg.org/download.html"
   echo ""
 fi
 
-# .env check
 if [ ! -f .env ]; then
   if [ -f .env.example ]; then
     cp .env.example .env
-    echo "📄 .env creato da .env.example — ricordati di compilarlo!"
+    echo "OK: .env creato da .env.example. Compilalo con segreti nuovi."
   else
     cat > .env <<'EOF'
 DISCORD_TOKEN=
@@ -36,10 +60,18 @@ GUILD_IDS=
 YTDLP_PROXY=
 SHOW_BANNER=true
 EOF
-    echo "📄 .env.example non trovato: creato .env base — ricordati di compilarlo!"
+    echo "OK: .env.example non trovato, creato .env base. Compilalo con segreti nuovi."
   fi
 else
-  echo "✅ .env già presente."
+  echo "OK: .env gia presente."
+fi
+
+mkdir -p data/logs data/tmp assets
+
+if python -m yt_dlp --version >/dev/null 2>&1; then
+  echo "OK: yt-dlp disponibile: $(python -m yt_dlp --version)"
+else
+  echo "WARN: yt-dlp non verificabile."
 fi
 
 echo ""

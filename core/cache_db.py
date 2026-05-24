@@ -17,6 +17,7 @@ API pubblica:
     prune_lru(max_entries, ttl_days) -> int
     clear()                   -> int  (numero righe eliminate)
     clear_all()               -> int  (alias di clear())
+    dedupe_canonical(dry_run=True) -> dict
 
 Note sul comportamento degli alias:
     - query_aliases viene popolata automaticamente da put() ogni volta che
@@ -588,6 +589,75 @@ def stats() -> dict:
         "size_kb":  size_kb,
         "db_path":  Config.DB_PATH,
         "top_query": dict(top_row) if top_row else None,
+    }
+
+
+def dedupe_canonical(dry_run: bool = True) -> dict:
+    """
+    Unisce duplicati storici basati su canonical title+artist o webpage_url.
+    In dry_run ritorna solo il piano; con dry_run=False aggiorna alias e rimuove duplicati.
+    """
+    if not _enabled:
+        return {"groups": 0, "duplicates": 0, "applied": False}
+
+    def row_key(row) -> str:
+        title = row["title"] or row["query_raw"] or ""
+        artist = row["artist"] or ""
+        canonical = _normalize_key(f"{title} {artist}".strip())
+        if canonical:
+            return f"meta:{canonical}"
+        if row["webpage_url"]:
+            return f"url:{row['webpage_url']}"
+        return f"id:{row['id']}"
+
+    with _cursor() as cur:
+        rows = cur.execute(
+            "SELECT * FROM song_cache WHERE is_valid = 1 ORDER BY hit_count DESC, last_used DESC, id ASC"
+        ).fetchall()
+        groups: dict[str, list] = {}
+        for row in rows:
+            groups.setdefault(row_key(row), []).append(row)
+        duplicate_groups = [grp for grp in groups.values() if len(grp) > 1]
+
+        if not dry_run:
+            for grp in duplicate_groups:
+                keeper = grp[0]
+                keep_id = keeper["id"]
+                for row in grp[1:]:
+                    old_id = row["id"]
+                    aliases = [
+                        row["query_raw"],
+                        _normalize_key(f"{row['title'] or ''} {row['artist'] or ''}".strip()),
+                        row["spotify_url"],
+                        row["webpage_url"],
+                    ]
+                    for alias in aliases:
+                        if alias:
+                            _promote_alias_inner(cur, alias, keep_id, "dedupe")
+                    cur.execute(
+                        "UPDATE query_aliases SET cache_id = ? WHERE cache_id = ?",
+                        (keep_id, old_id),
+                    )
+                    cur.execute(
+                        """
+                        UPDATE song_cache
+                           SET hit_count = hit_count + ?,
+                               last_used = MAX(last_used, ?),
+                               spotify_url = CASE
+                                   WHEN (spotify_url IS NULL OR spotify_url = '') THEN ?
+                                   ELSE spotify_url
+                               END
+                         WHERE id = ?
+                        """,
+                        (int(row["hit_count"] or 0), int(row["last_used"] or 0), row["spotify_url"] or "", keep_id),
+                    )
+                    cur.execute("DELETE FROM song_cache WHERE id = ?", (old_id,))
+
+    duplicate_count = sum(len(grp) - 1 for grp in duplicate_groups)
+    return {
+        "groups": len(duplicate_groups),
+        "duplicates": duplicate_count,
+        "applied": not dry_run,
     }
 
 
