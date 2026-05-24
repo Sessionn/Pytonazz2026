@@ -10,7 +10,7 @@ API pubblica:
     is_enabled()              -> bool
     get(query)                -> dict | None
     put(query, track)         -> None
-    add_alias(alias, query)   -> None
+    add_alias(alias, query, alias_type="text") -> None
     invalidate(query)         -> bool
     stats()                   -> dict
     prune_lru(max_entries, ttl_days) -> int
@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS query_aliases (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     query_hash TEXT    NOT NULL UNIQUE,
     query_raw  TEXT    NOT NULL,
+    alias_type TEXT    NOT NULL DEFAULT 'text',
     cache_id   INTEGER NOT NULL REFERENCES song_cache(id) ON DELETE CASCADE
 );
 
@@ -169,6 +170,9 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         s = stmt.strip()
         if s:
             conn.execute(s)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(query_aliases)")}
+    if "alias_type" not in cols:
+        conn.execute("ALTER TABLE query_aliases ADD COLUMN alias_type TEXT NOT NULL DEFAULT 'text'")
     conn.commit()
 
 
@@ -273,7 +277,7 @@ def get(query: str) -> Optional[dict]:
             row = cur.fetchone()
             if row:
                 # Promuovi anche il link come alias per evitare ricerche future
-                _promote_alias_inner(cur, query_stripped, row["id"])
+                _promote_alias_inner(cur, query_stripped, row["id"], "spotify")
 
         if row is None:
             log.info(tag("CACHE_DB", f"\U0001f50d {hi('MISS', _GRY)}  {b(query_stripped)}"))
@@ -291,7 +295,12 @@ def get(query: str) -> Optional[dict]:
     return dict(row)
 
 
-def _promote_alias_inner(cur: sqlite3.Cursor, query_raw: str, cache_id: int) -> None:
+def _promote_alias_inner(
+    cur: sqlite3.Cursor,
+    query_raw: str,
+    cache_id: int,
+    alias_type: str = "text",
+) -> None:
     """
     Registra query_raw come alias per cache_id.
     Usato internamente (dentro un _cursor() gia' aperto).
@@ -300,13 +309,14 @@ def _promote_alias_inner(cur: sqlite3.Cursor, query_raw: str, cache_id: int) -> 
     try:
         cur.execute(
             """
-            INSERT INTO query_aliases (query_hash, query_raw, cache_id)
-            VALUES (?, ?, ?)
+            INSERT INTO query_aliases (query_hash, query_raw, alias_type, cache_id)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(query_hash) DO UPDATE SET
                 query_raw = excluded.query_raw,
+                alias_type = excluded.alias_type,
                 cache_id  = excluded.cache_id
             """,
-            (h, query_raw.strip(), cache_id),
+            (h, query_raw.strip(), alias_type or "text", cache_id),
         )
     except Exception:
         pass
@@ -374,9 +384,9 @@ def put(query: str, track) -> None:
         if row_by_url and row_by_url["query_hash"] != h_canonical:
             # Traccia gia' in cache sotto un hash diverso: promuovi alias
             existing_id = row_by_url["id"]
-            _promote_alias_inner(cur, canonical_query, existing_id)
+            _promote_alias_inner(cur, canonical_query, existing_id, "text")
             if is_spotify and h_original != h_canonical:
-                _promote_alias_inner(cur, query_stripped, existing_id)
+                _promote_alias_inner(cur, query_stripped, existing_id, "spotify")
             # Aggiorna spotify_url se mancava
             if spotify_url:
                 cur.execute(
@@ -384,7 +394,8 @@ def put(query: str, track) -> None:
                     "WHERE id = ? AND (spotify_url IS NULL OR spotify_url = '')",
                     (spotify_url, existing_id),
                 )
-            log.info(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _CYN)}  {b(query_stripped)}  \u2192  {b(title)}"))
+            alias_label = "spotify" if is_spotify else "text"
+            log.info(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _CYN)}  {alias_label}  \u2192  {b(title)}"))
             return
 
         # Inserisci o aggiorna la entry canonical
@@ -429,10 +440,10 @@ def put(query: str, track) -> None:
             entry_id = entry_row["id"]
             # Se la query originale era un link Spotify, registrala come alias
             if is_spotify and h_original != h_canonical:
-                _promote_alias_inner(cur, query_stripped, entry_id)
+                _promote_alias_inner(cur, query_stripped, entry_id, "spotify")
                 # Registra anche il link Spotify normalizzato come alias
                 if spotify_url and _hash(spotify_url) != h_canonical:
-                    _promote_alias_inner(cur, spotify_url, entry_id)
+                    _promote_alias_inner(cur, spotify_url, entry_id, "spotify")
 
     label = f"{b(title)}" + (f"  {artist}" if artist else "")
     if existing:
@@ -443,7 +454,7 @@ def put(query: str, track) -> None:
     _maybe_trim()
 
 
-def add_alias(alias: str, canonical_query: str) -> None:
+def add_alias(alias: str, canonical_query: str, alias_type: str = "text") -> None:
     """
     Registra `alias` come query alternativa che punta alla stessa entry
     di `canonical_query`. Se canonical_query non esiste nel DB, la funzione
@@ -463,15 +474,16 @@ def add_alias(alias: str, canonical_query: str) -> None:
             return
         cur.execute(
             """
-            INSERT INTO query_aliases (query_hash, query_raw, cache_id)
-            VALUES (?, ?, ?)
+            INSERT INTO query_aliases (query_hash, query_raw, alias_type, cache_id)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(query_hash) DO UPDATE SET
                 query_raw = excluded.query_raw,
+                alias_type = excluded.alias_type,
                 cache_id  = excluded.cache_id
             """,
-            (h_alias, alias.strip(), row["id"]),
+            (h_alias, alias.strip(), alias_type or "text", row["id"]),
         )
-    log.debug(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _GRY)}  {b(alias)}  \u2192 {b(canonical_query)}"))
+    log.debug(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _GRY)}  {alias_type or 'text'}  \u2192 {b(canonical_query)}"))
 
 
 def invalidate(query: str) -> bool:
@@ -604,6 +616,16 @@ def clear_all() -> int:
 
 
 # ── Manutenzione automatica ───────────────────────────────────────────
+
+def _close() -> None:
+    """Chiude la connessione SQLite interna. Usato dai test su DB temporanei."""
+    global _conn, _enabled
+    with _lock:
+        if _conn is not None:
+            _conn.close()
+            _conn = None
+        _enabled = False
+
 
 _last_trim = 0.0
 _TRIM_INTERVAL = 300  # secondi tra un trim e l'altro

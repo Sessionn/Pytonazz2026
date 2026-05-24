@@ -319,6 +319,7 @@ def _get_query_cache():
         with _qc_lock:
             if _qc_instance is None:
                 try:
+                    from core.cache_db import add_alias as _cache_add_alias
                     from core.cache_db import get as _cache_get, put as _cache_put
 
                     class _Adapter:
@@ -333,7 +334,7 @@ def _get_query_cache():
 
                         @staticmethod
                         def link_spotify(sp_url: str, key: str, variant: str) -> None:
-                            pass  # estensione futura
+                            _cache_add_alias(sp_url, key, "spotify")
 
                     _qc_instance = _Adapter()
                 except Exception as e:

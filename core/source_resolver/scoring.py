@@ -36,6 +36,11 @@ _NON_MUSIC_QUERY_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_RISKY_ENRICH_VARIANTS = re.compile(
+    r"\b(nightcore|sped\s+up|speed\s+up|slowed|reverb|bass\s+boosted|pizza\s+music|tik\s*tok|tiktok)\b",
+    re.IGNORECASE,
+)
+
 
 class _TrackLike(Protocol):
     title: str
@@ -45,7 +50,7 @@ class _TrackLike(Protocol):
 # ── Numeric constants ─────────────────────────────────────────────────────────
 
 _ENRICH_CONFIDENCE_HIGH          = 0.72
-_ENRICH_CONFIDENCE_MEDIUM        = 0.52
+_ENRICH_CONFIDENCE_MEDIUM        = 0.68
 _ENRICH_CONFIDENCE_EXTREME_LOW   = 0.22
 _ENRICH_DURATION_GOOD            = 0.62
 _DURATION_DEFAULT_SCORE          = 0.45
@@ -58,7 +63,8 @@ _ENRICH_WEIGHT_ARTIST_HINT       = 0.10
 _NON_MUSIC_QUERY_MAX_WORDS       = 6
 _SPOTIFY_RETRY_BASE_DELAY_SECONDS = 0.4
 _ARTIST_TOKEN_MIN_LENGTH         = 3
-_NON_MUSIC_QUERY_PENALTY         = 0.18
+_NON_MUSIC_QUERY_PENALTY         = 0.35
+_RISKY_VARIANT_PENALTY           = 0.25
 _JUNK_WORD_PENALTY               = 0.07   # penalty per junk extra-word in YT title
 _MAX_JUNK_PENALTY                = 0.30   # cap so a very noisy title never over-penalises
 
@@ -254,6 +260,8 @@ def _compute_enrich_confidence(
     artist_sim, artist_hint_present = _query_artist_signal(original_query, sp_artist)
     duration_sim    = _duration_similarity(yt_duration, sp_duration)
     variant_penalty = _dynamic_variant_penalty(original_query, yt_title, sp_title, sp_artist)
+    if _RISKY_ENRICH_VARIANTS.search(f"{original_query} {yt_title}"):
+        variant_penalty += _RISKY_VARIANT_PENALTY
     non_music_penalty = _NON_MUSIC_QUERY_PENALTY if _is_probably_non_music_query(original_query) else 0.0
 
     confidence = (

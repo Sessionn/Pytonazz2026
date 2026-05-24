@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import Config
+import core.cache_db as cache_db
 from core.player import MusicPlayer
 from core.source_resolver import (
     SourceResolver,
@@ -212,12 +213,13 @@ class _CancelBatchView(discord.ui.View):
 
 
 class _PlaySelect(discord.ui.Select):
-    def __init__(self, player, results, channel, requester, vc_ch):
+    def __init__(self, player, results, channel, requester, vc_ch, original_query: str = ""):
         self.player    = player
         self.results   = results
         self.channel   = channel
         self.requester = requester
         self.vc_ch     = vc_ch
+        self.original_query = original_query
         options = []
         for i, r in enumerate(results[:7]):
             dur    = f"{r.duration//60}:{r.duration%60:02d}" if r.duration else "?:??"
@@ -248,6 +250,11 @@ class _PlaySelect(discord.ui.Select):
             await vc.move_to(current_vc_ch)
         was_empty = not self.player.queue and not self.player.current
         position = 0 if was_empty else (len(self.player.queue) + 1)
+        if self.original_query:
+            try:
+                cache_db.put(self.original_query, chosen)
+            except Exception:
+                log.debug(tag("CACHE", "skip manual selection cache"), exc_info=True)
         if not self.player.queue.put(chosen):
             return await inter.response.send_message(
                 embed=error_embed(f"Coda piena (max {Config.MAX_QUEUE} tracce)."),
@@ -260,9 +267,9 @@ class _PlaySelect(discord.ui.Select):
 
 
 class _PlaySelectView(discord.ui.View):
-    def __init__(self, player, results, channel, requester, vc_ch):
+    def __init__(self, player, results, channel, requester, vc_ch, original_query: str = ""):
         super().__init__(timeout=60)
-        self.add_item(_PlaySelect(player, results, channel, requester, vc_ch))
+        self.add_item(_PlaySelect(player, results, channel, requester, vc_ch, original_query))
 
 
 class _VersionSelect(discord.ui.Select):
@@ -842,7 +849,7 @@ class Music(commands.Cog):
             description=f"Risultati per: **{query}**\n{_EMBED_RULER}",
             color=0x5865F2,
         )
-        view = _PlaySelectView(player, results, inter.channel, inter.user, vc_ch)
+        view = _PlaySelectView(player, results, inter.channel, inter.user, vc_ch, query)
         await inter.followup.send(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(name="versions", description="Scegli una versione alternativa della traccia corrente")

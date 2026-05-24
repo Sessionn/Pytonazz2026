@@ -16,6 +16,7 @@ load_dotenv()
 
 from config import Config
 from core.cache_db import init_db
+from core.bot_config import cfg
 from core.log_colors import setup_logging
 from core.banner import print_banner
 from core.paths import CUSTOM_STATUSES_PATH, ensure_runtime_dirs
@@ -194,6 +195,12 @@ def _build_status(entry) -> discord.Status:
 
 @tasks.loop(minutes=10)
 async def rotate_status():
+    if cfg.maintenance:
+        return
+    await bot.apply_next_status()
+
+
+async def apply_next_status():
     pool = STATUS_CYCLE + ([entry for entry in custom_statuses] if custom_statuses else [])
     if not pool:
         return
@@ -201,6 +208,37 @@ async def rotate_status():
     activity = _build_activity(chosen)
     status   = _build_status(chosen)
     await bot.change_presence(status=status, activity=activity)
+
+
+async def apply_maintenance_presence():
+    if not getattr(bot, "_maintenance_presence_saved", False):
+        bot._previous_presence = {
+            "activity": bot.activity,
+            "status": bot.status,
+        }
+        bot._maintenance_presence_saved = True
+    await bot.change_presence(
+        status=discord.Status.dnd,
+        activity=discord.Game(name="Maintenance Mode"),
+    )
+
+
+async def restore_presence_after_maintenance():
+    prev = getattr(bot, "_previous_presence", None)
+    bot._maintenance_presence_saved = False
+    bot._previous_presence = None
+    if prev:
+        await bot.change_presence(
+            status=prev.get("status") or discord.Status.online,
+            activity=prev.get("activity"),
+        )
+    else:
+        await bot.apply_next_status()
+
+
+bot.apply_next_status = apply_next_status
+bot.apply_maintenance_presence = apply_maintenance_presence
+bot.restore_presence_after_maintenance = restore_presence_after_maintenance
 
 
 # ── Events ───────────────────────────────────────────────────────────────────

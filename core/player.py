@@ -190,6 +190,22 @@ class MusicPlayer:
             return False
         return added > 0
 
+    async def _retry_current_after_ffmpeg_error(self, track, depth: int) -> None:
+        if self.current is not track or depth > 0:
+            await self.play_next(_depth=depth + 1)
+            return
+        if getattr(track, "_ffmpeg_retrying", False):
+            track.stream_url = ""
+            await self.play_next(_depth=depth + 1)
+            return
+
+        setattr(track, "_ffmpeg_retrying", True)
+        track.stream_url = ""
+        self._cached_stream_url = ""
+        self._filter_replay = True
+        log.warning(tag("PLAYER", f"FFmpeg fallito, refetch stream  \u2192  {title(track.title)}"))
+        await self.play_next(_depth=depth + 1)
+
     async def play_next(self, _depth: int = 0):
         if not self.vc:
             return
@@ -277,6 +293,19 @@ class MusicPlayer:
                         log.debug(tag("PLAYER", f"FFmpeg stop intenzionale: {err}"))
                     else:
                         log.error(tag("ERR", f"FFmpeg error: {err}"))
+                        try:
+                            asyncio.run_coroutine_threadsafe(
+                                self._retry_current_after_ffmpeg_error(nxt, _depth),
+                                loop,
+                            )
+                        except RuntimeError:
+                            log.debug(tag("PLAYER", "Loop chiuso, skip stream retry"))
+                        return
+                elif getattr(nxt, "_ffmpeg_retrying", False):
+                    try:
+                        delattr(nxt, "_ffmpeg_retrying")
+                    except Exception:
+                        pass
                 try:
                     asyncio.run_coroutine_threadsafe(self.play_next(), loop)
                 except RuntimeError:
