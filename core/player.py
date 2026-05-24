@@ -7,6 +7,7 @@ from typing import Optional, Callable, Awaitable
 
 import discord
 from config import Config
+import core.cache_db as cache_db
 from core.queue import MusicQueue
 from core.source_resolver import TrackInfo, SourceResolver
 from core.log_colors import tag, b, ms, title, hi, _CYN
@@ -202,6 +203,11 @@ class MusicPlayer:
         setattr(track, "_ffmpeg_retrying", True)
         track.stream_url = ""
         self._cached_stream_url = ""
+        SourceResolver.invalidate_stream_cache(track.webpage_url)
+        try:
+            cache_db.invalidate_webpage_url(track.webpage_url)
+        except Exception:
+            pass
         self._filter_replay = True
         log.warning(tag("PLAYER", f"FFmpeg fallito, refetch stream  \u2192  {title(track.title)}"))
         await self.play_next(_depth=depth + 1)

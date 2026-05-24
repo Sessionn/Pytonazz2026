@@ -208,15 +208,28 @@ async def apply_next_status():
     activity = _build_activity(chosen)
     status   = _build_status(chosen)
     await bot.change_presence(status=status, activity=activity)
+    bot.remember_normal_presence(status=status, activity=activity)
+
+
+def remember_normal_presence(
+    status: discord.Status | None = None,
+    activity: discord.BaseActivity | None = None,
+):
+    if cfg.maintenance:
+        return
+    bot._last_normal_presence = {
+        "activity": activity,
+        "status": status or discord.Status.online,
+    }
 
 
 async def apply_maintenance_presence():
-    if not getattr(bot, "_maintenance_presence_saved", False):
-        bot._previous_presence = {
-            "activity": bot.activity,
-            "status": bot.status,
-        }
-        bot._maintenance_presence_saved = True
+    prev = getattr(bot, "_last_normal_presence", None)
+    if prev:
+        bot._previous_presence = dict(prev)
+    elif not getattr(bot, "_maintenance_presence_saved", False):
+        bot._previous_presence = {"activity": bot.activity, "status": bot.status}
+    bot._maintenance_presence_saved = True
     await bot.change_presence(
         status=discord.Status.dnd,
         activity=discord.Game(name="Maintenance Mode"),
@@ -232,11 +245,16 @@ async def restore_presence_after_maintenance():
             status=prev.get("status") or discord.Status.online,
             activity=prev.get("activity"),
         )
+        bot.remember_normal_presence(
+            status=prev.get("status") or discord.Status.online,
+            activity=prev.get("activity"),
+        )
     else:
         await bot.apply_next_status()
 
 
 bot.apply_next_status = apply_next_status
+bot.remember_normal_presence = remember_normal_presence
 bot.apply_maintenance_presence = apply_maintenance_presence
 bot.restore_presence_after_maintenance = restore_presence_after_maintenance
 

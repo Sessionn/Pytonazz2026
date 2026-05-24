@@ -25,7 +25,7 @@ from core.bot_config import cfg
 from core.ai_client import invalidate_prompt_cache
 from core.ai_runtime import clear_conversation_memory
 from core.constants import TYPE_MAP, STAT_MAP, TYPE_LABEL, STATUS_LABEL, UNDISABLEABLE, command_slug
-from core.log_colors import tag, b, hi, user
+from core.log_colors import tag, b, hi, user, _BGRN, _BRED
 from core.paths import (
     BOT_CONFIG_PATH,
     BIRTHDAYS_PATH,
@@ -166,7 +166,8 @@ class Dev(commands.Cog):
             else "\u2705 Manutenzione **disattivata** \u2014 bot accessibile a tutti."
         )
         state_label = "True" if attiva else "False"
-        log.info(tag("DEV", f"maintenance \u2192 {b(state_label)}"))
+        state_color = _BRED if attiva else _BGRN
+        log.info(tag("DEV", f"maintenance \u2192 {hi(state_label, state_color)}"))
         await inter.response.send_message(stato, ephemeral=True)
 
     @app_commands.command(name="backupconfig", description=f"{_OWN} \U0001f451 Esporta la configurazione del bot in un file ZIP")
@@ -519,7 +520,10 @@ class Dev(commands.Cog):
             if act_type == discord.ActivityType.custom
             else discord.Activity(type=act_type, name=nome)
         )
-        await self.bot.change_presence(activity=activity, status=STAT_MAP.get(stato, discord.Status.online))
+        status = STAT_MAP.get(stato, discord.Status.online)
+        await self.bot.change_presence(activity=activity, status=status)
+        if hasattr(self.bot, "remember_normal_presence"):
+            self.bot.remember_normal_presence(status=status, activity=activity)
         log.info(tag("STATUS", f"set {b(nome)} tipo={tipo} stato={stato}"))
         await inter.response.send_message(
             f"\u2705 **{TYPE_LABEL.get(tipo, tipo)} {nome}** | {STATUS_LABEL.get(stato, stato)}\n"

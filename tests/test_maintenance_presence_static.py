@@ -16,6 +16,9 @@ assert "async def apply_maintenance_presence" in main_py
 assert "async def restore_presence_after_maintenance" in main_py
 assert "bot.apply_maintenance_presence = apply_maintenance_presence" in main_py
 assert "bot.restore_presence_after_maintenance = restore_presence_after_maintenance" in main_py
+assert "bot.remember_normal_presence = remember_normal_presence" in main_py
 assert "await self.bot.restore_presence_after_maintenance()" in dev_py
+assert "remember_normal_presence(status=status, activity=activity)" in dev_py
+assert "hi(state_label, state_color)" in dev_py
 
 print("OK: maintenance presence methods wired")

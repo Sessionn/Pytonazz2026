@@ -321,6 +321,7 @@ def _get_query_cache():
                 try:
                     from core.cache_db import add_alias as _cache_add_alias
                     from core.cache_db import get as _cache_get, put as _cache_put
+                    from core.cache_db import invalidate_webpage_url as _cache_invalidate_url
 
                     class _Adapter:
                         """Adatta l'API funzionale di cache_db all'interfaccia lookup/store."""
@@ -335,6 +336,10 @@ def _get_query_cache():
                         @staticmethod
                         def link_spotify(sp_url: str, key: str, variant: str) -> None:
                             _cache_add_alias(sp_url, key, "spotify")
+
+                        @staticmethod
+                        def invalidate_url(webpage_url: str) -> None:
+                            _cache_invalidate_url(webpage_url)
 
                     _qc_instance = _Adapter()
                 except Exception as e:
@@ -418,6 +423,8 @@ class SourceResolver:
 
     @classmethod
     def _set_cached_stream_url(cls, webpage_url: str, stream_url: str) -> None:
+        if not stream_url:
+            return
         with cls._cache_lock:
             cls._stream_url_cache.pop(webpage_url, None)
             cls._stream_url_cache[webpage_url] = (
@@ -425,6 +432,14 @@ class SourceResolver:
                 stream_url,
             )
             cls._cache_prune_locked(cls._stream_url_cache, _STREAM_URL_CACHE_MAX)
+
+    @classmethod
+    def invalidate_stream_cache(cls, webpage_url: str) -> None:
+        normalized_webpage_url = (webpage_url or "").strip()
+        if not normalized_webpage_url:
+            return
+        with cls._cache_lock:
+            cls._stream_url_cache.pop(normalized_webpage_url, None)
 
     @classmethod
     def _sp_client(cls):
@@ -643,6 +658,9 @@ class SourceResolver:
                             elapsed = (time.perf_counter() - t0) * 1000
                             log.info(tag("CACHE", f"{b(query)}  \u2192  cache hit  {ms(elapsed)}"))
                             return [track]
+                        if hasattr(qc, "invalidate_url"):
+                            qc.invalidate_url(hit["webpage_url"])
+                        log.info(tag("CACHE", f"{b(query)}  \u2192  stale url, ricerca fresca"))
             except Exception as _ce:
                 log.debug(tag("CACHE", f"read path error (ignorato): {_ce}"))
         # ─────────────────────────────────────────────────────────────────────────────
@@ -1096,12 +1114,17 @@ class SourceResolver:
             with yt_dlp.YoutubeDL(_make_opts({"noplaylist": True})) as ydl:
                 info = ydl.extract_info(normalized_webpage_url, download=False)
         except Exception as e:
+            cls.invalidate_stream_cache(normalized_webpage_url)
             log.error(tag("ERR", f"fetch_stream_url: {e}"))
             return ""
         if not info or cls._is_drm(info):
+            cls.invalidate_stream_cache(normalized_webpage_url)
             return ""
         stream_url = cls._best_audio_url(info) or ""
-        cls._set_cached_stream_url(normalized_webpage_url, stream_url)
+        if stream_url:
+            cls._set_cached_stream_url(normalized_webpage_url, stream_url)
+        else:
+            cls.invalidate_stream_cache(normalized_webpage_url)
         return stream_url
 
     @staticmethod

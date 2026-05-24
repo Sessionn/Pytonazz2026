@@ -11,6 +11,7 @@ API pubblica:
     get(query)                -> dict | None
     put(query, track)         -> None
     add_alias(alias, query, alias_type="text") -> None
+    invalidate_webpage_url(webpage_url) -> int
     invalidate(query)         -> bool
     stats()                   -> dict
     prune_lru(max_entries, ttl_days) -> int
@@ -93,8 +94,8 @@ def _canonical_for_track(track) -> Optional[str]:
     artist = _g("artist")
     if not title:
         return None
-    canonical = f"{title} {artist}".strip().lower() if artist else title.lower()
-    return canonical
+    canonical = f"{title} {artist}".strip() if artist else title
+    return _normalize_key(canonical)
 
 
 # ── Connessione ────────────────────────────────────────────
@@ -178,8 +179,24 @@ def _init_schema(conn: sqlite3.Connection) -> None:
 
 # ── Helpers ──────────────────────────────────────────────
 
+def _normalize_key(value: str) -> str:
+    text = (value or "").strip().lower()
+    text = re.sub(r"[^\w\s:/.-]+", " ", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _hash(query: str) -> str:
+    return hashlib.sha256(_normalize_key(query).encode()).hexdigest()
+
+
+def _legacy_hash(query: str) -> str:
     return hashlib.sha256(query.strip().lower().encode()).hexdigest()
+
+
+def _hashes(query: str) -> tuple[str, ...]:
+    current = _hash(query)
+    legacy = _legacy_hash(query)
+    return (current,) if current == legacy else (current, legacy)
 
 
 def _ttl_cutoff(ttl_days: Optional[int] = None) -> int:
@@ -242,7 +259,7 @@ def get(query: str) -> Optional[dict]:
         return None
 
     query_stripped = query.strip()
-    h = _hash(query_stripped)
+    hashes = _hashes(query_stripped)
     cutoff = _ttl_cutoff()
 
     with _cursor() as cur:
@@ -251,15 +268,15 @@ def get(query: str) -> Optional[dict]:
             """
             SELECT sc.*
               FROM song_cache sc
-             WHERE sc.query_hash = ? AND sc.is_valid = 1 AND sc.last_used >= ?
+             WHERE sc.query_hash IN ({marks}) AND sc.is_valid = 1 AND sc.last_used >= ?
             UNION ALL
             SELECT sc.*
               FROM song_cache sc
               JOIN query_aliases qa ON qa.cache_id = sc.id
-             WHERE qa.query_hash = ? AND sc.is_valid = 1 AND sc.last_used >= ?
+             WHERE qa.query_hash IN ({marks}) AND sc.is_valid = 1 AND sc.last_used >= ?
              LIMIT 1
-            """,
-            (h, cutoff, h, cutoff),
+            """.format(marks=",".join("?" for _ in hashes)),
+            (*hashes, cutoff, *hashes, cutoff),
         )
         row = cur.fetchone()
 
@@ -359,13 +376,9 @@ def put(query: str, track) -> None:
     if is_spotify:
         spotify_url = spotify_url or _extract_spotify_id(query_stripped)
 
-    # Determina la query canonical da usare come chiave principale nel DB:
-    # - se la query e' un link Spotify, usa titolo+artista come canonical
-    # - altrimenti usa la query stessa
-    if is_spotify:
-        canonical_query = _canonical_for_track(track) or title.lower()
-    else:
-        canonical_query = query_stripped
+    # Usa sempre i metadati risolti come canonical quando disponibili.
+    # La query libera resta alias: evita duplicati per query distorte.
+    canonical_query = _canonical_for_track(track) or _normalize_key(query_stripped)
 
     h_canonical = _hash(canonical_query)
     h_original  = _hash(query_stripped)
@@ -384,9 +397,9 @@ def put(query: str, track) -> None:
         if row_by_url and row_by_url["query_hash"] != h_canonical:
             # Traccia gia' in cache sotto un hash diverso: promuovi alias
             existing_id = row_by_url["id"]
-            _promote_alias_inner(cur, canonical_query, existing_id, "text")
-            if is_spotify and h_original != h_canonical:
-                _promote_alias_inner(cur, query_stripped, existing_id, "spotify")
+            _promote_alias_inner(cur, canonical_query, existing_id, "canonical")
+            if h_original != h_canonical:
+                _promote_alias_inner(cur, query_stripped, existing_id, "spotify" if is_spotify else "text")
             # Aggiorna spotify_url se mancava
             if spotify_url:
                 cur.execute(
@@ -438,9 +451,10 @@ def put(query: str, track) -> None:
         entry_row = cur.fetchone()
         if entry_row:
             entry_id = entry_row["id"]
-            # Se la query originale era un link Spotify, registrala come alias
-            if is_spotify and h_original != h_canonical:
-                _promote_alias_inner(cur, query_stripped, entry_id, "spotify")
+            if h_original != h_canonical:
+                _promote_alias_inner(cur, query_stripped, entry_id, "spotify" if is_spotify else "text")
+            # Se la query originale era un link Spotify, registra anche URL normalizzato.
+            if is_spotify:
                 # Registra anche il link Spotify normalizzato come alias
                 if spotify_url and _hash(spotify_url) != h_canonical:
                     _promote_alias_inner(cur, spotify_url, entry_id, "spotify")
@@ -463,11 +477,11 @@ def add_alias(alias: str, canonical_query: str, alias_type: str = "text") -> Non
     if not alias or not canonical_query or not _enabled:
         return
     h_alias     = _hash(alias)
-    h_canonical = _hash(canonical_query)
+    canonical_hashes = _hashes(canonical_query)
     with _cursor() as cur:
         cur.execute(
-            "SELECT id FROM song_cache WHERE query_hash = ? AND is_valid = 1",
-            (h_canonical,),
+            f"SELECT id FROM song_cache WHERE query_hash IN ({','.join('?' for _ in canonical_hashes)}) AND is_valid = 1",
+            canonical_hashes,
         )
         row = cur.fetchone()
         if row is None:
@@ -493,11 +507,11 @@ def invalidate(query: str) -> bool:
     """
     if not query:
         return False
-    h = _hash(query)
+    hashes = _hashes(query)
     with _cursor() as cur:
         cur.execute(
-            "UPDATE song_cache SET is_valid = 0 WHERE query_hash = ? AND is_valid = 1",
-            (h,),
+            f"UPDATE song_cache SET is_valid = 0 WHERE query_hash IN ({','.join('?' for _ in hashes)}) AND is_valid = 1",
+            hashes,
         )
         found = cur.rowcount > 0
     if found:
@@ -505,6 +519,22 @@ def invalidate(query: str) -> bool:
     else:
         log.debug(tag("CACHE_DB", f"\U0001f6ab {hi('INVALIDATE', _GRY)}  {b(query)}  (non trovata)"))
     return found
+
+
+def invalidate_webpage_url(webpage_url: str) -> int:
+    """Marca invalide tutte le entry che puntano a un URL sorgente non piu' riproducibile."""
+    url = (webpage_url or "").strip()
+    if not url or not _enabled:
+        return 0
+    with _cursor() as cur:
+        cur.execute(
+            "UPDATE song_cache SET is_valid = 0 WHERE webpage_url = ? AND is_valid = 1",
+            (url,),
+        )
+        count = cur.rowcount
+    if count:
+        log.info(tag("CACHE_DB", f"\U0001f6ab {hi('INVALIDATE', _BYEL)}  url  {b(str(count))} entry"))
+    return count
 
 
 def stats() -> dict:
