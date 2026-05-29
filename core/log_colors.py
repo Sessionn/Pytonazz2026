@@ -1,5 +1,6 @@
 import logging
 import re
+import sys
 
 _R    = "\033[0m"
 _BOLD = "\033[1m"
@@ -254,7 +255,14 @@ def fmt_botconfig_loaded(data: dict) -> str:
 
 # ── Setup ──────────────────────────────────────────────────────────────────────
 def setup_logging(level: int = logging.INFO) -> None:
-    handler = logging.StreamHandler()
+    # Forza UTF-8 sullo stream di output — necessario su Windows (charmap default)
+    stream = sys.stdout
+    if hasattr(stream, "reconfigure"):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    handler = logging.StreamHandler(stream)
     handler.setFormatter(ColorFormatter())
     handler.addFilter(GatewayFilter())
     root = logging.getLogger()

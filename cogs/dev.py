@@ -405,15 +405,28 @@ class Dev(commands.Cog):
         )
 
     @status.command(name="remove", description=f"{_OWN} Rimuove un'attivit\u00e0 custom dalla rotazione")
-    @app_commands.describe(indice="Indice custom da /status list (parte da 0; il primo della lista custom \u00e8 0)")
+    @app_commands.describe(indice="Indice globale da /status list (indice 0 = default non eliminabile, custom da 1 in su)")
     @dev_check
     async def status_remove(self, inter: discord.Interaction, indice: int):
+        from assets.status_messages import STATUS_CYCLE as _SC
+        base_count = len(_SC)
+        if indice < base_count:
+            return await inter.response.send_message(
+                f"\u274c L'indice **{indice}** \u00e8 uno status di default e non pu\u00f2 essere rimosso.\n"
+                f"I custom partono dall'indice **{base_count}** in poi.",
+                ephemeral=True,
+            )
         data = _load_custom()
         if not data:
             return await inter.response.send_message("\u274c Nessuna attivit\u00e0 custom da rimuovere.", ephemeral=True)
-        if not (0 <= indice < len(data)):
-            return await inter.response.send_message(f"\u274c Indice non valido. Custom: 0\u2013{len(data)-1}", ephemeral=True)
-        removed = data.pop(indice)
+        custom_idx = indice - base_count
+        if not (0 <= custom_idx < len(data)):
+            max_idx = base_count + len(data) - 1
+            return await inter.response.send_message(
+                f"\u274c Indice non valido. Custom disponibili: **{base_count}**\u2013**{max_idx}**",
+                ephemeral=True,
+            )
+        removed = data.pop(custom_idx)
         _save_custom(data)
         self.bot.reload_status_list()
         log.info(tag("STATUS", f"remove {b(removed['name'])} rotazione={len(self.bot._status_list)}"))
@@ -421,7 +434,6 @@ class Dev(commands.Cog):
             f"\U0001f5d1\ufe0f Rimosso: **{removed['name']}** | Rotazione: **{len(self.bot._status_list)}** voci.",
             ephemeral=True,
         )
-
     @status.command(name="edit", description=f"{_OWN} Modifica un'attivit\u00e0 custom esistente")
     @app_commands.describe(
         indice="Indice custom da /status list (parte da 0)",
@@ -635,82 +647,6 @@ class Dev(commands.Cog):
             ),
             ephemeral=True,
         )
-
-    # ── CACHE gruppo (/cache on|off|status|stats|clear) ───────────────────────
-
-    cache = app_commands.Group(name="cache", description=f"{_OWN} Gestione cache query musicali")
-
-    @cache.command(name="on", description=f"{_OWN} Abilita la cache query a runtime")
-    @dev_check
-    async def cache_on(self, inter: discord.Interaction):
-        missing = _check_cache_env()
-        if missing:
-            return await inter.response.send_message(
-                f"\u26a0\ufe0f Impossibile abilitare la cache.\n"
-                f"Variabili mancanti nel `.env`: `{'`, `'.join(missing)}`",
-                ephemeral=True,
-            )
-        try:
-            import core.cache_db as cdb
-            cdb.init()
-        except Exception as e:
-            return await inter.response.send_message(f"\u274c Errore inizializzazione DB: `{e}`", ephemeral=True)
-        Config.CACHE_ENABLED = True
-        log.info(tag("DEV", f"cache abilitata da {b(str(inter.user))}"))
-        await inter.response.send_message("\u2705 Cache **abilitata**.", ephemeral=True)
-
-    @cache.command(name="off", description=f"{_OWN} Disabilita la cache query a runtime (i dati restano)")
-    @dev_check
-    async def cache_off(self, inter: discord.Interaction):
-        Config.CACHE_ENABLED = False
-        log.info(tag("DEV", f"cache disabilitata da {b(str(inter.user))}"))
-        await inter.response.send_message("\u23f8\ufe0f Cache **disabilitata**. I dati restano nel DB.", ephemeral=True)
-
-    @cache.command(name="status", description=f"{_OWN} Mostra lo stato attuale della cache")
-    @dev_check
-    async def cache_status(self, inter: discord.Interaction):
-        enabled = Config.CACHE_ENABLED
-        env_ok = not _check_cache_env()
-        icon = "\u2705" if enabled else "\u23f8\ufe0f"
-        env_icon = "\u2705" if env_ok else "\u26a0\ufe0f variabili mancanti"
-        lines = [
-            f"{icon} Cache runtime: **{'ON' if enabled else 'OFF'}**",
-            f"DB path      : `{Config.DB_PATH}`",
-            f"TTL          : {Config.CACHE_TTL_DAYS} giorni",
-            f"Max entries  : {Config.CACHE_MAX_ENTRIES}",
-            f"Env valido   : {env_icon}",
-        ]
-        await inter.response.send_message("\n".join(lines), ephemeral=True)
-
-    @cache.command(name="stats", description=f"{_OWN} Statistiche del DB cache (voci, hit, alias)")
-    @dev_check
-    async def cache_stats(self, inter: discord.Interaction):
-        if not Config.CACHE_ENABLED:
-            return await inter.response.send_message("\u26a0\ufe0f Cache non abilitata.", ephemeral=True)
-        try:
-            import core.cache_db as cdb
-            s = cdb.stats()
-        except Exception as e:
-            return await inter.response.send_message(f"\u274c Errore lettura stats: `{e}`", ephemeral=True)
-        lines = [
-            "\U0001f4ca **Cache stats**",
-            f"Voci valide : {s['total']}",
-            f"Hit totali  : {s['hits']}",
-            f"Alias       : {s['aliases']}",
-        ]
-        await inter.response.send_message("\n".join(lines), ephemeral=True)
-
-    @cache.command(name="clear", description=f"{_OWN} Svuota il DB della cache")
-    @dev_check
-    async def cache_clear(self, inter: discord.Interaction):
-        if not Config.CACHE_ENABLED:
-            return await inter.response.send_message("\u26a0\ufe0f Cache non abilitata.", ephemeral=True)
-        try:
-            import core.cache_db as cdb
-            n = cdb.clear()
-        except Exception as e:
-            return await inter.response.send_message(f"\u274c Errore clear: `{e}`", ephemeral=True)
-        await inter.response.send_message(f"\U0001f9f9 Cache svuotata: **{n}** voci eliminate.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

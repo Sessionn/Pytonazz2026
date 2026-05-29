@@ -96,17 +96,21 @@ def _is_soundcloud_url(url: str) -> bool:
 
 
 # Parametri query SoundCloud che interferiscono con yt-dlp (sort, client_id, ecc.)
+# Includiamo anche i parametri di tracking/sharing che non servono alla risoluzione
 _SC_STRIP_PARAMS = frozenset({
     "sort", "client_id", "offset", "limit", "linked_partitioning",
     "app_version", "app_locale", "cursor",
+    "si",                          # SoundCloud share ID (sharing link)
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "ref", "fbclid", "igshid",
 })
 
 
 def _strip_soundcloud_params(url: str) -> str:
     """Rimuove parametri query non necessari dai link SoundCloud prima di passarli a yt-dlp.
 
-    Link del tipo soundcloud.com/user/sets/playlist?sort=latest non vengono risolti
-    correttamente da yt-dlp se mantengono i query param di navigazione.
+    Link del tipo soundcloud.com/user/sets/playlist?sort=latest o ?si=...&utm_source=...
+    non vengono risolti correttamente da yt-dlp se mantengono i query param di navigazione.
     """
     raw = (url or "").strip()
     if not _is_soundcloud_url(raw):
@@ -132,16 +136,34 @@ def _is_soundcloud_short_url(url: str) -> bool:
     return (parsed.hostname or "").lower() == "on.soundcloud.com"
 
 
-def _resolve_soundcloud_short_url(url: str, timeout: float = 5.0) -> str:
-    """Resolve on.soundcloud.com short links before yt-dlp sees them."""
+def _resolve_soundcloud_short_url(url: str, timeout: float = 8.0) -> str:
+    """Resolve on.soundcloud.com short links prima che yt-dlp li veda.
+
+    Usa GET invece di HEAD perché alcuni server SoundCloud non restituiscono
+    il Location header correttamente con HEAD. Legge solo pochi byte del body
+    per seguire i redirect, poi applica _strip_soundcloud_params per pulire
+    i parametri di tracking (?si=, ?utm_*) dall'URL finale.
+    """
     raw = (url or "").strip()
     if not _is_soundcloud_short_url(raw):
-        return raw
+        return _strip_soundcloud_params(raw) if _is_soundcloud_url(raw) else raw
     target = raw if "://" in raw else f"https://{raw}"
-    req = urllib.request.Request(target, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+    req = urllib.request.Request(
+        target,
+        method="GET",
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.geturl() or target
+            final_url = resp.geturl() or target
+        # Pulisci i param di tracking dall'URL risolto
+        final_url = _strip_soundcloud_params(final_url)
+        if final_url != target:
+            log.debug(tag("RESOLVE", f"SoundCloud short resolved: {final_url}"))
+        return final_url
     except Exception as exc:
-        log.debug(tag("RESOLVE", f"SoundCloud short resolve skipped: {exc}"))
+        log.warning(tag("RESOLVE", f"SoundCloud short resolve failed ({exc}), uso URL originale"))
         return target

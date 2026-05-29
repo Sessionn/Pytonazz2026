@@ -1,7 +1,7 @@
 """
 dev_cache.py — Comandi dev per gestire il song cache DB.
-Accessibili solo all'owner. Comandi slash: /cache-status, /cache-stats,
-/cache-prune, /cache-invalidate, /cache-clear, /cache-export.
+Accessibili solo all'owner.
+Gruppo: /cache status | stats | prune | invalidate | clear | export | on | off
 """
 import logging
 import tempfile
@@ -11,6 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import Config
 from core.log_colors import tag, b, user
 from core.permissions import owner_check
 import core.cache_db as cache_db
@@ -47,10 +48,14 @@ class DevCache(commands.Cog):
         else:
             log.error(tag("DEV_CACHE", f"command error \u2192 {error}"))
 
-    @app_commands.command(
-        name="cache-status",
-        description=f"{_OWN} Mostra lo stato del song cache DB",
+    # ── Gruppo /cache ─────────────────────────────────────────────────────────
+
+    cache = app_commands.Group(
+        name="cache",
+        description=f"{_OWN} Gestione cache query musicali",
     )
+
+    @cache.command(name="status", description=f"{_OWN} Mostra lo stato del song cache DB")
     @owner_check
     async def cache_status(self, inter: discord.Interaction):
         enabled = cache_db.is_enabled()
@@ -71,10 +76,7 @@ class DevCache(commands.Cog):
         await inter.response.send_message(embed=embed, ephemeral=True)
         log.info(tag("DEV_CACHE", f"status  by={user(str(inter.user))}"))
 
-    @app_commands.command(
-        name="cache-stats",
-        description=f"{_OWN} Statistiche del song cache DB",
-    )
+    @cache.command(name="stats", description=f"{_OWN} Statistiche del song cache DB")
     @owner_check
     async def cache_stats(self, inter: discord.Interaction):
         s = cache_db.stats()
@@ -117,10 +119,34 @@ class DevCache(commands.Cog):
         await inter.response.send_message(embed=embed, ephemeral=True)
         log.info(tag("DEV_CACHE", f"stats  by={user(str(inter.user))}"))
 
-    @app_commands.command(
-        name="cache-prune",
-        description=f"{_OWN} Rimuovi entry scadute o in eccesso dal DB",
-    )
+    @cache.command(name="on", description=f"{_OWN} Abilita la cache query a runtime")
+    @owner_check
+    async def cache_on(self, inter: discord.Interaction):
+        if not Config.DB_PATH:
+            return await inter.response.send_message(
+                "\u26a0\ufe0f Impossibile abilitare: `DB_PATH` non configurato nel `.env`.",
+                ephemeral=True,
+            )
+        try:
+            cache_db.init()
+        except Exception as e:
+            return await inter.response.send_message(
+                f"\u274c Errore inizializzazione DB: `{e}`", ephemeral=True
+            )
+        Config.CACHE_ENABLED = True
+        log.info(tag("DEV_CACHE", f"cache abilitata da {b(str(inter.user))}"))
+        await inter.response.send_message("\u2705 Cache **abilitata**.", ephemeral=True)
+
+    @cache.command(name="off", description=f"{_OWN} Disabilita la cache query a runtime (i dati restano)")
+    @owner_check
+    async def cache_off(self, inter: discord.Interaction):
+        Config.CACHE_ENABLED = False
+        log.info(tag("DEV_CACHE", f"cache disabilitata da {b(str(inter.user))}"))
+        await inter.response.send_message(
+            "\u23f8\ufe0f Cache **disabilitata**. I dati restano nel DB.", ephemeral=True
+        )
+
+    @cache.command(name="prune", description=f"{_OWN} Rimuovi entry scadute o in eccesso dal DB")
     @app_commands.describe(
         max_entries="Numero massimo di entry da mantenere (default 500)",
         ttl_days="Giorni prima che una entry scada (default 30)",
@@ -152,10 +178,7 @@ class DevCache(commands.Cog):
             f"by={user(str(inter.user))}"
         ))
 
-    @app_commands.command(
-        name="cache-invalidate",
-        description=f"{_OWN} Invalida una singola entry della cache per query",
-    )
+    @cache.command(name="invalidate", description=f"{_OWN} Invalida una singola entry della cache per query")
     @app_commands.describe(query="La query da invalidare (es: 'Time in a Bottle')")
     @owner_check
     async def cache_invalidate(self, inter: discord.Interaction, query: str):
@@ -177,10 +200,7 @@ class DevCache(commands.Cog):
             f"invalidate  {b(query)}  ok={ok}  by={user(str(inter.user))}"
         ))
 
-    @app_commands.command(
-        name="cache-clear",
-        description=f"{_OWN} Svuota COMPLETAMENTE il song cache DB",
-    )
+    @cache.command(name="clear", description=f"{_OWN} Svuota COMPLETAMENTE il song cache DB")
     @app_commands.describe(confirm="Scrivi 'CONFERMA' per procedere")
     @owner_check
     async def cache_clear(self, inter: discord.Interaction, confirm: str):
@@ -205,10 +225,7 @@ class DevCache(commands.Cog):
             f"CLEAR ALL  removed={b(str(removed))}  by={user(str(inter.user))}"
         ))
 
-    @app_commands.command(
-        name="cache-export",
-        description=f"{_OWN} Esporta il DB come file HTML e lo allega qui",
-    )
+    @cache.command(name="export", description=f"{_OWN} Esporta il DB come file HTML e lo allega qui")
     @owner_check
     async def cache_export(self, inter: discord.Interaction):
         if not cache_db.is_enabled():
@@ -224,8 +241,8 @@ class DevCache(commands.Cog):
 
         await inter.response.defer(ephemeral=True)
 
+        tmp = Path(tempfile.mktemp(suffix="_cache_report.html"))
         try:
-            tmp = Path(tempfile.mktemp(suffix="_cache_report.html"))
             cache_report.export_to_file(tmp)
             size_kb = round(tmp.stat().st_size / 1024, 1)
 
@@ -255,8 +272,7 @@ class DevCache(commands.Cog):
                 ephemeral=True,
             )
         finally:
-            if tmp.exists():
-                tmp.unlink(missing_ok=True)
+            tmp.unlink(missing_ok=True)
 
 
 async def setup(bot: commands.Bot):
