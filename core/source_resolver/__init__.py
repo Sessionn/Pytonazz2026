@@ -61,6 +61,7 @@ from core.source_resolver.ytdlp import (
     _strip_yt_radio,
     _is_soundcloud_url,
     _resolve_soundcloud_short_url,
+    _strip_soundcloud_params,
 )
 
 from core.source_resolver.spotify import (
@@ -224,6 +225,29 @@ def _candidate_query_similarity(query: str, candidate) -> float:
     )
 
 
+# Parole chiave che identificano canali/upload ufficiali dell'artista
+_OFFICIAL_UPLOADER_KEYWORDS = re.compile(
+    r"\b(vevo|official|music|records?|label|entertainment|ufficiale)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_official_upload(track) -> bool:
+    """Restituisce True se il track sembra provenire da un canale/upload ufficiale."""
+    artist = getattr(track, "artist", "") or ""
+    title  = getattr(track, "title", "") or ""
+    # Canali VEVO sono sempre ufficiali
+    if "vevo" in artist.lower():
+        return True
+    # "Official Audio", "Official Video", "Official Music Video" nel titolo
+    if re.search(r"\bofficial\b", title, re.IGNORECASE):
+        return True
+    # Uploader coincide (parzialmente) con l'artista del brano
+    if _OFFICIAL_UPLOADER_KEYWORDS.search(artist):
+        return True
+    return False
+
+
 def _prefer_studio(candidates: list, sp_dur: float = 0, user_query: str = "") -> object:
     if not candidates:
         return None
@@ -234,6 +258,11 @@ def _prefer_studio(candidates: list, sp_dur: float = 0, user_query: str = "") ->
         pool   = studio if studio else pool
     if len(pool) == 1:
         return pool[0]
+
+    # Preferire upload ufficiali (VEVO / Official Audio) sugli altri
+    official = [c for c in pool if _is_official_upload(c)]
+    if official:
+        pool = official
 
     if (user_query or "").strip():
         if sp_dur > 0:
@@ -1021,6 +1050,7 @@ class SourceResolver:
                 log.debug(tag("RESOLVER", f"URL canale YouTube ignorato: {b(query)}"))
                 return []
             query = _resolve_soundcloud_short_url(query)
+            query = _strip_soundcloud_params(query)
             query = _strip_yt_radio(query)
         else:
             query = "ytsearch:" + query
@@ -1038,6 +1068,20 @@ class SourceResolver:
         try:
             with yt_dlp.YoutubeDL(_make_opts()) as ydl:
                 info = ydl.extract_info(query, download=False)
+        except yt_dlp.utils.ExtractorError as e:
+            err_str = str(e).lower()
+            # Video non disponibile (rimosso, geo-bloccato, privato, ecc.)
+            if any(kw in err_str for kw in ("video unavailable", "private video",
+                                             "this video is not available",
+                                             "has been removed", "geo")):
+                log.warning(tag("WARN", f"video non disponibile, fallback search: {b(query)}"))
+                # Se era un URL diretto, proviamo una ricerca testuale con il titolo
+                if query.startswith("http"):
+                    return []  # per URL diretti non c'è fallback sicuro
+                # Per query ytsearch, logghiamo e restituiamo vuoto
+                return []
+            log.error(tag("ERR", f"yt-dlp ExtractorError: {e}"))
+            return []
         except Exception as e:
             log.error(tag("ERR", f"yt-dlp: {e}"))
             return []
@@ -1082,6 +1126,16 @@ class SourceResolver:
         try:
             with yt_dlp.YoutubeDL(_make_opts({"noplaylist": True})) as ydl:
                 info = ydl.extract_info(normalized_webpage_url, download=False)
+        except yt_dlp.utils.ExtractorError as e:
+            cls.invalidate_stream_cache(normalized_webpage_url)
+            err_str = str(e).lower()
+            if any(kw in err_str for kw in ("video unavailable", "private video",
+                                             "this video is not available",
+                                             "has been removed")):
+                log.warning(tag("WARN", f"video non disponibile (rimosso/privato): {b(normalized_webpage_url)}"))
+            else:
+                log.error(tag("ERR", f"fetch_stream_url ExtractorError: {e}"))
+            return ""
         except Exception as e:
             cls.invalidate_stream_cache(normalized_webpage_url)
             log.error(tag("ERR", f"fetch_stream_url: {e}"))

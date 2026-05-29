@@ -538,7 +538,11 @@ class Dev(commands.Cog):
         if secondi < 10:
             return await inter.response.send_message("\u274c Minimo 10 secondi.", ephemeral=True)
         await cfg.set_status_interval(secondi)
-        self.bot.cycle_status.change_interval(seconds=secondi)
+        try:
+            import main as _main
+            _main.rotate_status.change_interval(seconds=secondi)
+        except Exception as e:
+            log.warning(tag("STATUS", f"interval: impossibile aggiornare rotate_status: {e}"))
         minuti = secondi / 60
         log.info(tag("STATUS", f"interval {b(secondi)}s ({minuti:.1f} min) \u2014 salvato"))
         await inter.response.send_message(

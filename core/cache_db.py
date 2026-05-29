@@ -552,8 +552,8 @@ def stats() -> dict:
         top_query   - dict della query con piu' hit (o None)
     """
     if not _enabled:
-        return {"total": 0, "valid": 0, "hits": 0, "aliases": 0,
-                "size_kb": 0, "db_path": Config.DB_PATH, "top_query": None}
+        return {"enabled": False, "total": 0, "valid": 0, "hits": 0, "hits_total": 0,
+                "aliases": 0, "size_kb": 0, "db_path": Config.DB_PATH, "top_query": None}
     cutoff = _ttl_cutoff()
     with _cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM song_cache")
@@ -582,13 +582,15 @@ def stats() -> dict:
         size_kb = 0.0
 
     return {
-        "total":    total,
-        "valid":    valid,
-        "hits":     hits,
-        "aliases":  aliases,
-        "size_kb":  size_kb,
-        "db_path":  Config.DB_PATH,
-        "top_query": dict(top_row) if top_row else None,
+        "enabled":    True,
+        "total":      total,
+        "valid":      valid,
+        "hits":       hits,
+        "hits_total": hits,
+        "aliases":    aliases,
+        "size_kb":    size_kb,
+        "db_path":    Config.DB_PATH,
+        "top_query":  dict(top_row) if top_row else None,
     }
 
 

@@ -95,6 +95,35 @@ def _is_soundcloud_url(url: str) -> bool:
     return host == "soundcloud.com" or host.endswith(".soundcloud.com")
 
 
+# Parametri query SoundCloud che interferiscono con yt-dlp (sort, client_id, ecc.)
+_SC_STRIP_PARAMS = frozenset({
+    "sort", "client_id", "offset", "limit", "linked_partitioning",
+    "app_version", "app_locale", "cursor",
+})
+
+
+def _strip_soundcloud_params(url: str) -> str:
+    """Rimuove parametri query non necessari dai link SoundCloud prima di passarli a yt-dlp.
+
+    Link del tipo soundcloud.com/user/sets/playlist?sort=latest non vengono risolti
+    correttamente da yt-dlp se mantengono i query param di navigazione.
+    """
+    raw = (url or "").strip()
+    if not _is_soundcloud_url(raw):
+        return raw
+    target = raw if "://" in raw else f"https://{raw}"
+    parsed = urllib.parse.urlparse(target)
+    if not parsed.query:
+        return raw
+    params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+    cleaned = {k: v for k, v in params.items() if k.lower() not in _SC_STRIP_PARAMS}
+    new_query = urllib.parse.urlencode(cleaned, doseq=True)
+    cleaned_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
+    if cleaned_url != target:
+        log.debug(tag("RESOLVE", f"SoundCloud params stripped: {cleaned_url}"))
+    return cleaned_url
+
+
 def _is_soundcloud_short_url(url: str) -> bool:
     raw = (url or "").strip()
     if not raw:

@@ -152,14 +152,33 @@ async def watchdog():
 custom_statuses: list[str] = []
 
 
-def _load_custom_statuses() -> list[str]:
+def _load_custom_statuses() -> list:
+    """Carica le attività custom da file. Supporta sia stringhe che dizionari."""
     try:
         if CUSTOM_STATUSES_PATH.exists():
             data = json.loads(CUSTOM_STATUSES_PATH.read_text(encoding="utf-8"))
-            return [s for s in data if isinstance(s, str) and s.strip()]
+            result = []
+            for s in data:
+                if isinstance(s, str) and s.strip():
+                    result.append(s)
+                elif isinstance(s, dict) and s.get("name"):
+                    result.append(s)
+            return result
     except Exception:
         pass
     return []
+
+
+def _build_full_status_list() -> list:
+    """Costruisce la lista completa STATUS_CYCLE + custom."""
+    custom = _load_custom_statuses()
+    return list(STATUS_CYCLE) + custom
+
+
+def reload_status_list():
+    """Ricarica la lista degli status da file e aggiorna bot._status_list."""
+    bot._status_list = _build_full_status_list()
+    log.debug(tag("STATUS", f"reload_status_list → {len(bot._status_list)} voci"))
 
 
 def _build_activity(entry) -> discord.BaseActivity:
@@ -201,7 +220,7 @@ async def rotate_status():
 
 
 async def apply_next_status():
-    pool = STATUS_CYCLE + ([entry for entry in custom_statuses] if custom_statuses else [])
+    pool = getattr(bot, "_status_list", None) or _build_full_status_list()
     if not pool:
         return
     chosen = random.choice(pool)
@@ -257,6 +276,8 @@ bot.apply_next_status = apply_next_status
 bot.remember_normal_presence = remember_normal_presence
 bot.apply_maintenance_presence = apply_maintenance_presence
 bot.restore_presence_after_maintenance = restore_presence_after_maintenance
+bot._status_list = _build_full_status_list()
+bot.reload_status_list = reload_status_list
 
 
 # ── Events ───────────────────────────────────────────────────────────────────
@@ -264,6 +285,7 @@ bot.restore_presence_after_maintenance = restore_presence_after_maintenance
 async def on_ready():
     global custom_statuses
     custom_statuses = _load_custom_statuses()
+    bot._status_list = _build_full_status_list()
 
     log.info(tag("WATCHDOG", "Hot-reload attivo su cogs"))
     if not watchdog.is_running():
