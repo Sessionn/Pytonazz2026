@@ -218,6 +218,11 @@ async def rotate_status():
     await bot.apply_next_status()
 
 
+@rotate_status.before_loop
+async def before_rotate_status():
+    await bot.wait_until_ready()
+
+
 async def apply_next_status():
     pool = getattr(bot, "_status_list", None) or _build_full_status_list()
     if not pool:
@@ -292,6 +297,12 @@ async def on_ready():
         watchdog.start()
     if not rotate_status.is_running():
         rotate_status.start()
+
+    if not cfg.maintenance:
+        try:
+            await bot.apply_next_status()
+        except Exception as e:
+            log.error(tag("STATUS", f"errore apply_next_status  {e}"))
 
     try:
         synced = await bot.tree.sync()
