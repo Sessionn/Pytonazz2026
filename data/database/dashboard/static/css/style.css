@@ -197,6 +197,12 @@ main { padding: 32px 36px; overflow-y: auto; }
 
 /* HEADER */
 .page-header { margin-bottom: 28px; }
+.page-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
 .page-header h1 {
   font-size: 24px;
   color: var(--text);
@@ -204,6 +210,13 @@ main { padding: 32px 36px; overflow-y: auto; }
   letter-spacing: -.5px;
 }
 .page-header p { color: var(--muted); font-size: 12px; margin-top: 5px; }
+.header-action {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 92px;
+}
 
 /* STAT CARDS */
 .stats-grid {
@@ -709,6 +722,13 @@ tr:hover td:first-child { border-left: 2px solid var(--accent); }
   nav a { padding: 8px 10px; font-size: 12px; }
 
   main { padding: 20px 16px; }
+  .page-header-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .header-action {
+    width: 100%;
+  }
 
   .stats-grid {
     grid-template-columns: repeat(3, 1fr);

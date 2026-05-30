@@ -35,8 +35,13 @@
 
   <main>
     <div class="page-header">
-      <h1>Cache Dashboard</h1>
-      <p id="gen-time"></p>
+      <div class="page-header-top">
+        <div>
+          <h1>Cache Dashboard</h1>
+          <p id="gen-time"></p>
+        </div>
+        <a href="{{ url_for('logout') }}" class="btn btn-ghost header-action">Logout</a>
+      </div>
     </div>
 
     <div class="stats-grid">
