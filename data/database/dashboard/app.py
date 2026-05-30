@@ -4,8 +4,10 @@ import logging
 import functools
 import re
 import json
+import secrets
 import time
 from flask import Flask, Response, render_template, jsonify, request, redirect, url_for, session, stream_with_context
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 log = logging.getLogger(__name__)
 
@@ -31,8 +33,18 @@ def create_app(db_path: str | None = None) -> Flask:
     base_dir   = os.path.dirname(os.path.abspath(__file__))
     db_path    = db_path or os.path.join(base_dir, "..", "cache.db")
     db_path    = os.path.abspath(db_path)
-    secret_key = os.getenv("DASH_SECRET_KEY") or os.getenv("DASHBOARD_SECRET") or "pytonazz-dev-secret-change-me"
+    secret_key = (os.getenv("DASH_SECRET_KEY") or os.getenv("DASHBOARD_SECRET") or "").strip()
+    dashboard_user = (os.getenv("DASH_USER") or os.getenv("DASHBOARD_USER") or "").strip()
     dashboard_pw = os.getenv("DASH_PASSWORD") or os.getenv("DASHBOARD_PASSWORD") or ""
+    trust_proxy = os.getenv("DASH_TRUST_PROXY", "true").strip().lower() in ("true", "1", "yes", "on")
+    session_secure = os.getenv("DASH_SESSION_SECURE", "true").strip().lower() in ("true", "1", "yes", "on")
+    session_samesite = (os.getenv("DASH_SESSION_SAMESITE", "Lax") or "Lax").strip().capitalize()
+    login_window_seconds = max(60, int(os.getenv("DASH_LOGIN_WINDOW_SECONDS", "900")))
+    login_max_attempts = max(1, int(os.getenv("DASH_LOGIN_MAX_ATTEMPTS", "5")))
+
+    if not secret_key:
+        secret_key = secrets.token_hex(32)
+        log.warning("DASH_SECRET_KEY non impostata: generata chiave di sessione volatile per questo avvio")
 
     app = Flask(
         __name__,
@@ -40,6 +52,15 @@ def create_app(db_path: str | None = None) -> Flask:
         static_folder=os.path.join(base_dir, "static"),
     )
     app.secret_key = secret_key
+    app.config.update(
+        SESSION_COOKIE_SECURE=session_secure,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE=session_samesite if session_samesite in {"Lax", "Strict", "None"} else "Lax",
+        PREFERRED_URL_SCHEME="https" if session_secure else "http",
+    )
+    if trust_proxy:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    login_attempts: dict[str, list[float]] = {}
 
     def get_conn():
         conn = sqlite3.connect(db_path)
@@ -88,11 +109,25 @@ def create_app(db_path: str | None = None) -> Flask:
     def login():
         error = None
         if request.method == "POST":
+            now = time.time()
+            client_ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "unknown")
+            attempts = [ts for ts in login_attempts.get(client_ip, []) if now - ts < login_window_seconds]
+            login_attempts[client_ip] = attempts
+            if len(attempts) >= login_max_attempts:
+                return render_template("login.html", error="Troppi tentativi. Riprova piu tardi."), 429
+
+            username = (request.form.get("username", "") or "").strip()
             pw = request.form.get("password", "")
-            if pw == dashboard_pw:
+            user_ok = (not dashboard_user) or secrets.compare_digest(username, dashboard_user)
+            pw_ok = bool(dashboard_pw) and secrets.compare_digest(pw, dashboard_pw)
+            if user_ok and pw_ok:
                 session["auth"] = True
+                session.permanent = True
+                login_attempts.pop(client_ip, None)
                 return redirect(url_for("index"))
-            error = "Password errata."
+            attempts.append(now)
+            login_attempts[client_ip] = attempts[-login_max_attempts:]
+            error = "Credenziali errate."
         return render_template("login.html", error=error)
 
     @app.route("/logout")
@@ -315,7 +350,7 @@ def create_app(db_path: str | None = None) -> Flask:
 
 # ── Avvio standalone ──────────────────────────────────────────────────────
 if __name__ == "__main__":
-    socket  = os.getenv("DASHBOARD_SOCKET", "0.0.0.0:5000")
+    socket  = os.getenv("DASHBOARD_SOCKET", "127.0.0.1:5000")
     host, port = socket.rsplit(":", 1)
     flask_app = create_app()
     flask_app.run(host=host, port=int(port), debug=False)

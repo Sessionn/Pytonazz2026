@@ -37,3 +37,4 @@ aiosqlite>=0.20.0
 
 # Flask
 flask>=3.0
+waitress>=3.0.0

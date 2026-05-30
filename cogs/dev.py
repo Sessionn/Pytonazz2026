@@ -547,8 +547,14 @@ class Dev(commands.Cog):
     @app_commands.describe(secondi="Intervallo in secondi (minimo 10)")
     @dev_check
     async def status_interval(self, inter: discord.Interaction, secondi: int):
+        try:
+            await inter.response.defer(ephemeral=True)
+        except discord.NotFound:
+            log.warning(tag("STATUS", "interval interaction scaduta prima del defer"))
+            return
+
         if secondi < 10:
-            return await inter.response.send_message("\u274c Minimo 10 secondi.", ephemeral=True)
+            return await inter.followup.send("\u274c Minimo 10 secondi.", ephemeral=True)
         await cfg.set_status_interval(secondi)
         task = getattr(self.bot, "rotate_status_task", None)
         if task is not None:
@@ -560,10 +566,13 @@ class Dev(commands.Cog):
         else:
             log.warning(tag("STATUS", "rotate_status_task non trovato sul bot"))
         minuti = secondi / 60
-        await inter.response.send_message(
-            f"\u23f1\ufe0f Intervallo aggiornato: **{secondi}s** ({minuti:.1f} min)\n*(salvato, sopravvive ai restart)*",
-            ephemeral=True,
-        )
+        try:
+            await inter.followup.send(
+                f"\u23f1\ufe0f Intervallo aggiornato: **{secondi}s** ({minuti:.1f} min)\n*(salvato, sopravvive ai restart)*",
+                ephemeral=True,
+            )
+        except discord.NotFound:
+            log.warning(tag("STATUS", "interval aggiornato ma followup interaction scaduto"))
 
     # ── Altri comandi dev ─────────────────────────────────────────────────────
 

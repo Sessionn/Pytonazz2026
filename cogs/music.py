@@ -40,7 +40,7 @@ _RE_YT_PLAYLIST    = re.compile(
 )
 _RE_SC_COLLECTION  = re.compile(r"soundcloud\.com/[^/?#]+/(?:sets|albums)/[^/?#]+", re.IGNORECASE)
 _RE_URL_LIKE       = re.compile(
-    r"^(?:https?://)?(?:(?:www\.)?(?:open\.)?spotify\.com|(?:www\.)?youtube\.com|youtu\.be|(?:www\.)?soundcloud\.com)(?:/|$)",
+    r"^(?:https?://)?(?:(?:www\.)?(?:open\.)?spotify\.com|(?:www\.)?youtube\.com|youtu\.be|(?:www\.)?soundcloud\.com|on\.soundcloud\.com)(?:/|$)",
     re.IGNORECASE,
 )
 
@@ -707,43 +707,44 @@ class Music(commands.Cog):
                 ephemeral=True,
             )
 
+        try:
+            await inter.response.defer()
+        except discord.NotFound:
+            log.warning(tag("CMD", f"/play interaction scaduta prima del defer  {b(query)}"))
+            return
+
         vc = inter.guild.voice_client
         if vc and vc.channel:
             vc_ch = vc.channel
         else:
             vc_ch = self._need_voice(inter)
             if not vc_ch:
-                return await inter.response.send_message(
+                return await inter.edit_original_response(
                     embed=error_embed("Devi essere in un canale vocale per usare questo comando!"),
-                    ephemeral=True,
                 )
 
         if is_spotify_artist_url(query):
-            return await inter.response.send_message(
+            return await inter.edit_original_response(
                 embed=error_embed(
                     "I link artista di Spotify non sono supportati qui.\n"
                     "Usa il comando `/artistshuffle` per riprodurre la radio di un artista! 🎨"
                 ),
-                ephemeral=True,
             )
 
         is_spotify_query = bool(_spotify_kind(query))
         if is_spotify_query and not Config.SPOTIFY_CLIENT_ID:
-            return await inter.response.send_message(
+            return await inter.edit_original_response(
                 embed=error_embed("Per Spotify configura SPOTIFY_CLIENT_ID nel .env"),
-                ephemeral=True,
             )
 
         if _is_yt_channel_url(query):
-            return await inter.response.send_message(
+            return await inter.edit_original_response(
                 embed=error_embed("I link di canali YouTube non sono supportati."),
-                ephemeral=True,
             )
 
         is_multi = _is_multi_url(query)
 
         if is_multi:
-            await inter.response.defer()
             vc, meta = await asyncio.gather(
                 self._ensure_voice_client(inter, vc_ch),
                 _fetch_playlist_meta(query),
@@ -758,7 +759,6 @@ class Music(commands.Cog):
             )
             return
 
-        await inter.response.defer()
         vc = await self._ensure_voice_client(inter, vc_ch)
 
         player = self._player(inter.guild_id, inter.channel)
