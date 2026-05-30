@@ -300,6 +300,7 @@ async def on_ready():
 
     if not cfg.maintenance:
         try:
+            await asyncio.sleep(3)
             await bot.apply_next_status()
         except Exception as e:
             log.error(tag("STATUS", f"errore apply_next_status  {e}"))
