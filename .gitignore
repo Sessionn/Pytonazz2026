@@ -38,3 +38,5 @@ Thumbs.db
 # database
 *.db
 *.sqlite
+.\data\database\cache.db-shm
+.\data\database\cache.db-wal
