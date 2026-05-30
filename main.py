@@ -278,6 +278,7 @@ bot.apply_maintenance_presence = apply_maintenance_presence
 bot.restore_presence_after_maintenance = restore_presence_after_maintenance
 bot._status_list = _build_full_status_list()
 bot.reload_status_list = reload_status_list
+bot.rotate_status_task = rotate_status   # task loop — usato da /status interval
 
 
 # ── Events ───────────────────────────────────────────────────────────────────

@@ -139,31 +139,63 @@ def _is_soundcloud_short_url(url: str) -> bool:
 def _resolve_soundcloud_short_url(url: str, timeout: float = 8.0) -> str:
     """Resolve on.soundcloud.com short links prima che yt-dlp li veda.
 
-    Usa GET invece di HEAD perché alcuni server SoundCloud non restituiscono
-    il Location header correttamente con HEAD. Legge solo pochi byte del body
-    per seguire i redirect, poi applica _strip_soundcloud_params per pulire
-    i parametri di tracking (?si=, ?utm_*) dall'URL finale.
+    on.soundcloud.com è un servizio di link-shortening SoundCloud che risponde
+    con redirect HTTP 302. Usa httpx (già in requirements) che gestisce redirect
+    cross-domain HTTPS in modo robusto. In caso di errore usa urllib come fallback.
+    Infine applica _strip_soundcloud_params per rimuovere ?si=, ?utm_* dall'URL finale.
     """
     raw = (url or "").strip()
     if not _is_soundcloud_short_url(raw):
+        # URL SoundCloud normale (non short link): pulisci solo i param
         return _strip_soundcloud_params(raw) if _is_soundcloud_url(raw) else raw
+
     target = raw if "://" in raw else f"https://{raw}"
-    req = urllib.request.Request(
-        target,
-        method="GET",
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-        },
-    )
+
+    _HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+
+    # ── Tentativo 1: httpx (più robusto, gestisce HTTPS redirect correttamente) ──
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            final_url = resp.geturl() or target
-        # Pulisci i param di tracking dall'URL risolto
+        import httpx
+        with httpx.Client(
+            follow_redirects=True,
+            timeout=timeout,
+            headers=_HEADERS,
+            verify=False,           # ignora SSL self-signed, necessario su alcuni deploy
+        ) as client:
+            resp = client.get(target)
+            final_url = str(resp.url)
         final_url = _strip_soundcloud_params(final_url)
-        if final_url != target:
-            log.debug(tag("RESOLVE", f"SoundCloud short resolved: {final_url}"))
+        log.debug(tag("RESOLVE", f"SC short (httpx): {final_url}"))
         return final_url
-    except Exception as exc:
-        log.warning(tag("RESOLVE", f"SoundCloud short resolve failed ({exc}), uso URL originale"))
+    except Exception as exc_httpx:
+        log.debug(tag("RESOLVE", f"httpx fallback su urllib ({exc_httpx})"))
+
+    # ── Tentativo 2: urllib con SSL non verificato ────────────────────────────
+    try:
+        import ssl as _ssl
+        ctx = _ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+        req = urllib.request.Request(target, headers=_HEADERS)
+        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
+            final_url = resp.geturl() or target
+        final_url = _strip_soundcloud_params(final_url)
+        log.debug(tag("RESOLVE", f"SC short (urllib): {final_url}"))
+        return final_url
+    except Exception as exc_urllib:
+        log.warning(tag("RESOLVE",
+            f"SC short resolve fallito (httpx={exc_httpx}, urllib={exc_urllib})"
+            f" — passo URL originale a yt-dlp"
+        ))
+        # Restituiamo comunque il target: yt-dlp con generic extractor
+        # seguirà i redirect internamente e potrà estrarre il brano
         return target
+

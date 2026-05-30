@@ -1,6 +1,5 @@
 import logging
 import re
-import sys
 
 _R    = "\033[0m"
 _BOLD = "\033[1m"
@@ -255,13 +254,24 @@ def fmt_botconfig_loaded(data: dict) -> str:
 
 # ── Setup ──────────────────────────────────────────────────────────────────────
 def setup_logging(level: int = logging.INFO) -> None:
-    # Forza UTF-8 sullo stream di output — necessario su Windows (charmap default)
+    import io, sys
+
+    # Forza UTF-8 sullo stdout — necessario su Windows dove il default è charmap.
+    # Usiamo TextIOWrapper sul buffer raw così funziona anche se reconfigure non è disponibile.
     stream = sys.stdout
-    if hasattr(stream, "reconfigure"):
+    try:
+        # Python 3.7+: reconfigure è il modo ufficiale
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, io.UnsupportedOperation):
         try:
-            stream.reconfigure(encoding="utf-8")
+            # Fallback: wrap il buffer binario sottostante
+            stream = io.TextIOWrapper(
+                sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            )
+            sys.stdout = stream
         except Exception:
-            pass
+            pass  # Se anche questo fallisce, usiamo il default e accettiamo possibili errori
+
     handler = logging.StreamHandler(stream)
     handler.setFormatter(ColorFormatter())
     handler.addFilter(GatewayFilter())

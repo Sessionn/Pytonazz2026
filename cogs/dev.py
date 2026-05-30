@@ -550,13 +550,16 @@ class Dev(commands.Cog):
         if secondi < 10:
             return await inter.response.send_message("\u274c Minimo 10 secondi.", ephemeral=True)
         await cfg.set_status_interval(secondi)
-        try:
-            import main as _main
-            _main.rotate_status.change_interval(seconds=secondi)
-        except Exception as e:
-            log.warning(tag("STATUS", f"interval: impossibile aggiornare rotate_status: {e}"))
+        task = getattr(self.bot, "rotate_status_task", None)
+        if task is not None:
+            # change_interval prende effetto al ciclo SUCCESSIVO — restart() lo forza subito
+            task.change_interval(seconds=secondi)
+            if task.is_running():
+                task.restart()
+            log.info(tag("STATUS", f"interval -> {b(str(secondi))}s, task riavviato"))
+        else:
+            log.warning(tag("STATUS", "rotate_status_task non trovato sul bot"))
         minuti = secondi / 60
-        log.info(tag("STATUS", f"interval {b(secondi)}s ({minuti:.1f} min) \u2014 salvato"))
         await inter.response.send_message(
             f"\u23f1\ufe0f Intervallo aggiornato: **{secondi}s** ({minuti:.1f} min)\n*(salvato, sopravvive ai restart)*",
             ephemeral=True,
