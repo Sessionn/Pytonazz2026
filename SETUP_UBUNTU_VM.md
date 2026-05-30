@@ -94,7 +94,7 @@ DB_PATH=data/database/cache.db
 
 DASHBOARD_SOCKET=127.0.0.1:5000
 DASH_USER=admin
-DASH_PASSWORD=
+DASH_PASSWORD=cambiala-subito
 DASH_SECRET_KEY=
 DASH_TRUST_PROXY=true
 DASH_SESSION_SECURE=true
@@ -117,6 +117,8 @@ PY
 ```
 
 Inserisci l'output in `DASH_SECRET_KEY`.
+
+Nota: la dashboard ora rifiuta di avviarsi correttamente senza entrambe le variabili `DASH_USER` e `DASH_PASSWORD`.
 
 ## 8. Verifica locale del bot
 

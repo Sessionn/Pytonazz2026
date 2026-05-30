@@ -41,10 +41,13 @@ def create_app(db_path: str | None = None) -> Flask:
     session_samesite = (os.getenv("DASH_SESSION_SAMESITE", "Lax") or "Lax").strip().capitalize()
     login_window_seconds = max(60, int(os.getenv("DASH_LOGIN_WINDOW_SECONDS", "900")))
     login_max_attempts = max(1, int(os.getenv("DASH_LOGIN_MAX_ATTEMPTS", "5")))
+    dashboard_auth_ready = bool(dashboard_user and dashboard_pw)
 
     if not secret_key:
         secret_key = secrets.token_hex(32)
         log.warning("DASH_SECRET_KEY non impostata: generata chiave di sessione volatile per questo avvio")
+    if not dashboard_auth_ready:
+        log.error("Dashboard disabilitata: imposta sia DASH_USER sia DASH_PASSWORD prima di esporla")
 
     app = Flask(
         __name__,
@@ -97,7 +100,11 @@ def create_app(db_path: str | None = None) -> Flask:
     def login_required(f):
         @functools.wraps(f)
         def wrapped(*args, **kwargs):
-            if dashboard_pw and not session.get("auth"):
+            if not dashboard_auth_ready:
+                if request.is_json:
+                    return jsonify({"error": "dashboard_auth_not_configured"}), 503
+                return render_template("login.html", error="Dashboard non configurata: imposta DASH_USER e DASH_PASSWORD."), 503
+            if not session.get("auth"):
                 if request.is_json:
                     return jsonify({"error": "unauthorized"}), 401
                 return redirect(url_for("login"))
@@ -107,6 +114,8 @@ def create_app(db_path: str | None = None) -> Flask:
     # ── Login ──────────────────────────────────────────────────────
     @app.route("/login", methods=["GET", "POST"])
     def login():
+        if not dashboard_auth_ready:
+            return render_template("login.html", error="Dashboard non configurata: imposta DASH_USER e DASH_PASSWORD."), 503
         error = None
         if request.method == "POST":
             now = time.time()

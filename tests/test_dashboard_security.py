@@ -60,3 +60,12 @@ with tempfile.TemporaryDirectory() as td:
     assert app_random_secret.secret_key != "pytonazz-dev-secret-change-me"
 
     print("OK: dashboard random secret fallback")
+
+    os.environ.pop("DASH_USER", None)
+    os.environ.pop("DASH_PASSWORD", None)
+    app_missing_auth = create_app(str(db_path))
+    client_missing_auth = app_missing_auth.test_client()
+    blocked = client_missing_auth.get("/", follow_redirects=False)
+    assert blocked.status_code == 503
+
+    print("OK: dashboard fail-closed without auth config")

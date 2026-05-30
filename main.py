@@ -56,26 +56,23 @@ init_db(enabled=Config.CACHE_ENABLED)
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
 if Config.CACHE_ENABLED:
-    import threading, os, sys, logging
-
     def _run_dashboard():
-        _devnull = open(os.devnull, "w")
-        sys.stderr = _devnull
-        sys.stdout = _devnull          # werkzeug a volte usa stdout
+        try:
+            from waitress import serve
+            from data.database.dashboard.app import create_app
+            logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
-        from waitress import serve
-        from data.database.dashboard.app import create_app
-        logging.getLogger("werkzeug").setLevel(logging.ERROR)
-
-        flask_app = create_app()
-        flask_app.logger.setLevel(logging.ERROR)
-        serve(
-            flask_app,
-            host=Config.DASHBOARD_HOST,
-            port=Config.DASHBOARD_PORT,
-            threads=8,
-            clear_untrusted_proxy_headers=True,
-        )
+            flask_app = create_app()
+            flask_app.logger.setLevel(logging.ERROR)
+            serve(
+                flask_app,
+                host=Config.DASHBOARD_HOST,
+                port=Config.DASHBOARD_PORT,
+                threads=8,
+                clear_untrusted_proxy_headers=True,
+            )
+        except Exception:
+            log.exception(tag("CACHE_DB", "Dashboard OFF  bootstrap fallito"))
 
     t = threading.Thread(target=_run_dashboard, daemon=True)
     t.start()

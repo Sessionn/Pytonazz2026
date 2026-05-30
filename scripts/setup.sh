@@ -15,17 +15,22 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -d ".venv" ]; then
-  "$PYTHON_BIN" -m venv .venv
-  echo "OK: virtualenv creato in .venv"
+VENV_DIR="${VENV_DIR:-venv}"
+if [ ! -d "$VENV_DIR" ] && [ -d ".venv" ]; then
+  VENV_DIR=".venv"
 fi
 
-if [ -f ".venv/bin/activate" ]; then
+if [ ! -d "$VENV_DIR" ]; then
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+  echo "OK: virtualenv creato in $VENV_DIR"
+fi
+
+if [ -f "$VENV_DIR/bin/activate" ]; then
   # shellcheck disable=SC1091
-  source ".venv/bin/activate"
-elif [ -f ".venv/Scripts/activate" ]; then
+  source "$VENV_DIR/bin/activate"
+elif [ -f "$VENV_DIR/Scripts/activate" ]; then
   # shellcheck disable=SC1091
-  source ".venv/Scripts/activate"
+  source "$VENV_DIR/Scripts/activate"
 fi
 
 python -m pip install --upgrade pip
