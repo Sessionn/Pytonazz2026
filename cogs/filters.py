@@ -4,27 +4,16 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from embeds.music_embeds import success_embed, error_embed
+from core.audio_filters import get_filter_preset
+from embeds.music_embeds import error_embed, success_embed
 
 log = logging.getLogger("pitonazz.filters")
 
-FILTERS: dict[str, tuple[str | None, str]] = {
-    "off":       (None,                                 "❌ Nessun filtro"),
-    "nightcore": ("aresample=48000,asetrate=48000*1.25", "⚡ Nightcore"),
-    "vaporwave": ("aresample=48000,asetrate=48000*0.8",  "🌊 Vaporwave"),
-    "8d":        ("apulsator=hz=0.08",                   "🎧 8D Audio"),
-    "bassboost": ("bass=g=8:f=110:w=0.8",                "🫨 Bass Boost"),
-    "trebleboost": ("treble=g=6:f=4500:w=0.8",           "✨ Treble Boost"),
-    "vocalboost": ("equalizer=f=2500:t=q:w=1.2:g=5",     "🗣️ Vocal Boost"),
-    "radio":     ("highpass=f=300,lowpass=f=3200",       "📻 Radio / Phone"),
-    "night":     ("acompressor=threshold=0.22:ratio=2.5:attack=5:release=120,alimiter=limit=0.93", "🌙 Night Mode"),
-}
-
 
 class Filters(commands.Cog):
-    COG_ICON  = "🎚️"
+    COG_ICON = "🎚️"
     COG_LABEL = "Filtri Audio"
-    COG_TYPE  = "public"
+    COG_TYPE = "public"
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -40,14 +29,16 @@ class Filters(commands.Cog):
         p = self._get_player(inter.guild_id)
         if not p:
             return await inter.followup.send(
-                embed=error_embed("Nessun player attivo. Avvia una riproduzione prima."), ephemeral=True
+                embed=error_embed("Nessun player attivo. Avvia una riproduzione prima."),
+                ephemeral=True,
             )
         if not p.current:
             return await inter.followup.send(
-                embed=error_embed("Nessuna traccia in riproduzione."), ephemeral=True
+                embed=error_embed("Nessuna traccia in riproduzione."),
+                ephemeral=True,
             )
-        filter_str, label = FILTERS.get(filtro, (None, filtro))
-        await p.apply_filter(filtro, filter_str)
+        _, label = get_filter_preset(filtro)
+        await p.set_filter(filtro)
         await inter.followup.send(
             embed=success_embed(f"Filtro: **{label}**\nRiprende dal punto corrente."),
             ephemeral=True,

@@ -12,8 +12,11 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from data.database.dashboard.app import create_app
+os.environ["DASH_USER"] = "admin"
+os.environ["DASH_PASSWORD"] = "secret-pass"
+os.environ["DASH_SECRET_KEY"] = "test-secret-key"
 
+from data.database.dashboard.app import create_app
 
 tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 tmp.close()
@@ -53,6 +56,8 @@ conn.close()
 
 app = create_app(db_path=tmp.name)
 client = app.test_client()
+with client.session_transaction() as sess:
+    sess["auth"] = True
 
 stats = client.get("/api/stats")
 assert stats.status_code == 200, stats.data

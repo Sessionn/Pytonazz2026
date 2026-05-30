@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from config import Config
 import core.cache_db as cache_db
+from core.dj_access import get_dj_access_controller
 from core.player import MusicPlayer
 from core.source_resolver import (
     SourceResolver,
@@ -169,6 +170,7 @@ class _AutoplaySelect(discord.ui.Select):
                 ephemeral=True,
             )
         self.player.autoplay_enabled = self.values[0] == "on"
+        self.player._notify_state_change()
         await inter.response.edit_message(
             embed=_autoplay_status_embed(self.player.autoplay_enabled),
             view=_AutoplayView(self.player, self.owner_id),
@@ -260,6 +262,7 @@ class _PlaySelect(discord.ui.Select):
                 embed=error_embed(f"Coda piena (max {Config.MAX_QUEUE} tracce)."),
                 ephemeral=True,
             )
+        self.player._notify_state_change()
         await inter.response.defer()
         await inter.delete_original_response()
         await self.channel.send(embed=queue_notification_embed(chosen, position, self.requester))
@@ -390,6 +393,9 @@ class Music(commands.Cog):
         self._play_debounce:  dict[tuple[int, str], float] = {}
         self._play_debounce_gc_counter: int = 0
         self._warmup_sem = asyncio.Semaphore(3)
+        controller = get_dj_access_controller()
+        if controller:
+            controller.bind_music_cog(self)
 
     def _player(self, gid: int, ch_) -> MusicPlayer:
         if gid not in self._players:
@@ -397,8 +403,14 @@ class Music(commands.Cog):
                 self.bot.get_guild(gid), ch_,
                 on_cleanup=lambda guild_id: self._players.pop(guild_id, None),
                 on_autoplay=self._autoplay_refill,
+                on_state_change=self._notify_dj_state_change,
             )
         return self._players[gid]
+
+    def _notify_dj_state_change(self, guild_id: int) -> None:
+        controller = get_dj_access_controller()
+        if controller:
+            controller.publish_player_update(guild_id)
 
     def _need_voice(self, inter: discord.Interaction) -> Optional[discord.VoiceChannel]:
         return inter.user.voice.channel if inter.user.voice else None
@@ -492,6 +504,7 @@ class Music(commands.Cog):
         if added > 0:
             who = seed_artist or seed_track.title
             log.info(tag("QUEUE", f"Autoplay refill  +{added}  seed={b(who)}"))
+            player._notify_state_change()
         return added
 
     async def _ensure_voice_client(
@@ -784,6 +797,7 @@ class Music(commands.Cog):
                 return await inter.edit_original_response(
                     embed=error_embed(f"Coda piena (max {Config.MAX_QUEUE} tracce).")
                 )
+            player._notify_state_change()
             await inter.edit_original_response(
                 embed=queue_notification_embed(track, position, inter.user)
             )
@@ -973,6 +987,7 @@ class Music(commands.Cog):
                 await channel.send(embed=final_embed)
         except Exception:
             await channel.send(embed=final_embed)
+        player._notify_state_change()
 
     @app_commands.command(
         name="artistshuffle",
@@ -1173,6 +1188,7 @@ class Music(commands.Cog):
         await inter.response.send_message(
             embed=success_embed(f"Loop: **{labels[modalita]}**"), ephemeral=True
         )
+        p._notify_state_change()
         await p._update_msg_inplace()
 
     @app_commands.command(name="shuffle", description="Attiva/disattiva la modalità shuffle")
@@ -1187,6 +1203,7 @@ class Music(commands.Cog):
             p.queue.shuffle()
         stato = "🔀 Shuffle **ON**" if p.queue.shuffle_mode else "➡️ Shuffle **OFF**"
         await inter.response.send_message(embed=success_embed(stato), ephemeral=True)
+        p._notify_state_change()
         await p._update_msg_inplace()
 
     @app_commands.command(name="smartshuffle", description="Mischia la coda alternando gli artisti (stile Spotify)")
@@ -1197,6 +1214,7 @@ class Music(commands.Cog):
                 embed=error_embed("La coda è vuota."), ephemeral=True
             )
         p.queue.spotify_shuffle()
+        p._notify_state_change()
         await inter.response.send_message(
             embed=success_embed("🎲 Coda riordinata stile Spotify! Gli artisti ora si alternano."),
             ephemeral=True
@@ -1212,6 +1230,7 @@ class Music(commands.Cog):
             )
         removed = p.queue.remove(posizione - 1)
         if removed:
+            p._notify_state_change()
             await inter.response.send_message(
                 embed=success_embed(f"Rimosso: **{removed.title}**"), ephemeral=True
             )
@@ -1239,6 +1258,7 @@ class Music(commands.Cog):
             )
         track = p.queue.move(da - 1, a - 1)
         if track:
+            p._notify_state_change()
             await inter.response.send_message(
                 embed=success_embed(f"↕️ **{track.title}** spostata da pos. **{da}** → **{a}**"),
                 ephemeral=True

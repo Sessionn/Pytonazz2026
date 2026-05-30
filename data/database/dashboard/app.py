@@ -1,20 +1,29 @@
-import sqlite3
-import os
-import logging
 import functools
-import re
+import hashlib
 import json
+import logging
+import os
+import re
 import secrets
+import sqlite3
 import time
-from flask import Flask, Response, render_template, jsonify, request, redirect, url_for, session, stream_with_context
+from urllib.parse import urlencode
+
+import httpx
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, stream_with_context, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+from config import Config
+from core.dj_access import get_dj_access_controller, init_dj_access_controller
 
 log = logging.getLogger(__name__)
 
 _RE_SPOTIFY = re.compile(
-    r'(open\.spotify\.com|spotify\.com)/(?:intl-[a-z]{2}/)?(track|album|playlist|artist)/([A-Za-z0-9]+)',
-    re.I
+    r"(open\.spotify\.com|spotify\.com)/(?:intl-[a-z]{2}/)?(track|album|playlist|artist)/([A-Za-z0-9]+)",
+    re.I,
 )
+_DISCORD_API = "https://discord.com/api/v10"
+
 
 def _extract_spotify_id(url: str) -> str:
     m = _RE_SPOTIFY.search(url)
@@ -22,17 +31,17 @@ def _extract_spotify_id(url: str) -> str:
         return f"https://open.spotify.com/{m.group(2)}/{m.group(3)}"
     return url
 
+
 def _hash(s: str) -> str:
-    import hashlib
     norm = re.sub(r"[^\w\s:/.-]+", " ", (s or "").lower().strip())
     norm = re.sub(r"\s+", " ", norm).strip()
     return hashlib.sha256(norm.encode()).hexdigest()
 
 
-def create_app(db_path: str | None = None) -> Flask:
-    base_dir   = os.path.dirname(os.path.abspath(__file__))
-    db_path    = db_path or os.path.join(base_dir, "..", "cache.db")
-    db_path    = os.path.abspath(db_path)
+def create_app(db_path: str | None = None, bot=None) -> Flask:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    db_path = db_path or os.path.join(base_dir, "..", "cache.db")
+    db_path = os.path.abspath(db_path)
     secret_key = (os.getenv("DASH_SECRET_KEY") or os.getenv("DASHBOARD_SECRET") or "").strip()
     dashboard_user = (os.getenv("DASH_USER") or os.getenv("DASHBOARD_USER") or "").strip()
     dashboard_pw = os.getenv("DASH_PASSWORD") or os.getenv("DASHBOARD_PASSWORD") or ""
@@ -60,10 +69,13 @@ def create_app(db_path: str | None = None) -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE=session_samesite if session_samesite in {"Lax", "Strict", "None"} else "Lax",
         PREFERRED_URL_SCHEME="https" if session_secure else "http",
+        DJ_OAUTH_FETCH_USER=None,
     )
     if trust_proxy:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     login_attempts: dict[str, list[float]] = {}
+
+    controller = init_dj_access_controller(bot) if bot else get_dj_access_controller()
 
     def get_conn():
         conn = sqlite3.connect(db_path)
@@ -79,22 +91,24 @@ def create_app(db_path: str | None = None) -> Flask:
             conn.close()
 
     def _stats_payload() -> dict:
-        row = query_db("""
+        row = query_db(
+            """
             SELECT
                 COUNT(*)                                           AS total,
                 SUM(CASE WHEN is_valid=1 THEN 1 ELSE 0 END)       AS valid,
                 SUM(CASE WHEN is_valid=0 THEN 1 ELSE 0 END)       AS invalid,
                 COALESCE(SUM(hit_count), 0)                        AS hits
             FROM song_cache
-        """)[0]
+            """
+        )[0]
         aliases = query_db("SELECT COUNT(*) AS c FROM query_aliases")[0]["c"]
         return {
-            "total":   row["total"]   or 0,
-            "valid":   row["valid"]   or 0,
+            "total": row["total"] or 0,
+            "valid": row["valid"] or 0,
             "invalid": row["invalid"] or 0,
-            "hits":    row["hits"]    or 0,
+            "hits": row["hits"] or 0,
             "aliases": aliases,
-            "ts":      int(time.time()),
+            "ts": int(time.time()),
         }
 
     def login_required(f):
@@ -109,9 +123,67 @@ def create_app(db_path: str | None = None) -> Flask:
                     return jsonify({"error": "unauthorized"}), 401
                 return redirect(url_for("login"))
             return f(*args, **kwargs)
+
         return wrapped
 
-    # ── Login ──────────────────────────────────────────────────────
+    def _dj_error(error_code: str, status_code: int = 403):
+        return render_template("dj_console_error.html", error_code=error_code), status_code
+
+    def _dj_oauth_ready() -> bool:
+        return bool(Config.DISCORD_CLIENT_ID and Config.DISCORD_CLIENT_SECRET and Config.DJ_CONSOLE_CALLBACK_URL)
+
+    def _build_discord_authorize_url(guild_id: int) -> str:
+        oauth_state = controller.build_oauth_state(guild_id) if controller else f"{guild_id}:{secrets.token_urlsafe(12)}"
+        session["dj_oauth_state"] = oauth_state
+        session["dj_oauth_guild_id"] = guild_id
+        params = {
+            "client_id": Config.DISCORD_CLIENT_ID,
+            "redirect_uri": Config.DJ_CONSOLE_CALLBACK_URL,
+            "response_type": "code",
+            "scope": "identify",
+            "state": oauth_state,
+            "prompt": "consent",
+        }
+        return f"{_DISCORD_API}/oauth2/authorize?{urlencode(params)}"
+
+    def _fetch_discord_user(code: str) -> dict:
+        override = app.config.get("DJ_OAUTH_FETCH_USER")
+        if override:
+            return override(code)
+        token_resp = httpx.post(
+            f"{_DISCORD_API}/oauth2/token",
+            data={
+                "client_id": Config.DISCORD_CLIENT_ID,
+                "client_secret": Config.DISCORD_CLIENT_SECRET,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": Config.DJ_CONSOLE_CALLBACK_URL,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10.0,
+        )
+        token_resp.raise_for_status()
+        token_data = token_resp.json()
+        access_token = token_data.get("access_token")
+        user_resp = httpx.get(
+            f"{_DISCORD_API}/users/@me",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10.0,
+        )
+        user_resp.raise_for_status()
+        return user_resp.json()
+
+    def _require_dj_session(guild_id: int) -> tuple[bool, str | None]:
+        if not controller:
+            return False, "dj_controller_unavailable"
+        if not _dj_oauth_ready():
+            return False, "oauth_not_configured"
+        discord_user_id = session.get("dj_discord_user_id")
+        session_guild_id = session.get("dj_guild_id")
+        if not discord_user_id or session_guild_id != guild_id:
+            return False, "auth_required"
+        return controller.check_access(guild_id, int(discord_user_id))
+
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if not dashboard_auth_ready:
@@ -144,29 +216,125 @@ def create_app(db_path: str | None = None) -> Flask:
         session.clear()
         return redirect(url_for("login"))
 
-    # ── Index ──────────────────────────────────────────────────────
     @app.route("/")
     @login_required
     def index():
-        stats = query_db("""
+        stats = query_db(
+            """
             SELECT
                 COUNT(*) AS total,
                 SUM(CASE WHEN is_valid=1 THEN 1 ELSE 0 END) AS valid,
                 SUM(CASE WHEN is_valid=0 THEN 1 ELSE 0 END) AS invalid,
                 SUM(hit_count) AS hits
             FROM song_cache
-        """)[0]
+            """
+        )[0]
         aliases_count = query_db("SELECT COUNT(*) as c FROM query_aliases")[0]["c"]
         return render_template("index.html", stats=stats, aliases_count=aliases_count)
 
-    # ── API: statistiche live ──────────────────────────────────────
+    @app.route("/dj-console")
+    def dj_console():
+        raw_guild_id = (request.args.get("guild_id") or "").strip()
+        if not raw_guild_id.isdigit():
+            return _dj_error("invalid_guild", 400)
+        guild_id = int(raw_guild_id)
+        allowed, error = _require_dj_session(guild_id)
+        if not allowed:
+            if error == "auth_required":
+                return redirect(url_for("dj_console_login", guild_id=guild_id))
+            return _dj_error(error or "forbidden", 403)
+        return render_template("dj_console.html", guild_id=guild_id)
+
+    @app.route("/dj-console/login")
+    def dj_console_login():
+        raw_guild_id = (request.args.get("guild_id") or "").strip()
+        if not raw_guild_id.isdigit():
+            return _dj_error("invalid_guild", 400)
+        if not _dj_oauth_ready():
+            return _dj_error("oauth_not_configured", 503)
+        return redirect(_build_discord_authorize_url(int(raw_guild_id)))
+
+    @app.route("/dj-console/callback")
+    @app.route("/dj-console/discord-callback")
+    def dj_console_callback():
+        if not controller:
+            return _dj_error("dj_controller_unavailable", 503)
+        code = (request.args.get("code") or "").strip()
+        state = (request.args.get("state") or "").strip()
+        if not code or not state or state != session.get("dj_oauth_state"):
+            return _dj_error("invalid_oauth_state", 400)
+        try:
+            guild_id = int(str(state).split(":", 1)[0])
+        except (TypeError, ValueError):
+            return _dj_error("invalid_oauth_state", 400)
+        try:
+            user_payload = _fetch_discord_user(code)
+        except Exception:
+            log.exception("Discord OAuth callback failed")
+            return _dj_error("oauth_exchange_failed", 502)
+        user_id = int(user_payload["id"])
+        session["dj_discord_user_id"] = user_id
+        session["dj_guild_id"] = guild_id
+        allowed, error = controller.check_access(guild_id, user_id)
+        if not allowed:
+            return _dj_error(error or "forbidden", 403)
+        return redirect(url_for("dj_console", guild_id=guild_id))
+
+    @app.route("/dj-console/state")
+    def dj_console_state():
+        raw_guild_id = (request.args.get("guild_id") or "").strip()
+        if not raw_guild_id.isdigit():
+            return jsonify({"error": "invalid_guild"}), 400
+        guild_id = int(raw_guild_id)
+        allowed, error = _require_dj_session(guild_id)
+        if not allowed:
+            return jsonify({"error": error or "forbidden"}), 403
+        return jsonify(controller.get_player_snapshot(guild_id))
+
+    @app.route("/dj-console/action", methods=["POST"])
+    def dj_console_action():
+        data = request.get_json(force=True, silent=True) or {}
+        try:
+            guild_id = int(data.get("guild_id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "invalid_guild"}), 400
+        allowed, error = _require_dj_session(guild_id)
+        if not allowed:
+            return jsonify({"ok": False, "error": error or "forbidden"}), 403
+        action = str(data.get("action") or "").strip()
+        result = controller.perform_action(guild_id, action, data)
+        return jsonify(result), (200 if result.get("ok") else 400)
+
+    @app.route("/dj-console/events")
+    def dj_console_events():
+        raw_guild_id = (request.args.get("guild_id") or "").strip()
+        if not raw_guild_id.isdigit():
+            return jsonify({"error": "invalid_guild"}), 400
+        guild_id = int(raw_guild_id)
+        allowed, error = _require_dj_session(guild_id)
+        if not allowed:
+            return jsonify({"error": error or "forbidden"}), 403
+
+        @stream_with_context
+        def events():
+            sub = controller.subscribe(guild_id)
+            try:
+                initial = json.dumps(controller.get_player_snapshot(guild_id), separators=(",", ":"))
+                yield f"event: dj_state\ndata: {initial}\n\n"
+                while True:
+                    try:
+                        payload = sub.get(timeout=15.0)
+                        yield f"event: dj_state\ndata: {payload}\n\n"
+                    except Exception:
+                        yield ": keepalive\n\n"
+            finally:
+                controller.unsubscribe(guild_id, sub)
+
+        return Response(events(), mimetype="text/event-stream")
+
     @app.route("/api/stats")
     @login_required
     def api_stats():
-        """
-        Ritorna le stat card in JSON per aggiornamento real-time lato JS.
-        Leggero: una sola query aggregata + una COUNT su query_aliases.
-        """
         return jsonify(_stats_payload())
 
     @app.route("/api/events")
@@ -184,17 +352,17 @@ def create_app(db_path: str | None = None) -> Flask:
                 else:
                     yield ": keepalive\n\n"
                 time.sleep(5)
+
         return Response(events(), mimetype="text/event-stream")
 
-    # ── API: songs ─────────────────────────────────────────────────
     @app.route("/api/songs")
     @login_required
     def api_songs():
         search = request.args.get("q", "").strip()
         source = request.args.get("source", "")
-        valid  = request.args.get("valid", "")
-        sort   = request.args.get("sort", "hit_count")
-        order  = request.args.get("order", "desc")
+        valid = request.args.get("valid", "")
+        sort = request.args.get("sort", "hit_count")
+        order = request.args.get("order", "desc")
 
         allowed = {"hit_count", "created_at", "last_used", "title", "artist", "id"}
         if sort not in allowed:
@@ -213,110 +381,67 @@ def create_app(db_path: str | None = None) -> Flask:
             params.append(int(valid))
 
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
-        rows = query_db(
-            f"SELECT * FROM song_cache {where} ORDER BY {sort} {order}", params
-        )
+        rows = query_db(f"SELECT * FROM song_cache {where} ORDER BY {sort} {order}", params)
         return jsonify(rows)
 
-    # ── API: aliases ───────────────────────────────────────────────
     @app.route("/api/aliases")
     @login_required
     def api_aliases():
-        rows = query_db("""
+        rows = query_db(
+            """
             SELECT qa.id, qa.query_raw, qa.cache_id,
                    qa.alias_type, sc.title, sc.artist, sc.spotify_url, sc.webpage_url
             FROM query_aliases qa
             LEFT JOIN song_cache sc ON sc.id = qa.cache_id
             ORDER BY qa.id DESC
-        """)
+            """
+        )
         return jsonify(rows)
 
-    # ── API: associa link Spotify a entry esistente ────────────────
     @app.route("/api/associate", methods=["POST"])
     @login_required
     def api_associate():
-        """
-        Riceve un link Spotify (spotify_url) e cerca nel DB una entry
-        compatibile per titolo+artista o webpage_url.
-
-        Comportamento (in ordine di priorita'):
-          1. Se spotify_url e' gia' presente in song_cache -> no-op, ritorna
-             {action: 'already_set', cache_id}.
-          2. Cerca entry con titolo+artista simili (LIKE normalizzato).
-          3. In ogni caso aggiorna spotify_url sulla entry trovata e
-             inserisce/aggiorna il link come alias in query_aliases.
-
-        Body JSON atteso:
-            { "spotify_url": "https://open.spotify.com/track/...",
-              "title": "...",       # opzionale, migliora il match
-              "artist": "..." }     # opzionale
-
-        Risposta:
-            { "ok": true/false, "action": "...", "cache_id": int|null }
-        """
         data = request.get_json(force=True, silent=True) or {}
         raw_url = (data.get("spotify_url") or "").strip()
-        title   = (data.get("title")  or "").strip().lower()
-        artist  = (data.get("artist") or "").strip().lower()
+        title = (data.get("title") or "").strip().lower()
+        artist = (data.get("artist") or "").strip().lower()
 
         if not raw_url or not _RE_SPOTIFY.search(raw_url):
             return jsonify({"ok": False, "action": "invalid_url", "cache_id": None}), 400
 
         spotify_url = _extract_spotify_id(raw_url)
-        h_spotify   = _hash(spotify_url)
+        h_spotify = _hash(spotify_url)
 
         conn = get_conn()
         try:
             cur = conn.cursor()
-
-            # 1. Gia' presente come spotify_url nella song_cache?
-            cur.execute(
-                "SELECT id FROM song_cache WHERE spotify_url = ? AND is_valid = 1 LIMIT 1",
-                (spotify_url,)
-            )
+            cur.execute("SELECT id FROM song_cache WHERE spotify_url = ? AND is_valid = 1 LIMIT 1", (spotify_url,))
             row = cur.fetchone()
             if row:
-                conn.close()
                 return jsonify({"ok": True, "action": "already_set", "cache_id": row["id"]})
 
-            # 2. Gia' presente come alias?
-            cur.execute(
-                "SELECT cache_id FROM query_aliases WHERE query_hash = ? LIMIT 1",
-                (h_spotify,)
-            )
+            cur.execute("SELECT cache_id FROM query_aliases WHERE query_hash = ? LIMIT 1", (h_spotify,))
             alias_row = cur.fetchone()
             if alias_row:
-                conn.close()
                 return jsonify({"ok": True, "action": "already_alias", "cache_id": alias_row["cache_id"]})
 
-            # 3. Cerca per titolo+artista (match LIKE normalizzato)
             target = None
             if title:
-                filters, params = [], []
-                filters.append("LOWER(title) LIKE ?")
-                params.append(f"%{title}%")
+                filters, params = ["LOWER(title) LIKE ?"], [f"%{title}%"]
                 if artist:
                     filters.append("LOWER(artist) LIKE ?")
                     params.append(f"%{artist}%")
-                cur.execute(
-                    f"SELECT id FROM song_cache WHERE {' AND '.join(filters)} AND is_valid=1 LIMIT 1",
-                    params
-                )
+                cur.execute(f"SELECT id FROM song_cache WHERE {' AND '.join(filters)} AND is_valid=1 LIMIT 1", params)
                 target = cur.fetchone()
 
             if target is None:
-                conn.close()
                 return jsonify({"ok": False, "action": "not_found", "cache_id": None})
 
             cache_id = target["id"]
-
-            # Aggiorna spotify_url sulla entry canonical (solo se mancava)
             cur.execute(
                 "UPDATE song_cache SET spotify_url = ? WHERE id = ? AND (spotify_url IS NULL OR spotify_url = '')",
-                (spotify_url, cache_id)
+                (spotify_url, cache_id),
             )
-
-            # Registra il link Spotify come alias
             cur.execute(
                 """
                 INSERT INTO query_aliases (query_hash, query_raw, alias_type, cache_id)
@@ -326,7 +451,7 @@ def create_app(db_path: str | None = None) -> Flask:
                     alias_type = excluded.alias_type,
                     cache_id  = excluded.cache_id
                 """,
-                (h_spotify, spotify_url, "spotify", cache_id)
+                (h_spotify, spotify_url, "spotify", cache_id),
             )
             conn.commit()
         finally:
@@ -334,7 +459,6 @@ def create_app(db_path: str | None = None) -> Flask:
 
         return jsonify({"ok": True, "action": "associated", "cache_id": cache_id})
 
-    # ── API: delete song ───────────────────────────────────────────
     @app.route("/api/delete/<int:row_id>", methods=["DELETE"])
     @login_required
     def delete_song(row_id):
@@ -344,7 +468,6 @@ def create_app(db_path: str | None = None) -> Flask:
         conn.close()
         return jsonify({"ok": True})
 
-    # ── API: delete alias ──────────────────────────────────────────
     @app.route("/api/aliases/<int:alias_id>", methods=["DELETE"])
     @login_required
     def delete_alias(alias_id):
@@ -357,9 +480,8 @@ def create_app(db_path: str | None = None) -> Flask:
     return app
 
 
-# ── Avvio standalone ──────────────────────────────────────────────────────
 if __name__ == "__main__":
-    socket  = os.getenv("DASHBOARD_SOCKET", "127.0.0.1:5000")
+    socket = os.getenv("DASHBOARD_SOCKET", "127.0.0.1:5000")
     host, port = socket.rsplit(":", 1)
     flask_app = create_app()
     flask_app.run(host=host, port=int(port), debug=False)

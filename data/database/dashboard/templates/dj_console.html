@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DJ Console</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dj_console.css') }}">
+</head>
+<body data-guild-id="{{ guild_id }}">
+  <main class="console-shell">
+    <section class="hero-panel">
+      <div class="brand-block">
+        <p class="eyebrow">Pitonazz Remote Deck</p>
+        <h1>DJ Console</h1>
+        <p class="subcopy">Controllo remoto live del player Discord. Nessun playback locale nel browser.</p>
+      </div>
+      <div class="status-grid">
+        <div class="status-card">
+          <span class="status-label">Voice</span>
+          <strong id="voice-channel">-</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">State</span>
+          <strong id="playback-state">Offline</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">Effect</span>
+          <strong id="effect-summary">off</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">Energy</span>
+          <strong id="tone-summary">flat</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="deck-grid">
+      <article class="deck-panel platter-panel">
+        <div class="platter-wrap">
+          <div class="platter-ring"></div>
+          <div class="platter-center">
+            <img id="cover-art" alt="Cover art">
+            <div id="cover-fallback">NO ART</div>
+          </div>
+        </div>
+        <div class="track-meta">
+          <p class="track-kicker">Now Playing</p>
+          <h2 id="track-title">Nessuna traccia</h2>
+          <p id="track-artist">-</p>
+          <p id="track-requester">-</p>
+        </div>
+        <div class="progress-block">
+          <div class="progress-topline">
+            <span id="position-label">00:00</span>
+            <span id="duration-label">00:00</span>
+          </div>
+          <div class="progress-track"><div id="progress-fill"></div></div>
+        </div>
+      </article>
+
+      <article class="deck-panel mixer-panel">
+        <div class="controls-header">
+          <h3>Mixer</h3>
+          <p>Realtime control surface</p>
+        </div>
+        <div class="mixer-grid">
+          <div class="control-stack">
+            <label for="volume-slider">Volume</label>
+            <input id="volume-slider" type="range" min="0" max="1" step="0.01">
+            <span id="volume-value">0%</span>
+          </div>
+          <div class="control-stack">
+            <label>Quick FX</label>
+            <div class="fx-pad-grid">
+              <button data-filter-preset="off">Clean</button>
+              <button data-filter-preset="nightcore">Rush</button>
+              <button data-filter-preset="vaporwave">Drift</button>
+              <button data-filter-preset="8d">Orbit</button>
+              <button data-filter-preset="bassboost">Punch</button>
+              <button data-filter-preset="radio">Radio</button>
+            </div>
+          </div>
+          <div class="control-stack">
+            <label for="filter-select">Filtro</label>
+            <select id="filter-select">
+              <option value="off">Off</option>
+              <option value="nightcore">Nightcore</option>
+              <option value="vaporwave">Vaporwave</option>
+              <option value="8d">8D Audio</option>
+              <option value="bassboost">Bass Boost</option>
+              <option value="trebleboost">Treble Boost</option>
+              <option value="vocalboost">Vocal Boost</option>
+              <option value="radio">Radio / Phone</option>
+              <option value="night">Night Mode</option>
+            </select>
+          </div>
+          <div class="control-stack">
+            <label>Tone Scenes</label>
+            <div class="fx-pad-grid">
+              <button data-eq-scene="flat">Flat</button>
+              <button data-eq-scene="club">Club</button>
+              <button data-eq-scene="warm">Warm</button>
+              <button data-eq-scene="air">Air</button>
+              <button data-eq-scene="kill-low">Kill Low</button>
+              <button data-eq-scene="kill-high">Kill High</button>
+            </div>
+          </div>
+        </div>
+        <div class="eq-grid">
+          <div class="eq-band">
+            <label for="eq-low">Low</label>
+            <input id="eq-low" type="range" min="-12" max="12" step="0.5" orient="vertical">
+            <span id="eq-low-value">0 dB</span>
+          </div>
+          <div class="eq-band">
+            <label for="eq-mid">Mid</label>
+            <input id="eq-mid" type="range" min="-12" max="12" step="0.5" orient="vertical">
+            <span id="eq-mid-value">0 dB</span>
+          </div>
+          <div class="eq-band">
+            <label for="eq-high">High</label>
+            <input id="eq-high" type="range" min="-12" max="12" step="0.5" orient="vertical">
+            <span id="eq-high-value">0 dB</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="deck-panel queue-panel">
+        <div class="controls-header">
+          <h3>Queue</h3>
+          <p>Snapshot live dal backend</p>
+        </div>
+        <ol id="queue-list" class="queue-list"></ol>
+      </article>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='js/dj_console.js') }}" defer></script>
+</body>
+</html>

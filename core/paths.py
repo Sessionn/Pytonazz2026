@@ -14,6 +14,7 @@ BOT_CONFIG_PATH = ASSETS_CONFIG_DIR / "bot_config.json"
 CUSTOM_STATUSES_PATH = ASSETS_CONFIG_DIR / "custom_statuses.json"
 BIRTHDAYS_PATH = ASSETS_DATA_DIR / "birthdays.json"
 WELCOME_CONFIG_PATH = DATA_DIR / "welcome_config.json"
+DJ_ROLE_CONFIG_PATH = DATA_DIR / "dj_role_config.json"
 
 
 def ensure_runtime_dirs() -> None:

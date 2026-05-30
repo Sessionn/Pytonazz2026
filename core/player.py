@@ -8,6 +8,7 @@ from typing import Optional, Callable, Awaitable
 import discord
 from config import Config
 import core.cache_db as cache_db
+from core.audio_filters import EQ_DEFAULT, compose_audio_filter, get_filter_preset, normalize_eq
 from core.queue import MusicQueue
 from core.source_resolver import TrackInfo, SourceResolver
 from core.log_colors import tag, b, ms, title, hi, _CYN
@@ -22,7 +23,8 @@ _MIN_SEEK_DELTA_SECONDS = 0.01
 class MusicPlayer:
     def __init__(self, guild: discord.Guild, text_channel: discord.TextChannel,
                  on_cleanup: Optional[Callable[[int], None]] = None,
-                 on_autoplay: Optional[Callable[["MusicPlayer", TrackInfo], Awaitable[int]]] = None):
+                 on_autoplay: Optional[Callable[["MusicPlayer", TrackInfo], Awaitable[int]]] = None,
+                 on_state_change: Optional[Callable[[int], None]] = None):
         self.guild        = guild
         self.text_channel = text_channel
         self.queue        = MusicQueue()
@@ -36,12 +38,15 @@ class MusicPlayer:
         self._player_msg: Optional[discord.Message] = None
         self._on_cleanup: Optional[Callable[[int], None]] = on_cleanup
         self._on_autoplay = on_autoplay
+        self._on_state_change = on_state_change
         self._loading_count: int = 0
         self._version_switch: bool = False
         self._prefetch_task: Optional[asyncio.Task] = None
 
         self.filter:             Optional[str] = None
         self.filter_name:        str           = "off"
+        self.eq:                 dict[str, float] = dict(EQ_DEFAULT)
+        self.volume:             float         = Config.DEFAULT_VOLUME
         self._filter_replay:     bool          = False
         self._seek_position:     float         = 0.0
         self._cached_stream_url: str           = ""
@@ -69,6 +74,48 @@ class MusicPlayer:
     def vc(self) -> Optional[discord.VoiceClient]:
         return self.guild.voice_client
 
+    def _notify_state_change(self):
+        if not self._on_state_change or not self.guild:
+            return
+        try:
+            self._on_state_change(self.guild.id)
+        except Exception:
+            log.debug(tag("PLAYER", "_notify_state_change failed"), exc_info=True)
+
+    def _serialize_track(self, track: Optional[TrackInfo]) -> Optional[dict]:
+        if not track:
+            return None
+        return {
+            "title": track.title,
+            "artist": track.artist,
+            "duration": int(track.duration or 0),
+            "thumbnail": track.thumbnail or "",
+            "requester": track.requester,
+            "requester_id": int(track.requester_id or 0),
+            "webpage_url": track.webpage_url or "",
+            "spotify_url": track.spotify_url or "",
+            "source": track.source,
+        }
+
+    def to_public_state(self) -> dict:
+        vc = self.vc
+        return {
+            "guild_id": self.guild.id if self.guild else 0,
+            "connected": bool(vc),
+            "voice_channel_name": getattr(getattr(vc, "channel", None), "name", ""),
+            "is_paused": self.is_paused,
+            "position": round(float(self.position), 2),
+            "duration": int(getattr(self.current, "duration", 0) or 0),
+            "volume": round(float(self.volume), 3),
+            "loop_mode": self.queue.loop_mode,
+            "shuffle_mode": bool(self.queue.shuffle_mode),
+            "autoplay_enabled": bool(self.autoplay_enabled),
+            "filter_name": self.filter_name,
+            "eq": dict(self.eq),
+            "current_track": self._serialize_track(self.current),
+            "queue": [self._serialize_track(track) for track in self.queue.items],
+        }
+
     async def apply_filter(self, filter_name: str, filter_str: Optional[str]):
         self.filter_name = filter_name
         self.filter      = filter_str
@@ -85,6 +132,45 @@ class MusicPlayer:
             self.vc.stop()
             if was_paused:
                 asyncio.create_task(self._repause_after_filter())
+        self._notify_state_change()
+
+    async def set_filter(self, filter_name: str):
+        filter_str, _ = get_filter_preset(filter_name)
+        await self.apply_filter(filter_name, filter_str)
+
+    async def set_eq(self, eq_values: dict):
+        self.eq = normalize_eq(eq_values)
+        await self.apply_filter(self.filter_name, self.filter)
+
+    def set_volume(self, volume: float) -> bool:
+        try:
+            normalized = float(volume)
+        except (TypeError, ValueError):
+            return False
+        normalized = max(0.0, min(Config.MAX_VOLUME, normalized))
+        self.volume = normalized
+        if self.vc and self.vc.source and hasattr(self.vc.source, "volume"):
+            self.vc.source.volume = normalized
+        self._notify_state_change()
+        return True
+
+    def set_loop_mode(self, mode: str) -> bool:
+        if mode not in {"off", "track", "queue"}:
+            return False
+        self.queue.loop_mode = mode
+        self._notify_state_change()
+        return True
+
+    def toggle_shuffle(self) -> bool:
+        self.queue.shuffle_mode = not self.queue.shuffle_mode
+        if self.queue.shuffle_mode and len(self.queue) > 1:
+            self.queue.shuffle()
+        self._notify_state_change()
+        return self.queue.shuffle_mode
+
+    def set_autoplay(self, enabled: bool) -> None:
+        self.autoplay_enabled = bool(enabled)
+        self._notify_state_change()
 
     async def seek_relative(self, seconds: float) -> bool:
         if not self.current or not self.vc or not (self.vc.is_playing() or self.vc.is_paused()):
@@ -114,6 +200,7 @@ class MusicPlayer:
         self.vc.stop()
         if was_paused:
             asyncio.create_task(self._repause_after_filter())
+        self._notify_state_change()
         return True
 
     async def _prefetch_next_stream(self):
@@ -167,12 +254,14 @@ class MusicPlayer:
         self._cached_stream_url  = ""
         if self.vc and (self.vc.is_playing() or self.vc.is_paused()):
             self.vc.stop()
+        self._notify_state_change()
 
     def _build_ffmpeg_opts(self, seek_to: float = 0.0) -> dict:
         before = Config.FFMPEG_OPTIONS["before_options"]
         if seek_to > 1.0:
             before = f"-ss {seek_to:.2f} " + before
-        af   = f"-af {self.filter}" if self.filter else ""
+        chain = compose_audio_filter(self.filter, self.eq)
+        af   = f"-af {chain}" if chain else ""
         opts = f"-vn {af} -bufsize 64k".strip()
         return {"before_options": before, "options": opts}
 
@@ -285,7 +374,7 @@ class MusicPlayer:
             t_start_play = time.perf_counter()
             source = discord.PCMVolumeTransformer(
                 discord.FFmpegPCMAudio(stream_url, **ffmpeg_opts),
-                volume=Config.DEFAULT_VOLUME,
+                volume=self.volume,
             )
 
             def _after(err):
@@ -329,6 +418,7 @@ class MusicPlayer:
                 f"start={ms((t_end_play-t_start_play)*1000)}"
             ))
             self._schedule_prefetch_next()
+            self._notify_state_change()
 
             if not is_filter_ch:
                 log.info(tag("PLAYER", f"\u25b6  {title(nxt.title)}  \u2014  {hi(nxt.source, _CYN)}"))
@@ -348,6 +438,7 @@ class MusicPlayer:
             self.vc.pause()
             self._paused   = True
             self._pause_at = time.monotonic()
+            self._notify_state_change()
 
     def resume(self):
         if self.vc and self.vc.is_paused():
@@ -356,10 +447,12 @@ class MusicPlayer:
             if self._pause_at > 0:
                 self._paused_total += time.monotonic() - self._pause_at
                 self._pause_at = 0.0
+            self._notify_state_change()
 
     def skip(self):
         if self.vc and (self.vc.is_playing() or self.vc.is_paused()):
             self.vc.stop()
+            self._notify_state_change()
 
     def stop(self):
         """Ferma la riproduzione e resetta completamente lo stato.
@@ -378,6 +471,7 @@ class MusicPlayer:
             self._idle_task = None
         if self.vc and (self.vc.is_playing() or self.vc.is_paused()):
             self.vc.stop()
+        self._notify_state_change()
 
     def _arm_idle(self):
         if self._loading_count > 0:
@@ -402,6 +496,7 @@ class MusicPlayer:
             await self.vc.disconnect(force=True)
             if self._on_cleanup:
                 self._on_cleanup(self.guild.id)
+            self._notify_state_change()
         self._idle_task = None
 
     async def _delete_player_msg(self):
@@ -446,3 +541,4 @@ class MusicPlayer:
     async def send_player_message(self, channel: discord.TextChannel):
         self.text_channel = channel
         await self._repost_msg()
+        self._notify_state_change()

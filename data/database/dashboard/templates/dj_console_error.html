@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DJ Console Error</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dj_console.css') }}">
+</head>
+<body class="error-body">
+  <main class="error-card">
+    <p class="eyebrow">Pitonazz Remote Deck</p>
+    <h1>Accesso console negato</h1>
+    <p class="error-copy">Codice: <strong>{{ error_code }}</strong></p>
+    <p class="error-copy">Verifica OAuth Discord, ruolo DJ configurato e membership del server.</p>
+  </main>
+</body>
+</html>

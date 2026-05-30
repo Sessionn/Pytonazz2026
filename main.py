@@ -17,6 +17,7 @@ load_dotenv()
 from config import Config
 from core.cache_db import init_db
 from core.bot_config import cfg
+from core.dj_access import init_dj_access_controller
 from core.log_colors import setup_logging
 from core.banner import print_banner
 from core.paths import CUSTOM_STATUSES_PATH, ensure_runtime_dirs
@@ -62,7 +63,7 @@ if Config.CACHE_ENABLED:
             from data.database.dashboard.app import create_app
             logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
-            flask_app = create_app()
+            flask_app = create_app(bot=bot)
             flask_app.logger.setLevel(logging.ERROR)
             serve(
                 flask_app,
@@ -89,10 +90,12 @@ intents = discord.Intents.all()
 #intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+init_dj_access_controller(bot)
 
 COGS = [
     "cogs.ai",
     "cogs.birthdays",
+    "cogs.dj",
     "cogs.dev",
     "cogs.dev_audio",
     "cogs.dev_cache",
