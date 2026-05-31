@@ -25,20 +25,25 @@ class DJAccessController:
 
     def bind_music_cog(self, music_cog) -> None:
         self._music_cog = music_cog
+        log.info("DJ access bound music cog: %s", type(music_cog).__name__)
 
     def _resolve_music_cog(self):
         if self._music_cog is not None:
             return self._music_cog
         if not self.bot:
+            log.debug("DJ access resolve music cog: bot missing")
             return None
         cog = getattr(self.bot, "cogs", {}).get("Music")
         if cog is not None:
             self._music_cog = cog
+            log.debug("DJ access resolve music cog: matched named cog Music")
             return cog
         for candidate in getattr(self.bot, "cogs", {}).values():
             if hasattr(candidate, "_players"):
                 self._music_cog = candidate
+                log.debug("DJ access resolve music cog: matched %s via _players", type(candidate).__name__)
                 return candidate
+        log.debug("DJ access resolve music cog: no candidate found")
         return None
 
     def _find_player(self, guild_id: int):
@@ -46,6 +51,7 @@ class DJAccessController:
         if music_cog and hasattr(music_cog, "_players"):
             player = music_cog._players.get(guild_id)
             if player:
+                log.debug("DJ access found player in bound cog [guild_id=%s]", guild_id)
                 return player
         for candidate in getattr(self.bot, "cogs", {}).values():
             players = getattr(candidate, "_players", None)
@@ -53,7 +59,13 @@ class DJAccessController:
                 player = players.get(guild_id)
                 if player:
                     self._music_cog = candidate
+                    log.debug(
+                        "DJ access found player by scanning cogs [guild_id=%s, cog=%s]",
+                        guild_id,
+                        type(candidate).__name__,
+                    )
                     return player
+        log.debug("DJ access player not found [guild_id=%s]", guild_id)
         return None
 
     def subscribe(self, guild_id: int) -> queue.Queue[str]:
@@ -90,6 +102,16 @@ class DJAccessController:
         guild = self.bot.get_guild(guild_id) if self.bot else None
         voice_client = guild.voice_client if guild else None
         voice_name = getattr(getattr(voice_client, "channel", None), "name", "")
+        if guild:
+            log.debug(
+                "DJ snapshot request [guild_id=%s, guild_name=%s, connected=%s, has_player=%s]",
+                guild_id,
+                guild.name,
+                bool(voice_client),
+                bool(player),
+            )
+        else:
+            log.warning("DJ snapshot guild missing [guild_id=%s]", guild_id)
         if not player:
             if voice_client:
                 log.warning(
@@ -114,32 +136,67 @@ class DJAccessController:
                 "current_track": None,
                 "queue": [],
             }
-        return player.to_public_state()
+        snapshot = player.to_public_state()
+        current = snapshot.get("current_track") or {}
+        log.debug(
+            "DJ snapshot ready [guild_id=%s, connected=%s, title=%s, paused=%s]",
+            guild_id,
+            snapshot.get("connected"),
+            current.get("title"),
+            snapshot.get("is_paused"),
+        )
+        return snapshot
 
     async def _resolve_member(self, guild_id: int, user_id: int):
+        if not self.bot or not getattr(self.bot, "is_ready", lambda: False)():
+            log.debug("DJ access bot not ready yet [guild_id=%s, user_id=%s]", guild_id, user_id)
+            return None, "bot_not_ready"
         guild = self.bot.get_guild(guild_id)
         if not guild:
+            log.info("DJ access guild not found [guild_id=%s, user_id=%s]", guild_id, user_id)
             return None, "guild_not_found"
         member = guild.get_member(user_id)
         if member:
+            log.debug("DJ access member resolved from cache [guild_id=%s, user_id=%s]", guild_id, user_id)
             return member, None
         try:
             member = await guild.fetch_member(user_id)
         except discord.NotFound:
+            log.info("DJ access member not found [guild_id=%s, user_id=%s]", guild_id, user_id)
             return None, "member_not_found"
         except discord.HTTPException:
+            log.warning("DJ access member lookup failed [guild_id=%s, user_id=%s]", guild_id, user_id, exc_info=True)
             return None, "member_lookup_failed"
+        log.debug("DJ access member fetched remotely [guild_id=%s, user_id=%s]", guild_id, user_id)
         return member, None
 
     async def _check_access_async(self, guild_id: int, user_id: int) -> tuple[bool, str | None]:
         role_id = get_dj_role(guild_id)
         if not role_id:
+            log.info("DJ access denied: role not configured [guild_id=%s, user_id=%s]", guild_id, user_id)
             return False, "dj_role_not_configured"
         member, err = await self._resolve_member(guild_id, user_id)
         if not member:
+            level = logging.DEBUG if err == "bot_not_ready" else logging.INFO
+            log.log(
+                level,
+                "DJ access denied: member unresolved [guild_id=%s, user_id=%s, role_id=%s, error=%s]",
+                guild_id,
+                user_id,
+                role_id,
+                err,
+            )
             return False, err
         if any(role.id == role_id for role in getattr(member, "roles", ())):
+            log.debug("DJ access granted [guild_id=%s, user_id=%s, role_id=%s]", guild_id, user_id, role_id)
             return True, None
+        log.info(
+            "DJ access denied: missing role [guild_id=%s, user_id=%s, role_id=%s, roles=%s]",
+            guild_id,
+            user_id,
+            role_id,
+            [getattr(role, "id", None) for role in getattr(member, "roles", ())],
+        )
         return False, "missing_dj_role"
 
     def check_access(self, guild_id: int, user_id: int, timeout: float = 8.0) -> tuple[bool, str | None]:
@@ -150,9 +207,10 @@ class DJAccessController:
             )
             return future.result(timeout=timeout)
         except FuturesTimeoutError:
+            log.warning("DJ access timeout [guild_id=%s, user_id=%s, timeout=%s]", guild_id, user_id, timeout)
             return False, "bot_timeout"
         except Exception:
-            log.exception("check_access failed")
+            log.exception("check_access failed [guild_id=%s, user_id=%s]", guild_id, user_id)
             return False, "internal_error"
 
     def build_oauth_state(self, guild_id: int) -> str:

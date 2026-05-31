@@ -62,8 +62,9 @@ if Config.CACHE_ENABLED:
             from waitress import serve
             from data.database.dashboard.app import create_app
             logging.getLogger("werkzeug").setLevel(logging.ERROR)
-
-            flask_app = create_app(bot=bot)
+            while globals().get("bot") is None:
+                time.sleep(0.05)
+            flask_app = create_app(bot=globals()["bot"])
             flask_app.logger.setLevel(logging.ERROR)
             serve(
                 flask_app,

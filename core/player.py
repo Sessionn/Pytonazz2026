@@ -126,7 +126,7 @@ class MusicPlayer:
             if fresh:
                 self._cached_stream_url = fresh
                 elapsed = (time.perf_counter() - t0) * 1000
-                log.info(tag("FILTER", f"{b(filter_name)}  URL pre-fetchato in {ms(elapsed)}"))
+                log.debug(tag("FILTER", f"{b(filter_name)}  URL pre-fetchato in {ms(elapsed)}"))
             was_paused = self._paused
             self._filter_replay = True
             self.vc.stop()
@@ -192,7 +192,7 @@ class MusicPlayer:
         if fresh:
             self._cached_stream_url = fresh
             elapsed = (time.perf_counter() - t0) * 1000
-            log.info(tag("SEEK", f"URL pre-fetchato in {ms(elapsed)}"))
+            log.debug(tag("SEEK", f"URL pre-fetchato in {ms(elapsed)}"))
 
         self._seek_position = target_pos
         was_paused = self._paused
@@ -212,7 +212,7 @@ class MusicPlayer:
         elapsed = (time.perf_counter() - t0) * 1000
         if url and not nxt.stream_url:
             nxt.stream_url = url
-            log.info(tag("PREFETCH", f"{title(nxt.title)}  {ms(elapsed)}"))
+            log.debug(tag("PREFETCH", f"{title(nxt.title)}  {ms(elapsed)}"))
 
     def _schedule_prefetch_next(self):
         if self._prefetch_task and not self._prefetch_task.done():

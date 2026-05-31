@@ -77,6 +77,13 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
 
     controller = init_dj_access_controller(bot) if bot else get_dj_access_controller()
 
+    def _dj_log(message: str, level: int = logging.INFO, **fields) -> None:
+        payload = ", ".join(f"{key}={value}" for key, value in fields.items())
+        if payload:
+            log.log(level, "DJ console %s [%s]", message, payload)
+        else:
+            log.log(level, "DJ console %s", message)
+
     def get_conn():
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
@@ -136,6 +143,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         oauth_state = controller.build_oauth_state(guild_id) if controller else f"{guild_id}:{secrets.token_urlsafe(12)}"
         session["dj_oauth_state"] = oauth_state
         session["dj_oauth_guild_id"] = guild_id
+        session["dj_auth_requested_at"] = int(time.time())
         params = {
             "client_id": Config.DISCORD_CLIENT_ID,
             "redirect_uri": Config.DJ_CONSOLE_CALLBACK_URL,
@@ -144,12 +152,10 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             "state": oauth_state,
             "prompt": "consent",
         }
+        _dj_log("oauth_authorize_url_built", guild_id=guild_id, state=oauth_state)
         return f"{_DISCORD_API}/oauth2/authorize?{urlencode(params)}"
 
-    def _fetch_discord_user(code: str) -> dict:
-        override = app.config.get("DJ_OAUTH_FETCH_USER")
-        if override:
-            return override(code)
+    def _exchange_discord_code(code: str) -> dict:
         token_resp = httpx.post(
             f"{_DISCORD_API}/oauth2/token",
             data={
@@ -163,8 +169,27 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             timeout=10.0,
         )
         token_resp.raise_for_status()
-        token_data = token_resp.json()
-        access_token = token_data.get("access_token")
+        return token_resp.json()
+
+    def _refresh_discord_token(refresh_token: str) -> dict:
+        token_resp = httpx.post(
+            f"{_DISCORD_API}/oauth2/token",
+            data={
+                "client_id": Config.DISCORD_CLIENT_ID,
+                "client_secret": Config.DISCORD_CLIENT_SECRET,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10.0,
+        )
+        token_resp.raise_for_status()
+        return token_resp.json()
+
+    def _fetch_discord_user(access_token: str) -> dict:
+        override = app.config.get("DJ_OAUTH_FETCH_USER")
+        if override:
+            return override(access_token)
         user_resp = httpx.get(
             f"{_DISCORD_API}/users/@me",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -173,16 +198,146 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         user_resp.raise_for_status()
         return user_resp.json()
 
+    def _store_dj_tokens(guild_id: int, user_id: int, token_data: dict) -> None:
+        session["dj_discord_user_id"] = user_id
+        session["dj_guild_id"] = guild_id
+        session["dj_access_token"] = token_data.get("access_token", "")
+        session["dj_refresh_token"] = token_data.get("refresh_token", "")
+        session["dj_token_expires_at"] = int(time.time()) + int(token_data.get("expires_in", 0) or 0)
+        session["dj_identity_checked_at"] = 0
+        _dj_log(
+            "oauth_tokens_stored",
+            level=logging.DEBUG,
+            guild_id=guild_id,
+            user_id=user_id,
+            has_access_token=bool(session["dj_access_token"]),
+            has_refresh_token=bool(session["dj_refresh_token"]),
+            expires_at=session["dj_token_expires_at"],
+        )
+
+    def _clear_dj_session(reason: str | None = None) -> None:
+        if reason:
+            _dj_log(
+                "session_cleared",
+                level=logging.INFO,
+                reason=reason,
+                guild_id=session.get("dj_guild_id"),
+                user_id=session.get("dj_discord_user_id"),
+            )
+        for key in (
+            "dj_oauth_state",
+            "dj_oauth_guild_id",
+            "dj_discord_user_id",
+            "dj_guild_id",
+            "dj_auth_requested_at",
+            "dj_access_token",
+            "dj_refresh_token",
+            "dj_token_expires_at",
+            "dj_identity_checked_at",
+        ):
+            session.pop(key, None)
+
+    def _ensure_discord_auth_link() -> tuple[bool, str | None]:
+        access_token = str(session.get("dj_access_token") or "")
+        refresh_token = str(session.get("dj_refresh_token") or "")
+        expires_at = int(session.get("dj_token_expires_at") or 0)
+        now = int(time.time())
+        if not access_token:
+            _dj_log("auth_link_missing_access_token", guild_id=session.get("dj_guild_id"), user_id=session.get("dj_discord_user_id"))
+            return False, "auth_required"
+
+        if expires_at and now >= max(0, expires_at - 30):
+            if not refresh_token:
+                _clear_dj_session("missing_refresh_token")
+                return False, "auth_required"
+            try:
+                token_data = _refresh_discord_token(refresh_token)
+            except Exception:
+                log.exception("Discord token refresh failed")
+                _clear_dj_session("token_refresh_failed")
+                return False, "auth_required"
+            _store_dj_tokens(
+                int(session.get("dj_guild_id") or 0),
+                int(session.get("dj_discord_user_id") or 0),
+                token_data,
+            )
+            access_token = str(session.get("dj_access_token") or "")
+            _dj_log(
+                "auth_link_refreshed",
+                guild_id=session.get("dj_guild_id"),
+                user_id=session.get("dj_discord_user_id"),
+                expires_at=session.get("dj_token_expires_at"),
+            )
+
+        last_checked = int(session.get("dj_identity_checked_at") or 0)
+        if (now - last_checked) >= 60:
+            try:
+                user_payload = _fetch_discord_user(access_token)
+            except Exception:
+                log.exception("Discord identity validation failed")
+                _clear_dj_session("identity_validation_failed")
+                return False, "auth_required"
+            expected_user_id = int(session.get("dj_discord_user_id") or 0)
+            if int(user_payload.get("id") or 0) != expected_user_id:
+                _dj_log(
+                    "auth_link_identity_mismatch",
+                    level=logging.WARNING,
+                    expected_user_id=expected_user_id,
+                    actual_user_id=user_payload.get("id"),
+                )
+                _clear_dj_session("identity_mismatch")
+                return False, "auth_required"
+            session["dj_identity_checked_at"] = now
+            _dj_log(
+                "auth_link_validated",
+                level=logging.DEBUG,
+                guild_id=session.get("dj_guild_id"),
+                user_id=expected_user_id,
+                checked_at=now,
+            )
+        return True, None
+
     def _require_dj_session(guild_id: int) -> tuple[bool, str | None]:
         if not controller:
+            _dj_log("session_rejected", level=logging.WARNING, guild_id=guild_id, error="dj_controller_unavailable")
             return False, "dj_controller_unavailable"
         if not _dj_oauth_ready():
+            _dj_log("session_rejected", level=logging.WARNING, guild_id=guild_id, error="oauth_not_configured")
             return False, "oauth_not_configured"
         discord_user_id = session.get("dj_discord_user_id")
         session_guild_id = session.get("dj_guild_id")
         if not discord_user_id or session_guild_id != guild_id:
+            _dj_log(
+                "session_rejected",
+                level=logging.INFO,
+                guild_id=guild_id,
+                error="auth_required",
+                session_guild_id=session_guild_id,
+                session_user_id=discord_user_id,
+            )
             return False, "auth_required"
-        return controller.check_access(guild_id, int(discord_user_id))
+        linked, auth_error = _ensure_discord_auth_link()
+        if not linked:
+            _dj_log(
+                "session_rejected",
+                level=logging.INFO,
+                guild_id=guild_id,
+                error=auth_error or "auth_required",
+                session_user_id=discord_user_id,
+            )
+            return False, auth_error or "auth_required"
+        allowed, error = controller.check_access(guild_id, int(discord_user_id))
+        if allowed:
+            _dj_log("session_authorized", level=logging.DEBUG, guild_id=guild_id, user_id=discord_user_id)
+            return True, None
+        _dj_log(
+            "session_rejected",
+            level=logging.INFO,
+            guild_id=guild_id,
+            user_id=discord_user_id,
+            error=error or "forbidden",
+        )
+        return False, error
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -238,9 +393,11 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         if not raw_guild_id.isdigit():
             return _dj_error("invalid_guild", 400)
         guild_id = int(raw_guild_id)
+        _dj_log("console_entry", guild_id=guild_id, session_guild_id=session.get("dj_guild_id"), session_user_id=session.get("dj_discord_user_id"))
         allowed, error = _require_dj_session(guild_id)
         if not allowed:
             if error == "auth_required":
+                _dj_log("console_redirect_login", guild_id=guild_id)
                 return redirect(url_for("dj_console_login", guild_id=guild_id))
             return _dj_error(error or "forbidden", 403)
         return render_template("dj_console.html", guild_id=guild_id)
@@ -252,6 +409,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             return _dj_error("invalid_guild", 400)
         if not _dj_oauth_ready():
             return _dj_error("oauth_not_configured", 503)
+        _dj_log("console_login_start", guild_id=raw_guild_id)
         return redirect(_build_discord_authorize_url(int(raw_guild_id)))
 
     @app.route("/dj-console/callback")
@@ -261,23 +419,42 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             return _dj_error("dj_controller_unavailable", 503)
         code = (request.args.get("code") or "").strip()
         state = (request.args.get("state") or "").strip()
+        _dj_log(
+            "console_callback_received",
+            level=logging.DEBUG,
+            state=state,
+            session_state=session.get("dj_oauth_state"),
+            session_oauth_guild_id=session.get("dj_oauth_guild_id"),
+        )
         if not code or not state or state != session.get("dj_oauth_state"):
             return _dj_error("invalid_oauth_state", 400)
         try:
             guild_id = int(str(state).split(":", 1)[0])
         except (TypeError, ValueError):
             return _dj_error("invalid_oauth_state", 400)
+        expected_guild_id = int(session.get("dj_oauth_guild_id") or 0)
+        if expected_guild_id and expected_guild_id != guild_id:
+            _dj_log(
+                "console_callback_guild_mismatch",
+                level=logging.WARNING,
+                state_guild_id=guild_id,
+                session_oauth_guild_id=expected_guild_id,
+            )
+            return _dj_error("invalid_oauth_state", 400)
         try:
-            user_payload = _fetch_discord_user(code)
+            token_data = _exchange_discord_code(code)
+            user_payload = _fetch_discord_user(str(token_data.get("access_token") or ""))
         except Exception:
             log.exception("Discord OAuth callback failed")
             return _dj_error("oauth_exchange_failed", 502)
         user_id = int(user_payload["id"])
-        session["dj_discord_user_id"] = user_id
-        session["dj_guild_id"] = guild_id
+        _clear_dj_session()
+        _store_dj_tokens(guild_id, user_id, token_data)
         allowed, error = controller.check_access(guild_id, user_id)
         if not allowed:
+            _dj_log("console_callback_access_denied", level=logging.INFO, guild_id=guild_id, user_id=user_id, error=error)
             return _dj_error(error or "forbidden", 403)
+        _dj_log("console_callback_access_granted", guild_id=guild_id, user_id=user_id)
         return redirect(url_for("dj_console", guild_id=guild_id))
 
     @app.route("/dj-console/state")
@@ -288,8 +465,19 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         guild_id = int(raw_guild_id)
         allowed, error = _require_dj_session(guild_id)
         if not allowed:
-            return jsonify({"error": error or "forbidden"}), 403
-        return jsonify(controller.get_player_snapshot(guild_id))
+            status = 401 if error == "auth_required" else 403
+            _dj_log("state_denied", level=logging.INFO, guild_id=guild_id, error=error or "forbidden", status=status)
+            return jsonify({"error": error or "forbidden"}), status
+        snapshot = controller.get_player_snapshot(guild_id)
+        current = snapshot.get("current_track") or {}
+        _dj_log(
+            "state_ready",
+            level=logging.DEBUG,
+            guild_id=guild_id,
+            connected=snapshot.get("connected"),
+            title=current.get("title"),
+        )
+        return jsonify(snapshot)
 
     @app.route("/dj-console/action", methods=["POST"])
     def dj_console_action():
@@ -300,9 +488,13 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             return jsonify({"ok": False, "error": "invalid_guild"}), 400
         allowed, error = _require_dj_session(guild_id)
         if not allowed:
-            return jsonify({"ok": False, "error": error or "forbidden"}), 403
+            status = 401 if error == "auth_required" else 403
+            _dj_log("action_denied", level=logging.INFO, guild_id=guild_id, action=data.get("action"), error=error or "forbidden", status=status)
+            return jsonify({"ok": False, "error": error or "forbidden"}), status
         action = str(data.get("action") or "").strip()
+        _dj_log("action_start", level=logging.DEBUG, guild_id=guild_id, action=action)
         result = controller.perform_action(guild_id, action, data)
+        _dj_log("action_result", level=logging.INFO if result.get("ok") else logging.WARNING, guild_id=guild_id, action=action, result=result)
         return jsonify(result), (200 if result.get("ok") else 400)
 
     @app.route("/dj-console/events")
@@ -313,11 +505,14 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         guild_id = int(raw_guild_id)
         allowed, error = _require_dj_session(guild_id)
         if not allowed:
-            return jsonify({"error": error or "forbidden"}), 403
+            status = 401 if error == "auth_required" else 403
+            _dj_log("events_denied", level=logging.INFO, guild_id=guild_id, error=error or "forbidden", status=status)
+            return jsonify({"error": error or "forbidden"}), status
 
         @stream_with_context
         def events():
             sub = controller.subscribe(guild_id)
+            _dj_log("events_subscribed", level=logging.DEBUG, guild_id=guild_id)
             try:
                 initial = json.dumps(controller.get_player_snapshot(guild_id), separators=(",", ":"))
                 yield f"event: dj_state\ndata: {initial}\n\n"
@@ -329,6 +524,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
                         yield ": keepalive\n\n"
             finally:
                 controller.unsubscribe(guild_id, sub)
+                _dj_log("events_unsubscribed", level=logging.DEBUG, guild_id=guild_id)
 
         return Response(events(), mimetype="text/event-stream")
 
