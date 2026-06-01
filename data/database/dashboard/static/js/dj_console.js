@@ -399,7 +399,7 @@ function ensureScratchAudio() {
   drive.gain.value = 0.0001;
 
   const master = context.createGain();
-  master.gain.value = 0.18;
+  master.gain.value = 0.25;
 
   const panner = context.createStereoPanner();
   panner.pan.value = 0;
