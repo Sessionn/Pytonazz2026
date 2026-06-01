@@ -20,6 +20,10 @@ const els = {
   volumeHandle: document.getElementById("volume-slider-handle"),
   volumeValue: document.getElementById("volume-value"),
   filterSelect: document.getElementById("filter-select"),
+  filterSelectShell: document.getElementById("filter-select-shell"),
+  filterSelectTrigger: document.getElementById("filter-select-trigger"),
+  filterSelectLabel: document.getElementById("filter-select-label"),
+  filterSelectMenu: document.getElementById("filter-select-menu"),
   queue: document.getElementById("queue-list"),
   eqLow: document.getElementById("eq-low"),
   eqLowHandle: document.getElementById("eq-low-handle"),
@@ -74,6 +78,18 @@ const QUICK_FX = {
   "8d": { filter_name: "8d", eq: { low: 0, mid: 0.5, high: 1.5 } },
   bassboost: { filter_name: "bassboost", eq: { low: 7, mid: -1, high: 1 } },
   radio: { filter_name: "radio", eq: { low: -6, mid: 2, high: -2.5 } },
+};
+
+const FILTER_LABELS = {
+  off: "Off",
+  nightcore: "Nightcore",
+  vaporwave: "Vaporwave",
+  "8d": "8D Audio",
+  bassboost: "Bass Boost",
+  trebleboost: "Treble Boost",
+  vocalboost: "Vocal Boost",
+  radio: "Radio / Phone",
+  night: "Night Mode",
 };
 
 function formatTime(seconds) {
@@ -149,6 +165,25 @@ function setPlaybackVisual(stateName) {
   }
   els.playback.classList.add("state-offline");
   els.playbackIndicator.classList.add("is-offline");
+}
+
+function setFilterMenuOpen(open) {
+  if (!els.filterSelectShell || !els.filterSelectTrigger) return;
+  els.filterSelectShell.classList.toggle("is-open", open);
+  els.filterSelectTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function syncFilterSelect(value) {
+  const nextValue = String(value || "off");
+  if (els.filterSelect) {
+    els.filterSelect.value = nextValue;
+  }
+  if (els.filterSelectLabel) {
+    els.filterSelectLabel.textContent = FILTER_LABELS[nextValue] || nextValue;
+  }
+  document.querySelectorAll("[data-filter-option]").forEach((option) => {
+    option.classList.toggle("is-selected", option.dataset.filterOption === nextValue);
+  });
 }
 
 function renderQueue(items) {
@@ -468,7 +503,7 @@ function render(next) {
   els.artist.textContent = current ? (current.artist || "Artista sconosciuto") : "-";
   els.requester.textContent = current ? `Requested by ${current.requester || current.requester_id}` : "-";
   renderPlaybackClock();
-  els.filterSelect.value = next.filter_name || "off";
+  syncFilterSelect(next.filter_name || "off");
   setActiveButton("[data-filter-preset]", (button) => {
     const preset = QUICK_FX[button.dataset.filterPreset];
     return preset &&
@@ -789,7 +824,30 @@ document.querySelectorAll("[data-filter-preset]").forEach((button) => {
   });
 });
 
-els.filterSelect.addEventListener("change", () => postAction("set_filter", { filter_name: els.filterSelect.value }));
+els.filterSelectTrigger?.addEventListener("click", () => {
+  setFilterMenuOpen(!els.filterSelectShell.classList.contains("is-open"));
+});
+
+document.querySelectorAll("[data-filter-option]").forEach((option) => {
+  option.addEventListener("click", async () => {
+    const nextValue = option.dataset.filterOption || "off";
+    syncFilterSelect(nextValue);
+    setFilterMenuOpen(false);
+    await postAction("set_filter", { filter_name: nextValue });
+  });
+});
+
+document.addEventListener("click", (event) => {
+  if (!els.filterSelectShell) return;
+  if (els.filterSelectShell.contains(event.target)) return;
+  setFilterMenuOpen(false);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    setFilterMenuOpen(false);
+  }
+});
 
 setupVerticalDrag(els.volumeHandle, els.volume, {
   onChange: () => {
