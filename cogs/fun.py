@@ -110,12 +110,10 @@ class Fun(commands.Cog):
         key     = random.choice(_8BALL_OUTCOMES)
         label, emoji, pool = _8BALL_LABELS[key]
         testo, colore = random.choice(pool)
-        embed = discord.Embed(
-            description=f"**{testo}**",
-            color=colore,
-        )
+        embed = discord.Embed(color=colore)
         embed.set_author(name=f"{emoji} {label}")
         embed.add_field(name="Domanda", value=domanda, inline=False)
+        embed.add_field(name="Risposta", value=f"**{testo}**", inline=False)
         log.info(tag("CMD", f"8ball  {user(str(inter.user))}  \u2192  {label}"))
         await inter.response.send_message(embed=embed)
 

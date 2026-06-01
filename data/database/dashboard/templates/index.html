@@ -10,7 +10,11 @@
 <div class="shell">
   <nav>
     <div class="logo">
+      {% if bot_avatar_url %}
+      <img class="logo-avatar" src="{{ bot_avatar_url }}" alt="Avatar bot Pytonazz">
+      {% else %}
       <span class="logo-mark">PZ</span>
+      {% endif %}
       <div class="logo-copy">
         <strong>Pytonazz</strong>
         <span>Cache Control</span>

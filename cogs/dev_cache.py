@@ -4,6 +4,7 @@ Accessibili solo all'owner.
 Gruppo: /cache status | stats | prune | invalidate | clear | export | on | off
 """
 import logging
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -15,7 +16,6 @@ from config import Config
 from core.log_colors import tag, b, user
 from core.permissions import owner_check
 import core.cache_db as cache_db
-import core.cache_report as cache_report
 
 log = logging.getLogger("pitonazz.dev_cache")
 
@@ -225,14 +225,15 @@ class DevCache(commands.Cog):
             f"CLEAR ALL  removed={b(str(removed))}  by={user(str(inter.user))}"
         ))
 
-    @cache.command(name="export", description=f"{_OWN} Esporta il DB come file HTML e lo allega qui")
+    @cache.command(name="export", description=f"{_OWN} Esporta una snapshot del database cache e la allega qui")
     @owner_check
     async def cache_export(self, inter: discord.Interaction):
-        if not cache_db.is_enabled():
+        db_path = Path(Config.DB_PATH)
+        if not db_path.exists():
             await inter.response.send_message(
                 embed=discord.Embed(
-                    title="\u26a0\ufe0f Cache disabilitata",
-                    description="Abilita la cache nel `.env` per usare questo comando.",
+                    title="\u26a0\ufe0f Database non trovato",
+                    description=f"Il file `{db_path}` non esiste.",
                     color=_C_WARN,
                 ),
                 ephemeral=True,
@@ -241,25 +242,34 @@ class DevCache(commands.Cog):
 
         await inter.response.defer(ephemeral=True)
 
-        tmp = Path(tempfile.mktemp(suffix="_cache_report.html"))
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{db_path.name}") as tmp_file:
+            tmp = Path(tmp_file.name)
         try:
-            cache_report.export_to_file(tmp)
+            source = sqlite3.connect(str(db_path))
+            try:
+                snapshot = sqlite3.connect(str(tmp))
+                try:
+                    source.backup(snapshot)
+                finally:
+                    snapshot.close()
+            finally:
+                source.close()
             size_kb = round(tmp.stat().st_size / 1024, 1)
 
             embed = discord.Embed(
                 title=f"{_OWN} Cache \u2014 Export",
-                description="\U0001f4ce Report allegato. Aprilo nel browser per vedere le tabelle.",
+                description="\U0001f4ce Snapshot del database cache allegata.",
                 color=_C_INFO,
             )
-            embed.set_footer(text=f"Dimensione: {size_kb} KB")
+            embed.set_footer(text=f"{db_path.name} \u2022 {size_kb} KB")
 
             await inter.followup.send(
                 embed=embed,
-                file=discord.File(str(tmp), filename="cache_report.html"),
+                file=discord.File(str(tmp), filename=db_path.name),
                 ephemeral=True,
             )
             log.info(tag("DEV_CACHE",
-                f"export  {b(str(size_kb) + ' KB')}  by={user(str(inter.user))}"
+                f"export db  {b(str(size_kb) + ' KB')}  by={user(str(inter.user))}"
             ))
         except Exception as e:
             log.error(tag("DEV_CACHE", f"export ERROR  {e}"))

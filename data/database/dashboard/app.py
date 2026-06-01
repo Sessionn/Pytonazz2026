@@ -389,6 +389,12 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         runtime_label = f"Python {sys.version_info.major}.{sys.version_info.minor}"
         runtime_stack = "Flask + SQLite"
         db_name = os.path.basename(db_path)
+        bot_avatar_url = None
+        if bot and getattr(bot, "user", None):
+            try:
+                bot_avatar_url = str(bot.user.display_avatar.url)
+            except Exception:
+                bot_avatar_url = None
         return render_template(
             "index.html",
             stats=stats,
@@ -396,6 +402,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             runtime_label=runtime_label,
             runtime_stack=runtime_stack,
             db_name=db_name,
+            bot_avatar_url=bot_avatar_url,
         )
 
     @app.route("/dj-console")
