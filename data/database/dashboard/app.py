@@ -134,8 +134,26 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
 
         return wrapped
 
-    def _dj_error(error_code: str, status_code: int = 403):
-        return render_template("dj_console_error.html", error_code=error_code), status_code
+    def _dj_error(error_code: str, status_code: int = 403, guild_id: int | None = None):
+        message_map = {
+            "missing_dj_role": "L'account Discord collegato a questa sessione non ha il ruolo DJ richiesto nel server.",
+            "auth_required": "Serve una nuova autenticazione Discord per identificare correttamente l'account che sta aprendo la console.",
+            "invalid_guild": "Il server richiesto non e` valido o non e` stato passato correttamente alla console.",
+            "oauth_not_configured": "OAuth Discord non e` configurato sul bot, quindi la console remota non puo` autenticare l'utente.",
+        }
+        effective_guild_id = guild_id or int(session.get("dj_guild_id") or session.get("dj_oauth_guild_id") or 0) or None
+        reconnect_url = (
+            url_for("dj_console", guild_id=effective_guild_id, force_reauth=1)
+            if effective_guild_id and _dj_oauth_ready()
+            else None
+        )
+        return render_template(
+            "dj_console_error.html",
+            error_code=error_code,
+            error_message=message_map.get(error_code, "Verifica autenticazione Discord, ruolo DJ configurato e membership del server."),
+            guild_id=effective_guild_id,
+            reconnect_url=reconnect_url,
+        ), status_code
 
     def _dj_oauth_ready() -> bool:
         return bool(Config.DISCORD_CLIENT_ID and Config.DISCORD_CLIENT_SECRET and Config.DJ_CONSOLE_CALLBACK_URL)
@@ -411,13 +429,17 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         if not raw_guild_id.isdigit():
             return _dj_error("invalid_guild", 400)
         guild_id = int(raw_guild_id)
+        if (request.args.get("force_reauth") or "").strip() == "1":
+            _clear_dj_session("manual_reauth")
+            _dj_log("console_force_reauth", guild_id=guild_id)
+            return redirect(url_for("dj_console_login", guild_id=guild_id))
         _dj_log("console_entry", guild_id=guild_id, session_guild_id=session.get("dj_guild_id"), session_user_id=session.get("dj_discord_user_id"))
         allowed, error = _require_dj_session(guild_id, force_identity_validation=True)
         if not allowed:
             if error == "auth_required":
                 _dj_log("console_redirect_login", guild_id=guild_id)
                 return redirect(url_for("dj_console_login", guild_id=guild_id))
-            return _dj_error(error or "forbidden", 403)
+            return _dj_error(error or "forbidden", 403, guild_id=guild_id)
         return render_template("dj_console.html", guild_id=guild_id)
 
     @app.route("/dj-console/login")

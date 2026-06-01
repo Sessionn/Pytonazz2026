@@ -1022,6 +1022,44 @@ button.is-active {
   padding: 32px;
 }
 
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.error-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03)),
+    rgba(255,255,255,0.02);
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  transition: transform 160ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.error-action:hover {
+  transform: translateY(-1px);
+  border-color: rgba(249,115,22,0.28);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.2);
+}
+
+.error-action.primary {
+  border-color: rgba(249,115,22,0.36);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04)),
+    linear-gradient(135deg, rgba(249,115,22,0.22), rgba(96,165,250,0.14));
+  box-shadow: 0 0 0 1px rgba(249,115,22,0.16), 0 14px 28px rgba(0,0,0,0.18);
+}
+
 @keyframes platterSpin {
   from { transform: rotate(var(--scratch-rotate, 0deg)); }
   to { transform: rotate(calc(var(--scratch-rotate, 0deg) + 360deg)); }

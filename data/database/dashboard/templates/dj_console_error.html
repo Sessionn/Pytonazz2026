@@ -11,7 +11,16 @@
     <p class="eyebrow">Pitonazz Remote Deck</p>
     <h1>Accesso console negato</h1>
     <p class="error-copy">Codice: <strong>{{ error_code }}</strong></p>
-    <p class="error-copy">Verifica OAuth Discord, ruolo DJ configurato e membership del server.</p>
+    <p class="error-copy">{{ error_message }}</p>
+    <div class="error-actions">
+      {% if reconnect_url %}
+      <a class="error-action primary" href="{{ reconnect_url }}">Ricollega Discord</a>
+      {% endif %}
+      {% if guild_id %}
+      <a class="error-action" href="{{ url_for('dj_console_login', guild_id=guild_id) }}">Cambia account</a>
+      {% endif %}
+      <a class="error-action" href="{{ url_for('index') }}">Torna dashboard</a>
+    </div>
   </main>
 </body>
 </html>
