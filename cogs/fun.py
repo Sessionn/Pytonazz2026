@@ -1,15 +1,13 @@
-import asyncio
 import io
 import logging
 import random
-from datetime import timedelta
 from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.log_colors import tag, b, user
+from core.log_colors import tag, user
 from core.quote_card import build_quote_card
 
 log = logging.getLogger("pitonazz.fun")

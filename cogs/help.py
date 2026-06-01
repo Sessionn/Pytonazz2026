@@ -18,12 +18,12 @@ from core.help_utils import (
     get_cog_meta, cmd_full_name, cmd_perm,
     PERM_BADGES, DESC_PREFIX_MARKERS,
 )
-from embeds.help_embeds import (
+from ui.help.embeds import (
     build_command_embed,
     build_home_embed,
 )
-from views.help_views import _CategorySelectView
-from core.permissions import dev_check, perm
+from ui.help.views import _CategorySelectView
+from core.permissions import dev_check
 
 
 # ── Cog ──────────────────────────────────────────────────────────────────
@@ -35,6 +35,25 @@ class Help(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    async def cog_app_command_error(
+        self,
+        inter: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ):
+        if isinstance(error, app_commands.CheckFailure):
+            if inter.response.is_done():
+                await inter.followup.send(
+                    "❌ Non hai i permessi per usare questo comando.",
+                    ephemeral=True,
+                )
+            else:
+                await inter.response.send_message(
+                    "❌ Non hai i permessi per usare questo comando.",
+                    ephemeral=True,
+                )
+            return
+        raise error
 
     async def _autocomplete_comando(
         self,

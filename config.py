@@ -81,6 +81,8 @@ class Config:
     SPOTIFY_CLIENT_ID:     str = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
+    YTDLP_PATH:            str = os.getenv("YTDLP_PATH", "").strip()
+    FFMPEG_PATH:           str = os.getenv("FFMPEG_PATH", "").strip()
 
     # ── Permessi ─────────────────────────────────────────────────────────────────────────────────────
     _owner_raw: str = os.getenv("OWNER_ID") or os.getenv("DEV_ID") or ""

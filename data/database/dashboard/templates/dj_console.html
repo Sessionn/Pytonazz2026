@@ -12,27 +12,42 @@
       <div class="brand-block">
         <p class="eyebrow">Pitonazz Remote Deck</p>
         <h1>DJ Console</h1>
-        <p class="subcopy">Surface remota per FX, sculpting tonale ed EQ. Più hardware booth, meno dashboard.</p>
       </div>
       <div class="status-grid">
-        <div class="status-card">
+        <div class="status-card status-card-voice">
           <span class="status-label">Voice</span>
-          <strong id="voice-channel">-</strong>
+          <span class="status-flare" aria-hidden="true"></span>
+          <div class="status-value-shell">
+            <strong id="voice-channel" class="status-value">-</strong>
+          </div>
+          <span class="status-meta">Current room bus</span>
         </div>
         <div class="status-card status-card-live">
           <span class="status-label">State</span>
-          <div class="state-line">
-            <span id="playback-indicator" class="live-dot is-offline"></span>
-            <strong id="playback-state" class="state-pill state-offline">Offline</strong>
+          <span class="status-flare" aria-hidden="true"></span>
+          <div class="status-value-shell state-shell">
+            <div class="state-line">
+              <span id="playback-indicator" class="live-dot is-offline"></span>
+              <strong id="playback-state" class="state-pill state-offline">Offline</strong>
+            </div>
           </div>
+          <span class="status-meta">Playback transport</span>
         </div>
-        <div class="status-card">
+        <div class="status-card status-card-effect">
           <span class="status-label">Effect</span>
-          <strong id="effect-summary">off</strong>
+          <span class="status-flare" aria-hidden="true"></span>
+          <div class="status-value-shell">
+            <strong id="effect-summary" class="status-value">off</strong>
+          </div>
+          <span class="status-meta">Live color shaping</span>
         </div>
-        <div class="status-card">
+        <div class="status-card status-card-energy">
           <span class="status-label">Energy</span>
-          <strong id="tone-summary">flat</strong>
+          <span class="status-flare" aria-hidden="true"></span>
+          <div class="status-value-shell">
+            <strong id="tone-summary" class="status-value">flat</strong>
+          </div>
+          <span class="status-meta">EQ scene contour</span>
         </div>
       </div>
     </section>
@@ -69,13 +84,13 @@
       <article class="deck-panel mixer-panel">
         <div class="controls-header">
           <h3>Mixer</h3>
-          <p>Texture, motion, live response</p>
         </div>
         <div class="mixer-layout">
           <aside class="channel-strip">
             <label for="volume-slider">Volume</label>
             <div class="volume-well fader-slot">
-              <input id="volume-slider" class="volume-fader fader-vertical" type="range" min="0" max="1" step="0.01">
+              <input id="volume-slider" class="volume-fader fader-vertical" type="range" min="0" max="1" step="0.01" value="0.5" data-default="0.5">
+              <button id="volume-slider-handle" class="fader-handle" type="button" aria-label="Volume fader handle"></button>
             </div>
             <span id="volume-value" class="volume-readout">0%</span>
           </aside>
@@ -106,6 +121,8 @@
                   <option value="night">Night Mode</option>
                 </select>
               </div>
+            </div>
+            <div class="tone-grid">
               <div class="control-stack">
                 <label>Tone Scenes</label>
                 <div class="fx-pad-grid">
@@ -118,25 +135,53 @@
                 </div>
               </div>
             </div>
+            <div class="control-stack contour-stack">
+              <label>Contour</label>
+              <div class="knob-bank">
+                <div class="knob-unit">
+                  <div class="knob-shell">
+                    <div id="fx-highpass-knob" class="fx-knob" style="--knob-angle: -135deg;">
+                      <span class="knob-marker"></span>
+                      <input id="fx-highpass" class="knob-hitbox" type="range" min="0" max="4000" step="10" value="0" data-default="0">
+                    </div>
+                  </div>
+                  <span class="knob-label">High Pass</span>
+                  <span id="fx-highpass-value" class="knob-value">off</span>
+                </div>
+                <div class="knob-unit">
+                  <div class="knob-shell">
+                    <div id="fx-lowpass-knob" class="fx-knob" style="--knob-angle: 135deg;">
+                      <span class="knob-marker"></span>
+                      <input id="fx-lowpass" class="knob-hitbox" type="range" min="200" max="20000" step="100" value="20000" data-default="20000">
+                    </div>
+                  </div>
+                  <span class="knob-label">Low Pass</span>
+                  <span id="fx-lowpass-value" class="knob-value">off</span>
+                </div>
+              </div>
+            </div>
             <div class="eq-grid">
               <div class="eq-band">
                 <label for="eq-low">Low</label>
                 <div class="fader-slot eq-slot">
-                  <input id="eq-low" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" orient="vertical">
+                  <input id="eq-low" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" value="0" orient="vertical" data-default="0">
+                  <button id="eq-low-handle" class="fader-handle" type="button" aria-label="Low EQ fader handle"></button>
                 </div>
                 <span id="eq-low-value">0 dB</span>
               </div>
               <div class="eq-band">
                 <label for="eq-mid">Mid</label>
                 <div class="fader-slot eq-slot">
-                  <input id="eq-mid" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" orient="vertical">
+                  <input id="eq-mid" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" value="0" orient="vertical" data-default="0">
+                  <button id="eq-mid-handle" class="fader-handle" type="button" aria-label="Mid EQ fader handle"></button>
                 </div>
                 <span id="eq-mid-value">0 dB</span>
               </div>
               <div class="eq-band">
                 <label for="eq-high">High</label>
                 <div class="fader-slot eq-slot">
-                  <input id="eq-high" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" orient="vertical">
+                  <input id="eq-high" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" value="0" orient="vertical" data-default="0">
+                  <button id="eq-high-handle" class="fader-handle" type="button" aria-label="High EQ fader handle"></button>
                 </div>
                 <span id="eq-high-value">0 dB</span>
               </div>

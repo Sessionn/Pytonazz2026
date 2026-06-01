@@ -33,7 +33,7 @@ Il nome file è fisso per guild+event+slot → sovrascrittura automatica,
 zero duplicati, zero accumulo.
 
 Nel JSON viene salvato un sentinel "__local:<slot>__" invece dell'URL.
-Al join, _build_embed_and_files() legge il file da disco e lo allega
+Al join, build_embed_and_files() legge il file da disco e lo allega
 come discord.File con embed.set_image(url="attachment://<filename>").
 
 Gli URL esterni (non upload) continuano a funzionare invariati.
@@ -41,30 +41,36 @@ Gli URL esterni (non upload) continuano a funzionare invariati.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Optional
 
-import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.welcome_store import (
+from core.welcome.store import (
     get_config, set_field, reset_config,
     add_embed_field, remove_embed_field,
     get_auto_role, set_auto_role,
 )
 from core.log_colors import tag, b, user
-from core.paths import WELCOME_IMAGES_DIR
+from core.welcome.assets import (
+    LOCAL_IMAGE_SLOTS,
+    delete_local_image,
+    is_none_value,
+    resolve_image_input,
+)
+from core.welcome.render import (
+    build_config_summary,
+    build_embed_and_files,
+    parse_hex_color,
+    resolve_text,
+)
+from ui.welcome import err_embed, ok_embed, status_embed
 
 log = logging.getLogger("pitonazz.welcome")
 
 _CROWN      = "👑"
-_NONE_WORDS = {"none", "nessuno", "nessuna", "-", ""}
 _MAX_FIELDS = 25
-
-# Directory dove vengono salvate le immagini locali
-_IMG_DIR = WELCOME_IMAGES_DIR
 
 _TAGS_EMBED = (
     discord.Embed(
@@ -114,13 +120,10 @@ _CHECK = "\u2705"
 _CROSS = "\u274c"
 
 # Slot immagine riconosciuti nell'embed
-_IMAGE_SLOTS = ("image", "thumbnail", "footer_icon", "author_icon")
-
-
+_IMAGE_SLOTS = LOCAL_IMAGE_SLOTS
 def _event_toggle_embed(event: str, enabled: bool) -> discord.Embed:
     label = "Benvenuto" if event == "welcome" else "Addio"
-    state = "🟢 ON" if enabled else "🔴 OFF"
-    return _ok(f"{label}: **{state}**")
+    return status_embed(enabled, label)
 
 
 class _EventToggleSelect(discord.ui.Select):
@@ -162,254 +165,8 @@ class _EventToggleView(discord.ui.View):
 
 # ── image storage helpers ──────────────────────────────────────────────────────
 
-def _local_key(slot: str) -> str:
-    """Sentinel salvato nel JSON per indicare un'immagine locale."""
-    return f"__local:{slot}__"
-
-
-def _is_local(value: str | None) -> str | None:
-    """Se value è un sentinel locale, ritorna lo slot; altrimenti None."""
-    if value and value.startswith("__local:") and value.endswith("__"):
-        return value[8:-2]
-    return None
-
-
-def _local_path(guild_id: int, event: str, slot: str, ext: str = "png") -> Path:
-    return _IMG_DIR / f"{guild_id}_{event}_{slot}.{ext}"
-
-
-def _find_local_file(guild_id: int, event: str, slot: str) -> Path | None:
-    """Cerca il file salvato per qualsiasi estensione."""
-    for ext in ("png", "jpg", "jpeg", "gif", "webp"):
-        p = _local_path(guild_id, event, slot, ext)
-        if p.exists():
-            return p
-    return None
-
-
-def _delete_local_image(guild_id: int, event: str, slot: str) -> None:
-    """Elimina dal disco l'immagine locale per questo guild+event+slot."""
-    p = _find_local_file(guild_id, event, slot)
-    if p:
-        try:
-            p.unlink()
-            log.debug(tag("WEL", f"deleted local image {p.name}"))
-        except Exception as e:
-            log.warning(tag("WEL", f"failed to delete {p}: {e}"))
-
-
-async def _save_local_image(
-    guild_id: int,
-    event: str,
-    slot: str,
-    attachment: discord.Attachment,
-) -> tuple[str | None, str | None]:
-    """
-    Scarica l'attachment su disco in data/welcome_images/.
-    Ritorna (sentinel_key, None) oppure (None, messaggio_errore).
-    """
-    if not attachment.content_type or not attachment.content_type.startswith("image/"):
-        return None, f"{_CROSS} Il file allegato non è un'immagine."
-
-    # estensione dal content_type (image/png → png)
-    ext = attachment.content_type.split("/")[-1].split(";")[0].strip()
-    if ext not in ("png", "jpg", "jpeg", "gif", "webp"):
-        ext = "png"
-
-    # cancella eventuale vecchio file con estensione diversa
-    _delete_local_image(guild_id, event, slot)
-
-    dest = _local_path(guild_id, event, slot, ext)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(attachment.url) as resp:
-                if resp.status != 200:
-                    return None, f"{_CROSS} Download immagine fallito (HTTP {resp.status})."
-                dest.write_bytes(await resp.read())
-        log.debug(tag("WEL", f"saved local image {dest.name} ({dest.stat().st_size // 1024} KB)"))
-        return _local_key(slot), None
-    except Exception as e:
-        return None, f"{_CROSS} Errore nel salvataggio immagine: `{e}`"
-
-
-# ── helpers ────────────────────────────────────────────────────────────────────────
-
-def _resolve(text: Optional[str], member: discord.Member | discord.User) -> Optional[str]:
-    if text is None:
-        return None
-    guild = getattr(member, "guild", None)
-    mapping = {
-        "mention": member.mention,
-        "name": member.name,
-        "display_name": member.display_name,
-        "guild": guild.name if guild else "Server",
-        "count": guild.member_count if guild else 0,
-    }
-    try:
-        return text.format_map(_SafeFormatMap(mapping))
-    except Exception as e:
-        log.warning(tag("WEL", f"placeholder format error: {e}"))
-        return text
-
-
-class _SafeFormatMap(dict):
-    def __missing__(self, key):
-        return "{" + key + "}"
-
-
-def _build_embed_and_files(
-    cfg: dict,
-    member: discord.Member | discord.User,
-    guild_id: int,
-    event: str,
-) -> tuple[discord.Embed, list[discord.File]]:
-    """
-    Costruisce l'embed e la lista di discord.File per le immagini locali.
-    Le immagini locali vengono allegate come file e referenziate con
-    attachment://<filename> nell'embed.
-    """
-    files: list[discord.File] = []
-
-    def _resolve_url(field: str, attach_method) -> str | None:
-        """
-        Risolve un campo URL: se è un sentinel locale apre il file da disco;
-        altrimenti usa il valore direttamente come URL remoto.
-        """
-        val = cfg.get(field)
-        if not val:
-            return None
-        slot = _is_local(val)
-        if slot:
-            path = _find_local_file(guild_id, event, slot)
-            if path:
-                f = discord.File(str(path), filename=path.name)
-                files.append(f)
-                return f"attachment://{path.name}"
-            # file locale mancante (es. dopo un reset manuale del disco)
-            log.warning(tag("WEL", f"local image missing: {guild_id}/{event}/{slot}"))
-            return None
-        return val  # URL esterno, usato direttamente
-
-    embed = discord.Embed(
-        title=_resolve(cfg.get("title"), member),
-        description=_resolve(cfg.get("description"), member),
-        color=cfg.get("color", 0x5865F2),
-    )
-
-    if cfg.get("footer"):
-        footer_icon = _resolve_url("footer_icon_url", None)
-        embed.set_footer(text=_resolve(cfg["footer"], member), icon_url=footer_icon)
-
-    thumb_url = _resolve_url("thumbnail_url", None)
-    if thumb_url:
-        embed.set_thumbnail(url=thumb_url)
-
-    img_url = _resolve_url("image_url", None)
-    if img_url:
-        embed.set_image(url=img_url)
-
-    if cfg.get("author_name"):
-        # FIX: usa None invece di discord.utils.MISSING quando non c'è icon_url.
-        # MISSING veniva serializzato come stringa non valida nel payload Discord
-        # causando: 400 Bad Request — embeds.0.author.icon_url: Not a well formed URL.
-        author_icon = _resolve_url("author_icon_url", None)
-        embed.set_author(name=_resolve(cfg["author_name"], member), icon_url=author_icon)
-
-    for f in cfg.get("fields", []):
-        embed.add_field(
-            name=_resolve(f.get("name", "\u200b"), member),
-            value=_resolve(f.get("value", "\u200b"), member),
-            inline=f.get("inline", False),
-        )
-
-    return embed, files
-
-
-def _cfg_summary(cfg: dict, event: str) -> discord.Embed:
-    fields_text = (
-        "\n".join(
-            f"**{i+1}.** `{f['name']}` \u2014 {f['value'][:50]}{'...' if len(f['value']) > 50 else ''}"
-            + (" *(inline)*" if f.get("inline") else "")
-            for i, f in enumerate(cfg.get("fields", []))
-        ) or "*nessuno*"
-    )
-    enabled     = cfg.get("enabled", True)
-    abilitato   = _CHECK if enabled else _CROSS
-    icon        = "\U0001f7e2" if enabled else "\U0001f534"
-    ch_id       = cfg.get("channel_id")
-    canale_line = f"**Canale:** <#{ch_id}>" if ch_id else "**Canale:** *non impostato*"
-    plain_text  = cfg.get("plain_text", False)
-    modo_line   = "**Modo:** messaggio semplice (plain text)" if plain_text else "**Modo:** embed"
-
-    def _display_url(val: str | None) -> str:
-        if not val:
-            return "*nessuna*"
-        slot = _is_local(val)
-        return f"*locale ({slot})*" if slot else val
-
-    lines = [
-        canale_line,
-        f"**Abilitato:** {abilitato}",
-        modo_line,
-        f"**Titolo:** {cfg.get('title') or '*vuoto*'}",
-        f"**Descrizione:** {(cfg.get('description') or '')[:80] or '*vuota*'}",
-        f"**Footer:** {cfg.get('footer') or '*nessuno*'}",
-        f"**Footer icon:** {_display_url(cfg.get('footer_icon_url'))}",
-        f"**Colore:** `#{cfg.get('color', 0):06X}`",
-        f"**Thumbnail:** {_display_url(cfg.get('thumbnail_url'))}",
-        f"**Immagine:** {_display_url(cfg.get('image_url'))}",
-        f"**Author:** {cfg.get('author_name') or '*nessuno*'}",
-        f"**Author icon:** {_display_url(cfg.get('author_icon_url'))}",
-        f"**Fields ({len(cfg.get('fields', []))}):**\n{fields_text}",
-    ]
-    return discord.Embed(
-        title=f"{icon} Config {event.capitalize()}",
-        description="\n".join(lines),
-        color=0x5865F2,
-    )
-
-
-def _parse_color(s: str) -> Optional[int]:
-    s = s.strip().lstrip("#")
-    if len(s) != 6:
-        return None
-    try:
-        return int(s, 16)
-    except ValueError:
-        return None
-
-
-def _is_none(v: Optional[str]) -> bool:
-    return v is not None and v.strip().lower() in _NONE_WORDS
-
-
-async def _resolve_image(
-    guild_id: int,
-    event: str,
-    slot: str,
-    url: Optional[str],
-    upload: Optional[discord.Attachment],
-) -> tuple[str | None, str | None]:
-    """
-    Risolve url/upload per uno slot immagine.
-
-    Priorità: upload > url.
-    - upload  → scarica su disco, ritorna (sentinel_key, None)
-    - url     → se 'none'/'-'/'' ritorna ('__REMOVE__', None)
-              → altrimenti ritorna (url_esterno, None)
-    - nessuno → (None, None)
-    """
-    if upload is not None:
-        return await _save_local_image(guild_id, event, slot, upload)
-    if url is not None:
-        if _is_none(url):
-            return "__REMOVE__", None
-        return url.strip(), None
-    return None, None
-
-
-def _ok(msg: str)  -> discord.Embed: return discord.Embed(description=msg, color=0x57F287)
-def _err(msg: str) -> discord.Embed: return discord.Embed(description=f"{_CROSS} {msg}", color=0xED4245)
+def _ok(msg: str)  -> discord.Embed: return ok_embed(msg)
+def _err(msg: str) -> discord.Embed: return err_embed(msg)
 
 
 # ── Cog ─────────────────────────────────────────────────────────────────────────
@@ -462,7 +219,7 @@ class Welcome(commands.Cog):
 
         try:
             if cfg.get("plain_text", False):
-                text = _resolve(cfg.get("description"), member)
+                text = resolve_text(cfg.get("description"), member)
                 fallback_by_event = {
                     "welcome": f"**{member.display_name}** si è unito al server.",
                     "goodbye": f"**{member.display_name}** ha lasciato il server.",
@@ -470,7 +227,7 @@ class Welcome(commands.Cog):
                 fallback = fallback_by_event.get(event, f"**{member.display_name}** evento: {event}")
                 await channel.send(content=text or fallback)
             else:
-                embed, files = _build_embed_and_files(cfg, member, member.guild.id, event)
+                embed, files = build_embed_and_files(cfg, member, member.guild.id, event)
                 await channel.send(embed=embed, files=files)
             log.info(tag("WEL", f"{event}  {user(str(member))}  [{b(member.guild.name)}]"))
         except Exception as e:
@@ -602,7 +359,7 @@ class Welcome(commands.Cog):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def welcome_reset(self, inter: discord.Interaction):
         for slot in _IMAGE_SLOTS:
-            _delete_local_image(inter.guild_id, "welcome", slot)
+            delete_local_image(inter.guild_id, "welcome", slot)
         reset_config(inter.guild_id, "welcome")
         await inter.response.send_message(embed=_ok("\U0001f504 Config benvenuto ripristinata."), ephemeral=True)
 
@@ -615,7 +372,7 @@ class Welcome(commands.Cog):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def welcome_status(self, inter: discord.Interaction):
         await inter.response.send_message(
-            embed=_cfg_summary(get_config(inter.guild_id, "welcome"), "welcome"), ephemeral=True
+            embed=build_config_summary(get_config(inter.guild_id, "welcome"), "welcome"), ephemeral=True
         )
 
     # ──────────────────────────────────────────────────────────────
@@ -732,7 +489,7 @@ class Welcome(commands.Cog):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def goodbye_reset(self, inter: discord.Interaction):
         for slot in _IMAGE_SLOTS:
-            _delete_local_image(inter.guild_id, "goodbye", slot)
+            delete_local_image(inter.guild_id, "goodbye", slot)
         reset_config(inter.guild_id, "goodbye")
         await inter.response.send_message(embed=_ok("\U0001f504 Config addio ripristinata."), ephemeral=True)
 
@@ -745,7 +502,7 @@ class Welcome(commands.Cog):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def goodbye_status(self, inter: discord.Interaction):
         await inter.response.send_message(
-            embed=_cfg_summary(get_config(inter.guild_id, "goodbye"), "goodbye"), ephemeral=True
+            embed=build_config_summary(get_config(inter.guild_id, "goodbye"), "goodbye"), ephemeral=True
         )
 
     # ──────────────────────────────────────────────────────────────
@@ -818,26 +575,26 @@ class Welcome(commands.Cog):
         errors:  list[str] = []
 
         if title is not None:
-            v = None if _is_none(title) else title
+            v = None if is_none_value(title) else title
             set_field(inter.guild_id, event, "title", v)
             changed.append(f"**Titolo** \u2192 {v or '*rimosso*'}")
 
         if description is not None:
-            v = None if _is_none(description) else description
+            v = None if is_none_value(description) else description
             set_field(inter.guild_id, event, "description", v)
             changed.append("**Descrizione** aggiornata")
 
         if footer is not None:
-            v = None if _is_none(footer) else footer
+            v = None if is_none_value(footer) else footer
             set_field(inter.guild_id, event, "footer", v)
             changed.append(f"**Footer** \u2192 {v or '*rimosso*'}")
 
         # footer icon: url o upload
-        fi_val, fi_err = await _resolve_image(inter.guild_id, event, "footer_icon", footer_icon_url, footer_icon_upload)
+        fi_val, fi_err = await resolve_image_input(inter.guild_id, event, "footer_icon", footer_icon_url, footer_icon_upload)
         if fi_err:
             errors.append(fi_err)
         elif fi_val == "__REMOVE__":
-            _delete_local_image(inter.guild_id, event, "footer_icon")
+            delete_local_image(inter.guild_id, event, "footer_icon")
             set_field(inter.guild_id, event, "footer_icon_url", None)
             changed.append("**Footer icon** rimossa")
         elif fi_val is not None:
@@ -846,7 +603,7 @@ class Welcome(commands.Cog):
             changed.append(f"**Footer icon** aggiornata {tipo}")
 
         if color is not None:
-            c = _parse_color(color)
+            c = parse_hex_color(color)
             if c is None:
                 errors.append(f"{_CROSS} Colore non valido (`{color}`). Usa `#RRGGBB`.")
             else:
@@ -854,11 +611,11 @@ class Welcome(commands.Cog):
                 changed.append(f"**Colore** \u2192 `#{c:06X}`")
 
         # thumbnail: url o upload
-        th_val, th_err = await _resolve_image(inter.guild_id, event, "thumbnail", thumbnail_url, thumbnail_upload)
+        th_val, th_err = await resolve_image_input(inter.guild_id, event, "thumbnail", thumbnail_url, thumbnail_upload)
         if th_err:
             errors.append(th_err)
         elif th_val == "__REMOVE__":
-            _delete_local_image(inter.guild_id, event, "thumbnail")
+            delete_local_image(inter.guild_id, event, "thumbnail")
             set_field(inter.guild_id, event, "thumbnail_url", None)
             changed.append("**Thumbnail** rimossa")
         elif th_val is not None:
@@ -867,11 +624,11 @@ class Welcome(commands.Cog):
             changed.append(f"**Thumbnail** aggiornata {tipo}")
 
         # immagine grande: url o upload
-        img_val, img_err = await _resolve_image(inter.guild_id, event, "image", image_url, image_upload)
+        img_val, img_err = await resolve_image_input(inter.guild_id, event, "image", image_url, image_upload)
         if img_err:
             errors.append(img_err)
         elif img_val == "__REMOVE__":
-            _delete_local_image(inter.guild_id, event, "image")
+            delete_local_image(inter.guild_id, event, "image")
             set_field(inter.guild_id, event, "image_url", None)
             changed.append("**Immagine** rimossa")
         elif img_val is not None:
@@ -881,21 +638,21 @@ class Welcome(commands.Cog):
 
         # author name
         if author_name is not None:
-            v = None if _is_none(author_name) else author_name
+            v = None if is_none_value(author_name) else author_name
             set_field(inter.guild_id, event, "author_name", v)
             if not v:
-                _delete_local_image(inter.guild_id, event, "author_icon")
+                delete_local_image(inter.guild_id, event, "author_icon")
                 set_field(inter.guild_id, event, "author_icon_url", None)
                 changed.append("**Author** rimosso")
             else:
                 changed.append(f"**Author** \u2192 {v}")
 
         # author icon: url o upload
-        ai_val, ai_err = await _resolve_image(inter.guild_id, event, "author_icon", author_icon_url, author_icon_upload)
+        ai_val, ai_err = await resolve_image_input(inter.guild_id, event, "author_icon", author_icon_url, author_icon_upload)
         if ai_err:
             errors.append(ai_err)
         elif ai_val == "__REMOVE__":
-            _delete_local_image(inter.guild_id, event, "author_icon")
+            delete_local_image(inter.guild_id, event, "author_icon")
             set_field(inter.guild_id, event, "author_icon_url", None)
             changed.append("**Author icon** rimossa")
         elif ai_val is not None:
@@ -984,13 +741,13 @@ class Welcome(commands.Cog):
                 ephemeral=True,
             )
         if cfg.get("plain_text", False):
-            text = _resolve(cfg.get("description"), inter.user)
+            text = resolve_text(cfg.get("description"), inter.user)
             await inter.response.send_message(
                 content=f"*\U0001f441\ufe0f Anteprima **{event}** (plain text) \u2014 solo tu la vedi*\n\n{text or '*(nessun testo)*'}",
                 ephemeral=True,
             )
         else:
-            embed, files = _build_embed_and_files(cfg, inter.user, inter.guild_id, event)
+            embed, files = build_embed_and_files(cfg, inter.user, inter.guild_id, event)
             await inter.response.send_message(
                 content=f"*\U0001f441\ufe0f Anteprima **{event}** \u2014 solo tu la vedi*",
                 embed=embed,

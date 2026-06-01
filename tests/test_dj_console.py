@@ -68,6 +68,7 @@ controller.get_player_snapshot = lambda guild_id: {
     "autoplay_enabled": False,
     "filter_name": "off",
     "eq": {"low": 0.0, "mid": 0.0, "high": 0.0},
+    "tone_filters": {"highpass_hz": 0.0, "lowpass_hz": 20000.0},
     "current_track": None,
     "queue": [],
 }

@@ -10,7 +10,6 @@ exactly — _make_opts() merges Config.YDL_OPTIONS unchanged.
 from __future__ import annotations
 
 import logging
-import re
 import urllib.parse
 import urllib.request
 

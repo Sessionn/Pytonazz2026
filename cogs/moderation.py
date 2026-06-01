@@ -7,10 +7,18 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import Config
-from core.isolation_registry import load_quarantine_groups, save_quarantine_groups
+from core.moderation.isolation_registry import load_quarantine_groups
 from core.log_colors import tag, b, user, ch
+from core.moderation.actions import validate_standard_target
+from core.moderation.state import (
+    all_deafened_uids,
+    all_quarantined_uids,
+    group_for_uid,
+    save_quarantine_state,
+)
+from core.moderation.utils import get_or_create_quarantine_channel, resolve_members
 from core.permissions import admin_check, perm
+from ui.moderation import GroupSelectView
 
 log = logging.getLogger("pitonazz.moderation")
 
@@ -44,56 +52,6 @@ _QUARANTINE_PREFIX = "quarantena"
 # ────────────────────────────────────────────────────────────────────────────
 
 
-class _GroupSelectView(discord.ui.View):
-    """Menu a tendina per selezionare un gruppo da cui rimuovere la pena.
-
-    Viene usato sia da jenniserpi_off che da isolamento_off quando
-    viene invocato senza argomenti (o con 'menu').
-    """
-
-    def __init__(
-        self,
-        *,
-        groups: dict,           # {group_id: {"members": set, "label": str, ...}}
-        guild: discord.Guild,
-        mode: str,              # "jenny" | "isolamento"
-        cog: "Moderation",
-    ):
-        super().__init__(timeout=120)
-        self.groups = groups
-        self.guild  = guild
-        self.mode   = mode
-        self.cog    = cog
-        self.result: Optional[int] = None  # group_id scelto
-
-        options = []
-        for gid_key, info in groups.items():
-            nomi = []
-            for uid in info["members"]:
-                m = guild.get_member(uid)
-                nomi.append(m.display_name if m else f"ID:{uid}")
-            label = info.get("label") or ", ".join(nomi[:3]) + ("…" if len(nomi) > 3 else "")
-            options.append(discord.SelectOption(
-                label=label[:100],
-                value=str(gid_key),
-                description=f"{len(info['members'])} utent{'e' if len(info['members'])==1 else 'i'}",
-            ))
-
-        select = discord.ui.Select(
-            placeholder="Seleziona il gruppo da liberare…",
-            min_values=1,
-            max_values=1,
-            options=options[:25],
-        )
-        select.callback = self._on_select
-        self.add_item(select)
-
-    async def _on_select(self, interaction: discord.Interaction):
-        self.result = int(interaction.data["values"][0])
-        self.stop()
-        await interaction.response.defer()
-
-
 class Moderation(commands.Cog):
     COG_ICON  = "🛡️"
     COG_LABEL = "Moderazione"
@@ -109,51 +67,27 @@ class Moderation(commands.Cog):
         self._quarantine_groups: dict[int, dict[int, dict]] = load_quarantine_groups()
 
     def _save_quarantine_state(self) -> None:
-        try:
-            save_quarantine_groups(self._quarantine_groups)
-        except OSError as exc:
-            log.warning(tag("MOD", f"isolation registry save failed: {exc}"))
+        save_quarantine_state(self._quarantine_groups, log)
 
     # ── Helpers gerarchia ─────────────────────────────────────────
-
-    @staticmethod
-    def _can_moderate(actor: discord.Member, target: discord.Member) -> bool:
-        return actor.guild.owner_id == actor.id or actor.top_role > target.top_role
-
-    @staticmethod
-    def _bot_can_moderate(bot_member: Optional[discord.Member], target: discord.Member) -> bool:
-        return bool(bot_member and bot_member.top_role > target.top_role)
 
     # ── Helpers state interni ─────────────────────────────────────
 
     def _all_deafened_uids(self, gid: int) -> set[int]:
         """Restituisce tutti gli user ID attualmente sordati in una guild."""
-        result = set()
-        for info in self._deafened_groups.get(gid, {}).values():
-            result |= info["members"]
-        return result
+        return all_deafened_uids(self._deafened_groups.get(gid, {}))
 
     def _all_quarantined_uids(self, gid: int) -> dict[int, int]:
         """Restituisce {uid: channel_id} per tutti gli utenti in quarantena."""
-        result = {}
-        for info in self._quarantine_groups.get(gid, {}).values():
-            for uid in info["members"]:
-                result[uid] = info["channel_id"]
-        return result
+        return all_quarantined_uids(self._quarantine_groups.get(gid, {}))
 
     def _group_for_uid_quarantine(self, gid: int, uid: int) -> Optional[int]:
         """Restituisce il group_key del gruppo quarantena che contiene uid."""
-        for gkey, info in self._quarantine_groups.get(gid, {}).items():
-            if uid in info["members"]:
-                return gkey
-        return None
+        return group_for_uid(self._quarantine_groups.get(gid, {}), uid)
 
     def _group_for_uid_jenny(self, gid: int, uid: int) -> Optional[int]:
         """Restituisce il group_key del gruppo jenniserpi che contiene uid."""
-        for gkey, info in self._deafened_groups.get(gid, {}).items():
-            if uid in info["members"]:
-                return gkey
-        return None
+        return group_for_uid(self._deafened_groups.get(gid, {}), uid)
 
     def cog_load(self):
         self._quarantine_watchdog.start()
@@ -198,7 +132,7 @@ class Moderation(commands.Cog):
                 if target_ch is None:
                     # Canale eliminato: ricrealo
                     log.info(tag("MOD", f"watchdog: canale quarantena (id={cid}) mancante — ricreazione '{base_name}'"))
-                    new_ch = await self._get_or_create_quarantine_channel(guild, base_name)
+                    new_ch = await get_or_create_quarantine_channel(guild, base_name)
                     if new_ch is None:
                         log.warning(tag("MOD", f"watchdog: impossibile ricreare canale per gruppo {gkey}"))
                         continue
@@ -269,7 +203,7 @@ class Moderation(commands.Cog):
             info = self._quarantine_groups[gid][gkey]
             base_name = info["base_name"]
             log.info(tag("MOD", f"on_voice: canale quarantena eliminato — ricreazione '{base_name}'"))
-            target_ch = await self._get_or_create_quarantine_channel(member.guild, base_name)
+            target_ch = await get_or_create_quarantine_channel(member.guild, base_name)
             if target_ch is None:
                 log.warning(tag("MOD", f"on_voice: impossibile ricreare canale — watchdog riproverà"))
                 return
@@ -302,7 +236,7 @@ class Moderation(commands.Cog):
                 continue
             base_name = info.get("base_name") or _QUARANTINE_PREFIX
             log.info(tag("MOD", f"channel_delete: quarantine channel {channel.id} missing, recreating '{base_name}'"))
-            new_ch = await self._get_or_create_quarantine_channel(guild, base_name)
+            new_ch = await get_or_create_quarantine_channel(guild, base_name)
             if new_ch is None:
                 log.warning(tag("MOD", f"channel_delete: cannot recreate quarantine channel for group {gkey}"))
                 continue
@@ -437,54 +371,53 @@ class Moderation(commands.Cog):
             )
 
     # ── /kick ─────────────────────────────────────────────────────
-
     @app_commands.command(name="kick", description=f"{_CROWN} Espelle un utente dal server")
     @app_commands.describe(utente="Utente da espellere", motivo="Motivo (opzionale)")
     @app_commands.default_permissions(kick_members=True)
     @app_commands.checks.has_permissions(kick_members=True)
     async def kick(self, inter: discord.Interaction, utente: discord.Member, motivo: str = "Nessun motivo specificato"):
-        if utente.id == inter.user.id:
-            return await inter.response.send_message("❌ Non puoi espellere te stesso.", ephemeral=True)
-        if utente.id == inter.guild.owner_id:
-            return await inter.response.send_message("❌ Non puoi espellere il proprietario del server.", ephemeral=True)
-        if not self._can_moderate(inter.user, utente):
-            return await inter.response.send_message("❌ Non puoi moderare questo utente (gerarchia ruoli).", ephemeral=True)
-        if not self._bot_can_moderate(inter.guild.me, utente):
-            return await inter.response.send_message("❌ Non posso moderare questo utente (gerarchia ruoli).", ephemeral=True)
+        err = validate_standard_target(
+            actor=inter.user,
+            bot_member=inter.guild.me,
+            target=utente,
+            action_label="espellere",
+        )
+        if err:
+            return await inter.response.send_message(err, ephemeral=True)
         try:
             await utente.kick(reason=f"{motivo} | da {inter.user}")
-            await inter.response.send_message(f"👢 {utente.mention} espulso.\nMotivo: {motivo}", ephemeral=True)
+            await inter.response.send_message(f"Utente espulso: {utente.mention}\nMotivo: {motivo}", ephemeral=True)
             log.info(tag("MOD", f"kick {user(str(utente))} da {user(str(inter.user))} motivo={b(motivo)}"))
         except discord.Forbidden:
-            await inter.response.send_message("❌ Permessi insufficienti per espellere questo utente.", ephemeral=True)
+            await inter.response.send_message("Permessi insufficienti per espellere questo utente.", ephemeral=True)
         except discord.HTTPException as exc:
-            await inter.response.send_message(f"❌ Errore durante il kick: `{exc}`", ephemeral=True)
+            await inter.response.send_message(f"Errore durante il kick: `{exc}`", ephemeral=True)
 
-    # ── /ban ──────────────────────────────────────────────────────
+    # /ban
 
     @app_commands.command(name="ban", description=f"{_CROWN} Banna un utente dal server")
     @app_commands.describe(utente="Utente da bannare", motivo="Motivo (opzionale)")
     @app_commands.default_permissions(ban_members=True)
     @app_commands.checks.has_permissions(ban_members=True)
     async def ban(self, inter: discord.Interaction, utente: discord.Member, motivo: str = "Nessun motivo specificato"):
-        if utente.id == inter.user.id:
-            return await inter.response.send_message("❌ Non puoi bannare te stesso.", ephemeral=True)
-        if utente.id == inter.guild.owner_id:
-            return await inter.response.send_message("❌ Non puoi bannare il proprietario del server.", ephemeral=True)
-        if not self._can_moderate(inter.user, utente):
-            return await inter.response.send_message("❌ Non puoi moderare questo utente (gerarchia ruoli).", ephemeral=True)
-        if not self._bot_can_moderate(inter.guild.me, utente):
-            return await inter.response.send_message("❌ Non posso moderare questo utente (gerarchia ruoli).", ephemeral=True)
+        err = validate_standard_target(
+            actor=inter.user,
+            bot_member=inter.guild.me,
+            target=utente,
+            action_label="bannare",
+        )
+        if err:
+            return await inter.response.send_message(err, ephemeral=True)
         try:
             await inter.guild.ban(utente, reason=f"{motivo} | da {inter.user}", delete_message_days=0)
-            await inter.response.send_message(f"🔨 {utente.mention} bannato.\nMotivo: {motivo}", ephemeral=True)
+            await inter.response.send_message(f"Utente bannato: {utente.mention}\nMotivo: {motivo}", ephemeral=True)
             log.info(tag("MOD", f"ban {user(str(utente))} da {user(str(inter.user))} motivo={b(motivo)}"))
         except discord.Forbidden:
-            await inter.response.send_message("❌ Permessi insufficienti per bannare questo utente.", ephemeral=True)
+            await inter.response.send_message("Permessi insufficienti per bannare questo utente.", ephemeral=True)
         except discord.HTTPException as exc:
-            await inter.response.send_message(f"❌ Errore durante il ban: `{exc}`", ephemeral=True)
+            await inter.response.send_message(f"Errore durante il ban: `{exc}`", ephemeral=True)
 
-    # ── /timeout ──────────────────────────────────────────────────
+    # /timeout
 
     @app_commands.command(name="timeout", description=f"{_CROWN} Applica un timeout temporaneo a un utente")
     @app_commands.describe(
@@ -501,24 +434,24 @@ class Moderation(commands.Cog):
         minuti: app_commands.Range[int, 1, 10080],
         motivo: str = "Nessun motivo specificato",
     ):
-        if utente.id == inter.user.id:
-            return await inter.response.send_message("❌ Non puoi applicare timeout a te stesso.", ephemeral=True)
-        if utente.id == inter.guild.owner_id:
-            return await inter.response.send_message("❌ Non puoi applicare timeout al proprietario del server.", ephemeral=True)
-        if not self._can_moderate(inter.user, utente):
-            return await inter.response.send_message("❌ Non puoi moderare questo utente (gerarchia ruoli).", ephemeral=True)
-        if not self._bot_can_moderate(inter.guild.me, utente):
-            return await inter.response.send_message("❌ Non posso moderare questo utente (gerarchia ruoli).", ephemeral=True)
+        err = validate_standard_target(
+            actor=inter.user,
+            bot_member=inter.guild.me,
+            target=utente,
+            action_label="applicare timeout a",
+        )
+        if err:
+            return await inter.response.send_message(err, ephemeral=True)
         until = discord.utils.utcnow() + timedelta(minutes=int(minuti))
         try:
             await utente.timeout(until, reason=f"{motivo} | da {inter.user}")
             await inter.response.send_message(
-                f"⏱️ Timeout applicato a {utente.mention} per **{minuti}** minuti.\nMotivo: {motivo}",
+                f"Timeout applicato a {utente.mention} per **{minuti}** minuti.\nMotivo: {motivo}",
                 ephemeral=True,
             )
             log.info(tag("MOD", f"timeout {user(str(utente))} {b(str(minuti))}m da {user(str(inter.user))}"))
         except discord.Forbidden:
-            await inter.response.send_message("❌ Permessi insufficienti per applicare timeout.", ephemeral=True)
+            await inter.response.send_message("Permessi insufficienti per applicare timeout.", ephemeral=True)
         except discord.HTTPException as exc:
             await inter.response.send_message(f"❌ Errore durante il timeout: `{exc}`", ephemeral=True)
 
@@ -534,7 +467,7 @@ class Moderation(commands.Cog):
         if gid not in self._muted_mic:
             self._muted_mic[gid] = set()
 
-        members = await self._resolve_members(inter.guild, utenti)
+        members = await resolve_members(inter.guild, utenti)
         if not members:
             return await inter.followup.send("❌ Nessun utente valido trovato.", ephemeral=True)
 
@@ -572,7 +505,7 @@ class Moderation(commands.Cog):
             members = [inter.guild.get_member(uid) for uid in list(muted)]
             members = [m for m in members if m]
         else:
-            members = await self._resolve_members(inter.guild, utenti)
+            members = await resolve_members(inter.guild, utenti)
 
         if not members:
             return await inter.followup.send("❌ Nessun utente valido trovato.", ephemeral=True)
@@ -639,7 +572,7 @@ class Moderation(commands.Cog):
         if gid not in self._deafened_groups:
             self._deafened_groups[gid] = {}
 
-        members = await self._resolve_members(inter.guild, utenti)
+        members = await resolve_members(inter.guild, utenti)
         if not members:
             return await inter.followup.send("❌ Nessun utente valido trovato.", ephemeral=True)
 
@@ -709,7 +642,7 @@ class Moderation(commands.Cog):
         # ── Caso: utenti specificati ──
         if utenti.strip():
             await inter.response.defer(ephemeral=True)
-            members = await self._resolve_members(inter.guild, utenti)
+            members = await resolve_members(inter.guild, utenti)
             if not members:
                 return await inter.followup.send("❌ Nessun utente valido trovato.", ephemeral=True)
             removed = []
@@ -733,7 +666,7 @@ class Moderation(commands.Cog):
         if not groups:
             return await inter.response.send_message("ℹ️ Nessuna sessione Jenni Serpi attiva.", ephemeral=True)
 
-        view = _GroupSelectView(groups=groups, guild=inter.guild, mode="jenny", cog=self)
+        view = GroupSelectView(groups=groups, guild=inter.guild)
         await inter.response.send_message(
             "🔕 Seleziona il gruppo da liberare dalla sordina:",
             view=view,
@@ -817,11 +750,11 @@ class Moderation(commands.Cog):
         if gid not in self._quarantine_groups:
             self._quarantine_groups[gid] = {}
 
-        members = await self._resolve_members(inter.guild, utenti)
+        members = await resolve_members(inter.guild, utenti)
         if not members:
             return await inter.followup.send("❌ Nessun utente valido trovato.", ephemeral=True)
 
-        q_channel = await self._get_or_create_quarantine_channel(inter.guild, nome_canale)
+        q_channel = await get_or_create_quarantine_channel(inter.guild, nome_canale)
         if q_channel is None:
             return await inter.followup.send(
                 "❌ Non riesco a creare il canale di quarantena. Controlla che il bot abbia i permessi **Gestisci canali**.",
@@ -977,7 +910,7 @@ class Moderation(commands.Cog):
         # ── Caso: utenti specificati ──
         if utenti.strip():
             await inter.response.defer(ephemeral=True)
-            members = await self._resolve_members(inter.guild, utenti)
+            members = await resolve_members(inter.guild, utenti)
             if not members:
                 return await inter.followup.send("❌ Nessun utente valido trovato.", ephemeral=True)
 
@@ -1032,7 +965,7 @@ class Moderation(commands.Cog):
         if not q_groups:
             return await inter.response.send_message("ℹ️ Nessun utente in isolamento.", ephemeral=True)
 
-        view = _GroupSelectView(groups=q_groups, guild=inter.guild, mode="isolamento", cog=self)
+        view = GroupSelectView(groups=q_groups, guild=inter.guild)
         await inter.response.send_message(
             "🔒 Seleziona il gruppo da liberare dall'isolamento:",
             view=view,
@@ -1114,64 +1047,9 @@ class Moderation(commands.Cog):
 
     # ── Helpers interni ───────────────────────────────────────────
 
-    @staticmethod
-    async def _resolve_members(guild: discord.Guild, raw: str) -> list[discord.Member]:
-        found = []
-        for token in raw.split():
-            clean = token.strip("<@!>").strip()
-            if not clean or not clean.isdigit():
-                if clean:
-                    log.debug(tag("MOD", f"_resolve_members: token non numerico ignorato: {clean!r}"))
-                continue
-            uid = int(clean)
-            m = guild.get_member(uid)
-            if m is None:
-                try:
-                    m = await guild.fetch_member(uid)
-                except discord.NotFound:
-                    log.warning(tag("MOD", f"_resolve_members: utente ID {uid} non trovato nel server"))
-                except discord.HTTPException as exc:
-                    log.warning(tag("MOD", f"_resolve_members: errore fetch ID {uid}: {exc}"))
-            if m and m not in found:
-                found.append(m)
-        return found
 
-    @staticmethod
-    async def _get_or_create_quarantine_channel(
-        guild: discord.Guild,
-        base_name: str,
-    ) -> Optional[discord.VoiceChannel]:
-        for ch_obj in guild.voice_channels:
-            if ch_obj.name == base_name or ch_obj.name.startswith(base_name + "-"):
-                return ch_obj
 
-        existing_nums = set()
-        for ch_obj in guild.voice_channels:
-            if ch_obj.name.startswith(base_name + "-"):
-                suffix = ch_obj.name[len(base_name) + 1:]
-                if suffix.isdigit():
-                    existing_nums.add(int(suffix))
 
-        if not existing_nums:
-            final_name = base_name
-        else:
-            n = 1
-            while n in existing_nums:
-                n += 1
-            final_name = f"{base_name}-{n}"
-
-        try:
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=True),
-                guild.me: discord.PermissionOverwrite(connect=True, move_members=True, view_channel=True),
-            }
-            return await guild.create_voice_channel(
-                name=final_name,
-                overwrites=overwrites,
-                reason="Creazione canale quarantena automatica",
-            )
-        except (discord.Forbidden, discord.HTTPException):
-            return None
 
 
 async def setup(bot: commands.Bot):

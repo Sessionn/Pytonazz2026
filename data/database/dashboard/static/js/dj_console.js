@@ -17,22 +17,30 @@ const els = {
   duration: document.getElementById("duration-label"),
   progress: document.getElementById("progress-fill"),
   volume: document.getElementById("volume-slider"),
+  volumeHandle: document.getElementById("volume-slider-handle"),
   volumeValue: document.getElementById("volume-value"),
   filterSelect: document.getElementById("filter-select"),
   queue: document.getElementById("queue-list"),
   eqLow: document.getElementById("eq-low"),
+  eqLowHandle: document.getElementById("eq-low-handle"),
   eqMid: document.getElementById("eq-mid"),
+  eqMidHandle: document.getElementById("eq-mid-handle"),
   eqHigh: document.getElementById("eq-high"),
+  eqHighHandle: document.getElementById("eq-high-handle"),
+  fxHighpass: document.getElementById("fx-highpass"),
+  fxLowpass: document.getElementById("fx-lowpass"),
+  fxHighpassKnob: document.getElementById("fx-highpass-knob"),
+  fxLowpassKnob: document.getElementById("fx-lowpass-knob"),
   eqLowValue: document.getElementById("eq-low-value"),
   eqMidValue: document.getElementById("eq-mid-value"),
   eqHighValue: document.getElementById("eq-high-value"),
+  fxHighpassValue: document.getElementById("fx-highpass-value"),
+  fxLowpassValue: document.getElementById("fx-lowpass-value"),
   platterWrap: document.getElementById("platter-wrap"),
   platterDisc: document.getElementById("platter-disc"),
 };
 
 let state = null;
-let sendVolumeTimer = null;
-let sendEqTimer = null;
 let refreshTimer = null;
 let lastErrorCode = "";
 let queueKeys = new Set();
@@ -40,9 +48,15 @@ let scratchRotation = 0;
 let scratchActive = false;
 let scratchStartAngle = 0;
 let scratchBaseRotation = 0;
+let platterWasSpinning = false;
+let scratchLastAngle = 0;
+let scratchLastMoveAt = 0;
+let scratchAudio = null;
 let lastStateSyncAt = performance.now();
-let lastVolumeTapAt = 0;
-const lastEqTapAt = new WeakMap();
+let sendEqTimer = null;
+let eqAnimationFrame = 0;
+const lastTapAt = new WeakMap();
+const draggingInputs = new Set();
 
 const EQ_SCENES = {
   flat: { low: 0, mid: 0, high: 0 },
@@ -69,6 +83,34 @@ function formatTime(seconds) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function makeContinuousSender(action, buildPayload, minIntervalMs = 28) {
+  let timer = null;
+  let dirty = false;
+  let lastSentAt = 0;
+
+  function schedule() {
+    dirty = true;
+    if (timer !== null) {
+      return;
+    }
+    const wait = Math.max(0, minIntervalMs - (performance.now() - lastSentAt));
+    timer = window.setTimeout(() => {
+      timer = null;
+      if (!dirty) {
+        return;
+      }
+      dirty = false;
+      lastSentAt = performance.now();
+      void postAction(action, buildPayload());
+      if (dirty) {
+        schedule();
+      }
+    }, wait);
+  }
+
+  return schedule;
+}
+
 function setActiveButton(selector, predicate) {
   document.querySelectorAll(selector).forEach((button) => {
     button.classList.toggle("is-active", predicate(button));
@@ -77,10 +119,10 @@ function setActiveButton(selector, predicate) {
 
 function summarizeTone(eq) {
   const values = [eq.low || 0, eq.mid || 0, eq.high || 0];
-  const peak = Math.max(...values.map((v) => Math.abs(v)));
+  const peak = Math.max(...values.map((value) => Math.abs(value)));
   if (peak < 0.25) return "flat";
-  const boosted = values.filter((v) => v > 1.5).length;
-  const cut = values.filter((v) => v < -1.5).length;
+  const boosted = values.filter((value) => value > 1.5).length;
+  const cut = values.filter((value) => value < -1.5).length;
   if (boosted >= 2) return "hyped";
   if (cut >= 2) return "cut";
   return "custom";
@@ -193,29 +235,108 @@ function tickPlaybackClock() {
   window.requestAnimationFrame(tickPlaybackClock);
 }
 
-function updateEqValueLabels() {
-  els.eqLowValue.textContent = `${Number(els.eqLow.value).toFixed(1)} dB`;
-  els.eqMidValue.textContent = `${Number(els.eqMid.value).toFixed(1)} dB`;
-  els.eqHighValue.textContent = `${Number(els.eqHigh.value).toFixed(1)} dB`;
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
-function resetEqBand(input) {
-  input.value = "0";
-  updateEqValueLabels();
-  postAction("set_eq", {
-    eq: {
-      low: Number(els.eqLow.value),
-      mid: Number(els.eqMid.value),
-      high: Number(els.eqHigh.value),
-    },
-  });
+function getRangeMeta(input) {
+  return {
+    min: Number(input.min || 0),
+    max: Number(input.max || 1),
+    step: Number(input.step || 1),
+  };
+}
+
+function quantize(value, step, min, max) {
+  const safeStep = step > 0 ? step : 1;
+  const steps = Math.round((value - min) / safeStep);
+  return clamp(min + (steps * safeStep), min, max);
+}
+
+function setControlValue(input, nextValue) {
+  const { min, max, step } = getRangeMeta(input);
+  const normalized = quantize(Number(nextValue), step, min, max);
+  input.value = String(normalized);
+  return normalized;
+}
+
+function getControlValue(input) {
+  return Number(input.value || 0);
+}
+
+function getDefaultValue(input) {
+  const fallback = input.dataset.default ?? input.defaultValue ?? input.min ?? "0";
+  return setControlValue(input, Number(fallback));
+}
+
+function getControlRatio(input) {
+  const { min, max } = getRangeMeta(input);
+  const span = Math.max(1e-6, max - min);
+  return clamp((getControlValue(input) - min) / span, 0, 1);
+}
+
+function setFaderHandlePosition(handle, input) {
+  if (!handle || !input) return;
+  handle.style.setProperty("--fader-ratio", `${getControlRatio(input)}`);
+}
+
+function updateVolumeReadout() {
+  els.volumeValue.textContent = `${Math.round(getControlValue(els.volume) * 100)}%`;
+  setFaderHandlePosition(els.volumeHandle, els.volume);
+}
+
+function updateEqValueLabels() {
+  els.eqLowValue.textContent = `${getControlValue(els.eqLow).toFixed(1)} dB`;
+  els.eqMidValue.textContent = `${getControlValue(els.eqMid).toFixed(1)} dB`;
+  els.eqHighValue.textContent = `${getControlValue(els.eqHigh).toFixed(1)} dB`;
+  setFaderHandlePosition(els.eqLowHandle, els.eqLow);
+  setFaderHandlePosition(els.eqMidHandle, els.eqMid);
+  setFaderHandlePosition(els.eqHighHandle, els.eqHigh);
+}
+
+function cancelEqAnimation() {
+  if (eqAnimationFrame) {
+    window.cancelAnimationFrame(eqAnimationFrame);
+    eqAnimationFrame = 0;
+  }
+}
+
+function formatHighpass(value) {
+  const hz = Number(value || 0);
+  if (hz <= 0) return "off";
+  if (hz >= 1000) return `${(hz / 1000).toFixed(1)} kHz`;
+  return `${Math.round(hz)} Hz`;
+}
+
+function formatLowpass(value) {
+  const hz = Number(value || 0);
+  if (hz >= 19900) return "off";
+  if (hz >= 1000) return `${(hz / 1000).toFixed(1)} kHz`;
+  return `${Math.round(hz)} Hz`;
+}
+
+function setKnobAngle(knob, input) {
+  if (!knob || !input) return;
+  const angle = -135 + (getControlRatio(input) * 270);
+  knob.style.setProperty("--knob-angle", `${angle}deg`);
+}
+
+function updateToneValueLabels() {
+  els.fxHighpassValue.textContent = formatHighpass(getControlValue(els.fxHighpass));
+  els.fxLowpassValue.textContent = formatLowpass(getControlValue(els.fxLowpass));
+  setKnobAngle(els.fxHighpassKnob, els.fxHighpass);
+  setKnobAngle(els.fxLowpassKnob, els.fxLowpass);
 }
 
 function syncPlatterMotion(next) {
-  els.platterDisc.style.setProperty("--scratch-rotate", `${scratchRotation}deg`);
   const shouldSpin = Boolean(next.connected && next.current_track && !next.is_paused && !scratchActive);
+  if (platterWasSpinning && !shouldSpin) {
+    scratchRotation = getRenderedRotationDegrees();
+  }
+  els.platterDisc.style.setProperty("--scratch-rotate", `${scratchRotation}deg`);
   els.platterDisc.classList.toggle("is-spinning", shouldSpin);
   els.platterDisc.classList.toggle("is-scratching", scratchActive);
+  platterWasSpinning = shouldSpin;
 }
 
 function getRenderedRotationDegrees() {
@@ -241,6 +362,94 @@ function getPointerAngle(event) {
   return Math.atan2(event.clientY - cy, event.clientX - cx) * (180 / Math.PI);
 }
 
+function normalizeAngleDelta(delta) {
+  let next = Number(delta || 0);
+  while (next > 180) next -= 360;
+  while (next < -180) next += 360;
+  return next;
+}
+
+function ensureScratchAudio() {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (scratchAudio || typeof AudioContextCtor !== "function") {
+    return scratchAudio;
+  }
+
+  const context = new AudioContextCtor();
+  const buffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
+  const channel = buffer.getChannelData(0);
+  for (let index = 0; index < channel.length; index += 1) {
+    channel[index] = (Math.random() * 2) - 1;
+  }
+
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  source.loop = true;
+
+  const bandpass = context.createBiquadFilter();
+  bandpass.type = "bandpass";
+  bandpass.frequency.value = 1400;
+  bandpass.Q.value = 1.2;
+
+  const highpass = context.createBiquadFilter();
+  highpass.type = "highpass";
+  highpass.frequency.value = 170;
+
+  const drive = context.createGain();
+  drive.gain.value = 0.0001;
+
+  const master = context.createGain();
+  master.gain.value = 0.18;
+
+  const panner = context.createStereoPanner();
+  panner.pan.value = 0;
+
+  source.connect(bandpass);
+  bandpass.connect(highpass);
+  highpass.connect(panner);
+  panner.connect(drive);
+  drive.connect(master);
+  master.connect(context.destination);
+  source.start();
+
+  scratchAudio = { context, source, bandpass, highpass, panner, drive };
+  return scratchAudio;
+}
+
+async function armScratchAudio() {
+  const rig = ensureScratchAudio();
+  if (!rig) return null;
+  if (rig.context.state === "suspended") {
+    try {
+      await rig.context.resume();
+    } catch {
+      return null;
+    }
+  }
+  return rig;
+}
+
+function updateScratchAudio(deltaAngle, deltaTimeMs) {
+  if (!scratchAudio) return;
+  const velocity = Math.abs(deltaAngle) / Math.max(4, deltaTimeMs);
+  const intensity = clamp(velocity / 1.35, 0, 1);
+  const now = scratchAudio.context.currentTime;
+
+  scratchAudio.bandpass.frequency.setTargetAtTime(700 + (intensity * 5200), now, 0.012);
+  scratchAudio.bandpass.Q.setTargetAtTime(0.9 + (intensity * 8.5), now, 0.016);
+  scratchAudio.highpass.frequency.setTargetAtTime(130 + (intensity * 1450), now, 0.016);
+  scratchAudio.panner.pan.setTargetAtTime(clamp(deltaAngle / 22, -0.92, 0.92), now, 0.01);
+  scratchAudio.source.playbackRate.setTargetAtTime(0.86 + (intensity * 0.88), now, 0.012);
+  scratchAudio.drive.gain.setTargetAtTime(0.0001 + (Math.pow(intensity, 1.2) * 0.22), now, 0.01);
+}
+
+function stopScratchAudio() {
+  if (!scratchAudio) return;
+  const now = scratchAudio.context.currentTime;
+  scratchAudio.drive.gain.setTargetAtTime(0.0001, now, 0.018);
+  scratchAudio.panner.pan.setTargetAtTime(0, now, 0.025);
+}
+
 if (!/^\d+$/.test(guildId)) {
   renderError("invalid_guild");
   throw new Error(`Invalid guild id: ${guildId}`);
@@ -259,8 +468,6 @@ function render(next) {
   els.artist.textContent = current ? (current.artist || "Artista sconosciuto") : "-";
   els.requester.textContent = current ? `Requested by ${current.requester || current.requester_id}` : "-";
   renderPlaybackClock();
-  els.volume.value = String(next.volume ?? 0.5);
-  els.volumeValue.textContent = `${Math.round((next.volume || 0) * 100)}%`;
   els.filterSelect.value = next.filter_name || "off";
   setActiveButton("[data-filter-preset]", (button) => {
     const preset = QUICK_FX[button.dataset.filterPreset];
@@ -271,13 +478,32 @@ function render(next) {
   renderQueue(next.queue || []);
 
   const eq = next.eq || { low: 0, mid: 0, high: 0 };
+  const toneFilters = next.tone_filters || { highpass_hz: 0, lowpass_hz: 20000 };
   els.toneSummary.textContent = summarizeTone(eq);
-  els.eqLow.value = String(eq.low ?? 0);
-  els.eqMid.value = String(eq.mid ?? 0);
-  els.eqHigh.value = String(eq.high ?? 0);
-  els.eqLowValue.textContent = `${Number(eq.low || 0).toFixed(1)} dB`;
-  els.eqMidValue.textContent = `${Number(eq.mid || 0).toFixed(1)} dB`;
-  els.eqHighValue.textContent = `${Number(eq.high || 0).toFixed(1)} dB`;
+
+  if (!draggingInputs.has(els.volume)) {
+    setControlValue(els.volume, next.volume ?? 0.5);
+    updateVolumeReadout();
+  }
+  if (!draggingInputs.has(els.eqLow)) {
+    setControlValue(els.eqLow, eq.low ?? 0);
+  }
+  if (!draggingInputs.has(els.eqMid)) {
+    setControlValue(els.eqMid, eq.mid ?? 0);
+  }
+  if (!draggingInputs.has(els.eqHigh)) {
+    setControlValue(els.eqHigh, eq.high ?? 0);
+  }
+  if (!draggingInputs.has(els.fxHighpass)) {
+    setControlValue(els.fxHighpass, toneFilters.highpass_hz ?? 0);
+  }
+  if (!draggingInputs.has(els.fxLowpass)) {
+    setControlValue(els.fxLowpass, toneFilters.lowpass_hz ?? 20000);
+  }
+
+  updateEqValueLabels();
+  updateToneValueLabels();
+
   setActiveButton("[data-eq-scene]", (button) => {
     const scene = EQ_SCENES[button.dataset.eqScene];
     return scene &&
@@ -326,6 +552,169 @@ async function postAction(action, payload = {}) {
   }
 }
 
+const liveVolumeSender = makeContinuousSender("set_volume", () => ({
+  volume: getControlValue(els.volume),
+}));
+
+const liveToneSender = makeContinuousSender("set_tone_filters", () => ({
+  tone_filters: {
+    highpass_hz: getControlValue(els.fxHighpass),
+    lowpass_hz: getControlValue(els.fxLowpass),
+  },
+}));
+
+const liveEqSender = makeContinuousSender("set_eq", () => ({
+  eq: {
+    low: getControlValue(els.eqLow),
+    mid: getControlValue(els.eqMid),
+    high: getControlValue(els.eqHigh),
+  },
+}));
+
+function sendEqNow() {
+  clearTimeout(sendEqTimer);
+  sendEqTimer = null;
+  return postAction("set_eq", {
+    eq: {
+      low: getControlValue(els.eqLow),
+      mid: getControlValue(els.eqMid),
+      high: getControlValue(els.eqHigh),
+    },
+  });
+}
+
+function resetEqBand(input) {
+  setControlValue(input, getDefaultValue(input));
+  updateEqValueLabels();
+  cancelEqAnimation();
+  liveEqSender();
+}
+
+function resetToneBand(input) {
+  setControlValue(input, getDefaultValue(input));
+  updateToneValueLabels();
+  liveToneSender();
+}
+
+function resetVolume() {
+  setControlValue(els.volume, getDefaultValue(els.volume));
+  updateVolumeReadout();
+  liveVolumeSender();
+}
+
+function easeOutQuart(t) {
+  return 1 - Math.pow(1 - t, 4);
+}
+
+function animateEqTo(targetEq, durationMs = 320) {
+  cancelEqAnimation();
+  const start = performance.now();
+  const startLow = getControlValue(els.eqLow);
+  const startMid = getControlValue(els.eqMid);
+  const startHigh = getControlValue(els.eqHigh);
+
+  function step(now) {
+    const t = Math.min(1, (now - start) / durationMs);
+    const eased = easeOutQuart(t);
+    setControlValue(els.eqLow, startLow + ((Number(targetEq.low) - startLow) * eased));
+    setControlValue(els.eqMid, startMid + ((Number(targetEq.mid) - startMid) * eased));
+    setControlValue(els.eqHigh, startHigh + ((Number(targetEq.high) - startHigh) * eased));
+    updateEqValueLabels();
+    liveEqSender();
+    if (t < 1) {
+      eqAnimationFrame = window.requestAnimationFrame(step);
+      return;
+    }
+    eqAnimationFrame = 0;
+    void sendEqNow();
+  }
+
+  eqAnimationFrame = window.requestAnimationFrame(step);
+}
+
+function setupVerticalDrag(handle, input, { onChange, onCommit, onReset }) {
+  let pointerId = null;
+  let startY = 0;
+  let startValue = 0;
+
+  handle.addEventListener("pointerdown", (event) => {
+    pointerId = event.pointerId;
+    startY = event.clientY;
+    startValue = getControlValue(input);
+    draggingInputs.add(input);
+    handle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  handle.addEventListener("pointermove", (event) => {
+    if (pointerId !== event.pointerId) return;
+    const slot = handle.closest(".fader-slot");
+    const travel = Math.max(160, (slot?.clientHeight || 240) - 24);
+    const { min, max } = getRangeMeta(input);
+    const nextValue = startValue + (((startY - event.clientY) / travel) * (max - min));
+    setControlValue(input, nextValue);
+    onChange();
+  });
+
+  function finish(event) {
+    if (pointerId !== event.pointerId) return;
+    if (handle.hasPointerCapture(event.pointerId)) {
+      handle.releasePointerCapture(event.pointerId);
+    }
+    draggingInputs.delete(input);
+    pointerId = null;
+    onCommit();
+  }
+
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    onReset();
+  });
+}
+
+function setupKnobDrag(knob, input, { onChange, onCommit, onReset }) {
+  let pointerId = null;
+  let startY = 0;
+  let startValue = 0;
+
+  knob.addEventListener("pointerdown", (event) => {
+    pointerId = event.pointerId;
+    startY = event.clientY;
+    startValue = getControlValue(input);
+    draggingInputs.add(input);
+    knob.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  knob.addEventListener("pointermove", (event) => {
+    if (pointerId !== event.pointerId) return;
+    const { min, max } = getRangeMeta(input);
+    const travel = 180;
+    const nextValue = startValue + (((startY - event.clientY) / travel) * (max - min));
+    setControlValue(input, nextValue);
+    onChange();
+  });
+
+  function finish(event) {
+    if (pointerId !== event.pointerId) return;
+    if (knob.hasPointerCapture(event.pointerId)) {
+      knob.releasePointerCapture(event.pointerId);
+    }
+    draggingInputs.delete(input);
+    pointerId = null;
+    onCommit();
+  }
+
+  knob.addEventListener("pointerup", finish);
+  knob.addEventListener("pointercancel", finish);
+  knob.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    onReset();
+  });
+}
+
 async function bootstrap() {
   const response = await fetch(stateUrl);
   if (response.status === 401) {
@@ -356,14 +745,24 @@ els.platterWrap.addEventListener("pointerdown", (event) => {
   scratchActive = true;
   scratchBaseRotation = scratchRotation;
   scratchStartAngle = getPointerAngle(event);
+  scratchLastAngle = scratchStartAngle;
+  scratchLastMoveAt = performance.now();
   els.platterWrap.setPointerCapture(event.pointerId);
+  void armScratchAudio();
   syncPlatterMotion(state || { connected: false });
 });
 
 els.platterWrap.addEventListener("pointermove", (event) => {
   if (!scratchActive) return;
-  scratchRotation = scratchBaseRotation + (getPointerAngle(event) - scratchStartAngle);
+  const pointerAngle = getPointerAngle(event);
+  const now = performance.now();
+  const deltaAngle = normalizeAngleDelta(pointerAngle - scratchLastAngle);
+  const deltaTime = Math.max(1, now - scratchLastMoveAt);
+  scratchRotation = scratchBaseRotation + normalizeAngleDelta(pointerAngle - scratchStartAngle);
   els.platterDisc.style.setProperty("--scratch-rotate", `${scratchRotation}deg`);
+  updateScratchAudio(deltaAngle, deltaTime);
+  scratchLastAngle = pointerAngle;
+  scratchLastMoveAt = now;
 });
 
 function stopScratch(event) {
@@ -372,93 +771,135 @@ function stopScratch(event) {
   if (event && els.platterWrap.hasPointerCapture(event.pointerId)) {
     els.platterWrap.releasePointerCapture(event.pointerId);
   }
+  stopScratchAudio();
   syncPlatterMotion(state || { connected: false });
 }
 
 els.platterWrap.addEventListener("pointerup", stopScratch);
 els.platterWrap.addEventListener("pointercancel", stopScratch);
+els.platterWrap.addEventListener("lostpointercapture", stopScratch);
+window.addEventListener("blur", () => stopScratch());
 
 document.querySelectorAll("[data-filter-preset]").forEach((button) => {
   button.addEventListener("click", async () => {
     const preset = QUICK_FX[button.dataset.filterPreset];
     if (!preset) return;
+    animateEqTo(preset.eq, 360);
     await postAction("set_filter", { filter_name: preset.filter_name });
-    await postAction("set_eq", { eq: preset.eq });
   });
 });
 
 els.filterSelect.addEventListener("change", () => postAction("set_filter", { filter_name: els.filterSelect.value }));
 
-els.volume.addEventListener("input", () => {
-  els.volumeValue.textContent = `${Math.round(Number(els.volume.value) * 100)}%`;
-  clearTimeout(sendVolumeTimer);
-  sendVolumeTimer = setTimeout(() => postAction("set_volume", { volume: Number(els.volume.value) }), 120);
+setupVerticalDrag(els.volumeHandle, els.volume, {
+  onChange: () => {
+    updateVolumeReadout();
+    liveVolumeSender();
+  },
+  onCommit: () => {
+    updateVolumeReadout();
+    liveVolumeSender();
+  },
+  onReset: resetVolume,
 });
 
-els.volume.addEventListener("dblclick", () => {
-  clearTimeout(sendVolumeTimer);
-  els.volume.value = "0.5";
-  els.volumeValue.textContent = "50%";
-  postAction("set_volume", { volume: 0.5 });
-});
-
-els.volume.addEventListener("pointerup", () => {
-  const now = performance.now();
-  if ((now - lastVolumeTapAt) <= 260) {
-    clearTimeout(sendVolumeTimer);
-    els.volume.value = "0.5";
-    els.volumeValue.textContent = "50%";
-    postAction("set_volume", { volume: 0.5 });
-    lastVolumeTapAt = 0;
-    return;
-  }
-  lastVolumeTapAt = now;
-});
-
-[els.eqLow, els.eqMid, els.eqHigh].forEach((input) => {
-  input.addEventListener("input", () => {
+setupVerticalDrag(els.eqLowHandle, els.eqLow, {
+  onChange: () => {
     updateEqValueLabels();
-    clearTimeout(sendEqTimer);
-    sendEqTimer = setTimeout(() => {
-      postAction("set_eq", {
-        eq: {
-          low: Number(els.eqLow.value),
-          mid: Number(els.eqMid.value),
-          high: Number(els.eqHigh.value),
-        },
-      });
-    }, 220);
-  });
+    cancelEqAnimation();
+    liveEqSender();
+  },
+  onCommit: () => {
+    updateEqValueLabels();
+    cancelEqAnimation();
+    void sendEqNow();
+  },
+  onReset: () => resetEqBand(els.eqLow),
+});
 
-  input.addEventListener("dblclick", () => {
-    clearTimeout(sendEqTimer);
-    resetEqBand(input);
-  });
+setupVerticalDrag(els.eqMidHandle, els.eqMid, {
+  onChange: () => {
+    updateEqValueLabels();
+    cancelEqAnimation();
+    liveEqSender();
+  },
+  onCommit: () => {
+    updateEqValueLabels();
+    cancelEqAnimation();
+    void sendEqNow();
+  },
+  onReset: () => resetEqBand(els.eqMid),
+});
 
-  input.addEventListener("pointerup", () => {
-    const now = performance.now();
-    const previous = lastEqTapAt.get(input) || 0;
-    if ((now - previous) <= 260) {
-      clearTimeout(sendEqTimer);
-      resetEqBand(input);
-      lastEqTapAt.set(input, 0);
-      return;
-    }
-    lastEqTapAt.set(input, now);
-  });
+setupVerticalDrag(els.eqHighHandle, els.eqHigh, {
+  onChange: () => {
+    updateEqValueLabels();
+    cancelEqAnimation();
+    liveEqSender();
+  },
+  onCommit: () => {
+    updateEqValueLabels();
+    cancelEqAnimation();
+    void sendEqNow();
+  },
+  onReset: () => resetEqBand(els.eqHigh),
+});
+
+setupKnobDrag(els.fxHighpassKnob, els.fxHighpass, {
+  onChange: () => {
+    updateToneValueLabels();
+    liveToneSender();
+  },
+  onCommit: () => {
+    updateToneValueLabels();
+    liveToneSender();
+  },
+  onReset: () => resetToneBand(els.fxHighpass),
+});
+
+setupKnobDrag(els.fxLowpassKnob, els.fxLowpass, {
+  onChange: () => {
+    updateToneValueLabels();
+    liveToneSender();
+  },
+  onCommit: () => {
+    updateToneValueLabels();
+    liveToneSender();
+  },
+  onReset: () => resetToneBand(els.fxLowpass),
 });
 
 document.querySelectorAll("[data-eq-scene]").forEach((button) => {
   button.addEventListener("click", () => {
     const scene = EQ_SCENES[button.dataset.eqScene];
     if (!scene) return;
-    els.eqLow.value = String(scene.low);
-    els.eqMid.value = String(scene.mid);
-    els.eqHigh.value = String(scene.high);
-    els.eqLowValue.textContent = `${Number(scene.low).toFixed(1)} dB`;
-    els.eqMidValue.textContent = `${Number(scene.mid).toFixed(1)} dB`;
-    els.eqHighValue.textContent = `${Number(scene.high).toFixed(1)} dB`;
-    postAction("set_eq", { eq: scene });
+    animateEqTo(scene, 320);
+  });
+});
+
+[els.volumeHandle, els.eqLowHandle, els.eqMidHandle, els.eqHighHandle].forEach((handle) => {
+  handle.addEventListener("pointerup", () => {
+    const now = performance.now();
+    const previous = lastTapAt.get(handle) || 0;
+    if ((now - previous) <= 260) {
+      handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      lastTapAt.set(handle, 0);
+      return;
+    }
+    lastTapAt.set(handle, now);
+  });
+});
+
+[els.fxHighpassKnob, els.fxLowpassKnob].forEach((knob) => {
+  knob.addEventListener("pointerup", () => {
+    const now = performance.now();
+    const previous = lastTapAt.get(knob) || 0;
+    if ((now - previous) <= 260) {
+      knob.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      lastTapAt.set(knob, 0);
+      return;
+    }
+    lastTapAt.set(knob, now);
   });
 });
 

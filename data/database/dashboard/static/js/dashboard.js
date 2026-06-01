@@ -1,4 +1,4 @@
-let currentSort  = "hit_count";
+﻿let currentSort  = "hit_count";
 let currentOrder = "desc";
 let debounceTimer;
 let autoRefreshInterval  = null;
@@ -8,7 +8,7 @@ let _lastIds = new Set();
 // Snapshot degli URL per rilevare cambi senza full re-render
 let _lastUrls = new Map(); // id -> { webpage_url, spotify_url }
 
-// ── INIT ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€ INIT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 document.addEventListener("DOMContentLoaded", () => {
   const saved = localStorage.getItem("theme") || "dark";
   document.documentElement.setAttribute("data-theme", saved);
@@ -19,15 +19,6 @@ document.addEventListener("DOMContentLoaded", () => {
   startStatsRefresh(8);
   startRealtimeStats();
   updateGenTime();
-
-  // favicon animata
-  const favicons = ["💿", "📀"];
-  let fi = 0;
-  setInterval(() => {
-    fi = (fi + 1) % favicons.length;
-    const el = document.querySelector("link[rel='icon']");
-    if (el) el.href = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>${favicons[fi]}</text></svg>`;
-  }, 2000);
 });
 
 function updateGenTime() {
@@ -35,7 +26,7 @@ function updateGenTime() {
     "Aggiornato: " + new Date().toLocaleString("it-IT");
 }
 
-// ── THEME ───────────────────────────────────────────────────────────────────────────
+// â”€â”€ THEME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function toggleTheme() {
   const html = document.documentElement;
   const newTheme = html.getAttribute("data-theme") === "light" ? "dark" : "light";
@@ -56,7 +47,7 @@ function updateThemeUI(theme) {
   }
 }
 
-// ── COUNTER ANIMATION ────────────────────────────────────────────────────────────────
+// â”€â”€ COUNTER ANIMATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function animateCounters() {
   document.querySelectorAll(".count-up").forEach(el => {
     const target = parseInt(el.dataset.target) || 0;
@@ -84,7 +75,7 @@ function _tweenCounter(el, from, to, duration = 600) {
   requestAnimationFrame(update);
 }
 
-// ── STATS REAL-TIME ────────────────────────────────────────────────────────────────
+// â”€â”€ STATS REAL-TIME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function refreshStats() {
   fetch("/api/stats")
     .then(r => {
@@ -141,7 +132,7 @@ function stopStatsRefresh() {
   }
 }
 
-// ── AUTO REFRESH (song rows) ──────────────────────────────────────────────────────────────────
+// â”€â”€ AUTO REFRESH (song rows) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function startAutoRefresh(seconds = 10) {
   stopAutoRefresh();
   autoRefreshInterval = setInterval(() => {
@@ -157,7 +148,7 @@ function stopAutoRefresh() {
   }
 }
 
-// ── FETCH SONGS ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€ FETCH SONGS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function fetchSongs(silent = false) {
   const q      = document.getElementById("search-input").value;
   const source = document.getElementById("filter-source").value;
@@ -191,7 +182,7 @@ function debouncedFetch() {
   debounceTimer = setTimeout(() => fetchSongs(false), 280);
 }
 
-// ── ACTION BUTTONS HELPERS ────────────────────────────────────────────────────────────
+// â”€â”€ ACTION BUTTONS HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function makeActionLink(url, label, extraClass, title) {
   if (url) {
     return `<a class="link-btn${extraClass ? " " + extraClass : ""}" href="${esc(url)}" target="_blank" title="${esc(title)}">${label}</a>`;
@@ -203,15 +194,15 @@ function makeActionLink(url, label, extraClass, title) {
 function _patchRowActions(tr, s) {
   const actionsDiv = tr.querySelector(".row-actions");
   if (!actionsDiv) return;
-  const webLink = makeActionLink(s.webpage_url, "▶", "",    "Apri su YouTube");
-  const spLink  = makeActionLink(s.spotify_url,  "♫", "sp", "Apri su Spotify");
+  const webLink = makeActionLink(s.webpage_url, "▶", "", "Apri su YouTube");
+  const spLink  = makeActionLink(s.spotify_url, "♫", "sp", "Apri su Spotify");
   // Sostituisce solo i due link-btn, lascia intatto il del-btn
   const delBtn = actionsDiv.querySelector(".del-btn");
   actionsDiv.innerHTML = webLink + spLink;
   if (delBtn) actionsDiv.appendChild(delBtn);
 }
 
-// ── BUILD ROW ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€ BUILD ROW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildRow(s, i = 0) {
   const src = s.source || "youtube";
   const srcColor = src === "spotify" ? "#1DB954" : "#e5173f";
@@ -221,10 +212,10 @@ function buildRow(s, i = 0) {
   const dur = s.duration ? fmtDuration(s.duration) : "-";
   const thumbHtml = s.thumbnail
     ? `<img class="thumb" src="${esc(s.thumbnail)}" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
-    : `<div class="thumb-placeholder">🎵</div>`;
+    : `<div class="thumb-placeholder">ART</div>`;
 
-  const webLink = makeActionLink(s.webpage_url, "▶", "",      "Apri su YouTube");
-  const spLink  = makeActionLink(s.spotify_url,  "♫", "sp",   "Apri su Spotify");
+  const webLink = makeActionLink(s.webpage_url, "▶", "", "Apri su YouTube");
+  const spLink  = makeActionLink(s.spotify_url, "♫", "sp", "Apri su Spotify");
 
   const tr = document.createElement("tr");
   tr.style.animationDelay = `${i * 28}ms`;
@@ -255,14 +246,14 @@ function buildRow(s, i = 0) {
     <td>
       <div class="row-actions">
         ${webLink}${spLink}
-        <button class="del-btn" title="Elimina" onclick="deleteSong(${s.id})">✖</button>
+        <button class="del-btn" title="Elimina" onclick="deleteSong(${s.id})">🗑</button>
       </div>
     </td>
   `;
   return tr;
 }
 
-// ── RENDER SONGS (primo caricamento / ricerca / sort) ────────────────────────────────────────────────
+// â”€â”€ RENDER SONGS (primo caricamento / ricerca / sort) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderSongs(data) {
   const tbody = document.getElementById("songs-body");
   tbody.innerHTML = "";
@@ -271,7 +262,7 @@ function renderSongs(data) {
   _lastUrls = new Map(data.map(s => [s.id, { webpage_url: s.webpage_url, spotify_url: s.spotify_url }]));
 }
 
-// ── RENDER DIFF (silent refresh) ────────────────────────────────────────────────────────────────
+// â”€â”€ RENDER DIFF (silent refresh) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderSongsDiff(data) {
   const newIds = new Set(data.map(s => s.id));
 
@@ -285,7 +276,7 @@ function renderSongsDiff(data) {
     }
   });
 
-  // 2. Aggiorna righe già visibili (hit_count + pulsanti se URL cambiati)
+  // 2. Aggiorna righe giÃ  visibili (hit_count + pulsanti se URL cambiati)
   data.forEach(s => {
     const tr = document.querySelector(`#songs-body tr[data-id="${s.id}"]`);
     if (!tr) return;
@@ -341,7 +332,7 @@ function setSearch(val) {
   fetchSongs(false);
 }
 
-// ── SORT ───────────────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ SORT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function sortBy(col) {
   if (currentSort === col) {
     currentOrder = currentOrder === "desc" ? "asc" : "desc";
@@ -351,12 +342,12 @@ function sortBy(col) {
   }
   document.querySelectorAll("th[data-col]").forEach(th => {
     th.classList.remove("sorted");
-    th.querySelector(".arrow").textContent = "↕";
+    th.querySelector(".arrow").textContent = "v";
   });
   const th = document.querySelector(`th[data-col="${col}"]`);
   if (th) {
     th.classList.add("sorted");
-    th.querySelector(".arrow").textContent = currentOrder === "desc" ? "↓" : "↑";
+    th.querySelector(".arrow").textContent = currentOrder === "desc" ? "down" : "up";
   }
   fetchSongs(false);
 }
@@ -368,7 +359,7 @@ function clearFilters() {
   fetchSongs(false);
 }
 
-// ── SKELETON ──────────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ SKELETON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function showSkeleton() {
   const tbody = document.getElementById("songs-body");
   const widths = [30, 140, 90, 60, 40, 30, 80, 80, 55, 50];
@@ -384,7 +375,7 @@ function hideSkeleton() {
     .forEach(el => el.closest("tr")?.remove());
 }
 
-// ── DELETE SONG ────────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ DELETE SONG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function deleteSong(id) {
   const tr = document.querySelector(`tr[data-id="${id}"]`);
   fetch("/api/delete/" + id, { method: "DELETE" })
@@ -407,7 +398,7 @@ function deleteSong(id) {
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
 }
 
-// ── DELETE ALIAS ───────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ DELETE ALIAS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function deleteAlias(id) {
   const tr = document.querySelector(`tr[data-alias-id="${id}"]`);
   fetch("/api/aliases/" + id, { method: "DELETE" })
@@ -427,7 +418,7 @@ function deleteAlias(id) {
     .catch(() => showToast("Errore durante l'eliminazione alias", "error"));
 }
 
-// ── MODAL ───────────────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ MODAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function openModal(s) {
   const thumbHtml = s.thumbnail
     ? `<img class="modal-thumb" src="${esc(s.thumbnail)}">` : "";
@@ -448,7 +439,7 @@ function openModal(s) {
     ${s.webpage_url ? mrow("Link", `<a class="modal-link" href="${esc(s.webpage_url)}" target="_blank">${esc(s.webpage_url)}</a>`) : ""}
     ${s.spotify_url ? mrow("Spotify", `<a class="modal-link" href="${esc(s.spotify_url)}" target="_blank">${esc(s.spotify_url)}</a>`) : ""}
     <div class="modal-actions">
-      <button class="btn btn-danger" onclick="deleteSong(${s.id})">✖ Elimina</button>
+      <button class="btn btn-danger" onclick="deleteSong(${s.id})">🗑 Elimina</button>
       <button class="btn btn-ghost" onclick="closeModal()">Chiudi</button>
     </div>
   `;
@@ -470,7 +461,7 @@ document.getElementById("modal-bg").addEventListener("click", e => {
   if (e.target === document.getElementById("modal-bg")) closeModal();
 });
 
-// ── ALIASES ──────────────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ ALIASES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function fetchAliases() {
   fetch("/api/aliases").then(r => r.json()).then(data => {
     const tbody = document.getElementById("aliases-body");
@@ -479,8 +470,8 @@ function fetchAliases() {
       return;
     }
     tbody.innerHTML = data.map((a, i) => {
-      const webLink = makeActionLink(a.webpage_url, "▶", "",    "Apri su YouTube");
-      const spLink  = makeActionLink(a.spotify_url,  "♫", "sp", "Apri su Spotify");
+      const webLink = makeActionLink(a.webpage_url, "▶", "", "Apri su YouTube");
+      const spLink  = makeActionLink(a.spotify_url, "♫", "sp", "Apri su Spotify");
       return `
       <tr style="animation-delay:${i * 25}ms" data-alias-id="${a.id}">
         <td class="id-col">${a.id}</td>
@@ -494,7 +485,7 @@ function fetchAliases() {
         <td>
           <div class="row-actions">
             ${webLink}${spLink}
-            <button class="del-btn" title="Elimina alias" onclick="deleteAlias(${a.id})">✖</button>
+            <button class="del-btn" title="Elimina alias" onclick="deleteAlias(${a.id})">🗑</button>
           </div>
         </td>
       </tr>`;
@@ -502,7 +493,7 @@ function fetchAliases() {
   });
 }
 
-// ── SECTION SWITCH ───────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ SECTION SWITCH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function showSection(sec, el) {
   document.querySelectorAll("nav a").forEach(a => a.classList.remove("active"));
   el.classList.add("active");
@@ -513,10 +504,10 @@ function showSection(sec, el) {
   else { stopAutoRefresh(); stopStatsRefresh(); }
 }
 
-// ── TOAST ───────────────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ TOAST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function showToast(msg, type = "success") {
   const container = document.getElementById("toast-container");
-  const icon = type === "success" ? "✅" : "❌";
+  const icon = type === "success" ? "OK" : "ERR";
   const el = document.createElement("div");
   el.className = `toast ${type}`;
   el.innerHTML = `<span>${icon}</span> ${msg}`;
@@ -527,7 +518,7 @@ function showToast(msg, type = "success") {
   }, 2800);
 }
 
-// ── UTILS ───────────────────────────────────────────────────────────────────────────────────────────
+// â”€â”€ UTILS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function fmtDuration(sec) {
   if (!sec) return "-";
   const m = Math.floor(sec / 60), s = sec % 60;
@@ -551,6 +542,7 @@ function esc(s) {
 function makePlaceholder() {
   const d = document.createElement("div");
   d.className = "thumb-placeholder";
-  d.textContent = "🎵";
+  d.textContent = "ART";
   return d;
 }
+

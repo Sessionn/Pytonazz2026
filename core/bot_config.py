@@ -7,7 +7,7 @@ import json
 import logging
 
 from core.constants import command_slug
-from core.log_colors import tag, dim
+from core.log_colors import tag
 from core.paths import BOT_CONFIG_PATH, ensure_runtime_dirs
 
 log = logging.getLogger("pitonazz.bot_config")

@@ -1,12 +1,7 @@
 import asyncio
 import json
 import logging
-import os
 import random
-import threading
-import time
-import traceback
-from pathlib import Path
 
 import discord
 from discord.ext import commands, tasks
@@ -21,9 +16,15 @@ from core.dj_access import init_dj_access_controller
 from core.log_colors import setup_logging
 from core.banner import print_banner
 from core.paths import CUSTOM_STATUSES_PATH, ensure_runtime_dirs
+from core.runtime import (
+    DEFAULT_COGS,
+    load_extensions,
+    log_runtime_paths,
+    reload_modified_extensions,
+    snapshot_extension_mtimes,
+    start_dashboard_thread,
+)
 from assets.status_messages import STATUS_CYCLE
-from core.constants import TYPE_MAP, STAT_MAP
-from core.constants import command_slug
 
 print_banner()           # <-- banner prima di qualsiasi log
 log_level = getattr(logging, Config.LOG_LEVEL, logging.INFO)
@@ -42,45 +43,16 @@ logging.getLogger("discord.client").setLevel(logging.WARNING)
 logging.getLogger("discord.http").setLevel(logging.WARNING)
 
 # ── Proxy / ffmpeg / cookie ──────────────────────────────────────────────────
-from core.log_colors import tag, b, hi, dim, _BGRN, _BRED, _GRY
+from core.log_colors import tag, b, hi, dim, _BGRN
 
-_ytdlp_path   = os.getenv("YTDLP_PATH",   "").strip()
-_ffmpeg_path  = os.getenv("FFMPEG_PATH",  "").strip()
-_cookie_file  = os.getenv("COOKIE_FILE",  "").strip()
-
-log.info(tag("PROXY",  f"ytdlp   {hi('ON', _BGRN)}  {b(_ytdlp_path)}"  if _ytdlp_path  else f"ytdlp   {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
-log.info(tag("PROXY",  f"ffmpeg  {hi('ON', _BGRN)}  {b(_ffmpeg_path)}" if _ffmpeg_path  else f"ffmpeg  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
-log.info(tag("COOKIE", f"cookie  {hi('ON', _BGRN)}  {b(_cookie_file)}" if _cookie_file  else f"cookie  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"))
+log_runtime_paths(log)
 
 # ── Cache DB ─────────────────────────────────────────────────────────────────
 init_db(enabled=Config.CACHE_ENABLED)
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
 if Config.CACHE_ENABLED:
-    def _run_dashboard():
-        try:
-            from waitress import serve
-            from data.database.dashboard.app import create_app
-            logging.getLogger("werkzeug").setLevel(logging.ERROR)
-            while globals().get("bot") is None:
-                time.sleep(0.05)
-            flask_app = create_app(bot=globals()["bot"])
-            flask_app.logger.setLevel(logging.ERROR)
-            serve(
-                flask_app,
-                host=Config.DASHBOARD_HOST,
-                port=Config.DASHBOARD_PORT,
-                threads=8,
-                clear_untrusted_proxy_headers=True,
-            )
-        except Exception:
-            log.exception(tag("CACHE_DB", "Dashboard OFF  bootstrap fallito"))
-
-    t = threading.Thread(target=_run_dashboard, daemon=True)
-    t.start()
-
-    _dash_log = logging.getLogger("pitonazz.cache_db")
-    _dash_log.info(tag("CACHE_DB", f"Dashboard {hi('ON', _BGRN)}  {dim(f'{Config.DASHBOARD_HOST}:{Config.DASHBOARD_PORT}')}"))
+    start_dashboard_thread(lambda: globals().get("bot"), logging.getLogger("pitonazz.cache_db"))
 
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.all()
@@ -93,62 +65,21 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 init_dj_access_controller(bot)
 
-COGS = [
-    "cogs.ai",
-    "cogs.birthdays",
-    "cogs.dj",
-    "cogs.dev",
-    "cogs.dev_audio",
-    "cogs.dev_cache",
-    "cogs.filters",
-    "cogs.fun",
-    "cogs.help",
-    "cogs.moderation",
-    "cogs.music",
-    "cogs.tts",
-    "cogs.welcome",
-]
+COGS = list(DEFAULT_COGS)
 
 
 async def load_cogs():
-    for cog in COGS:
-        try:
-            await bot.load_extension(cog)
-            log.info(tag("COG", f"{b(cog.split('.')[-1])} caricato"))
-        except Exception as e:
-            log.error(tag("COG", f"{cog} ERRORE  {e}"))
+    await load_extensions(bot, COGS, log)
 
 
 # ── Watchdog hot-reload ──────────────────────────────────────────────────────
 _cog_mtimes: dict[str, float] = {}
 
 
-def _cog_path(cog: str) -> Path:
-    return Path(*cog.split(".")).with_suffix(".py")
-
-
-def _snapshot_mtimes() -> dict[str, float]:
-    result = {}
-    for cog in COGS:
-        p = _cog_path(cog)
-        if p.exists():
-            result[str(p)] = p.stat().st_mtime
-    return result
-
-
 @tasks.loop(seconds=5)
 async def watchdog():
     global _cog_mtimes
-    current = _snapshot_mtimes()
-    for path, mtime in current.items():
-        if _cog_mtimes.get(path, 0) != mtime:
-            cog_name = path.replace("\\", "/").replace("/", ".").removesuffix(".py")
-            try:
-                await bot.reload_extension(cog_name)
-                log.info(tag("COG", f"hot-reload  {b(cog_name.split('.')[-1])}"))
-            except Exception as e:
-                log.error(tag("COG", f"hot-reload ERRORE  {cog_name}  {e}"))
-    _cog_mtimes = current
+    _cog_mtimes = await reload_modified_extensions(bot, COGS, _cog_mtimes, log)
 
 
 # ── Status rotation ──────────────────────────────────────────────────────────
@@ -329,7 +260,7 @@ async def on_command_error(ctx, error):
 async def main():
     async with bot:
         await load_cogs()
-        _cog_mtimes.update(_snapshot_mtimes())
+        _cog_mtimes.update(snapshot_extension_mtimes(COGS))
         await bot.start(Config.DISCORD_TOKEN)
 
 

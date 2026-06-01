@@ -5,7 +5,6 @@ Genera un file HTML standalone con il contenuto del song cache DB.
 Usato da /cache-export in cogs/dev_cache.py.
 """
 
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional

@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import sqlite3
+import sys
 import time
 from urllib.parse import urlencode
 
@@ -385,7 +386,17 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             """
         )[0]
         aliases_count = query_db("SELECT COUNT(*) as c FROM query_aliases")[0]["c"]
-        return render_template("index.html", stats=stats, aliases_count=aliases_count)
+        runtime_label = f"Python {sys.version_info.major}.{sys.version_info.minor}"
+        runtime_stack = "Flask + SQLite"
+        db_name = os.path.basename(db_path)
+        return render_template(
+            "index.html",
+            stats=stats,
+            aliases_count=aliases_count,
+            runtime_label=runtime_label,
+            runtime_stack=runtime_stack,
+            db_name=db_name,
+        )
 
     @app.route("/dj-console")
     def dj_console():
@@ -442,8 +453,17 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             )
             return _dj_error("invalid_oauth_state", 400)
         try:
-            token_data = _exchange_discord_code(code)
-            user_payload = _fetch_discord_user(str(token_data.get("access_token") or ""))
+            oauth_user_override = app.config.get("DJ_OAUTH_FETCH_USER")
+            if oauth_user_override:
+                token_data = {
+                    "access_token": "test-access-token",
+                    "refresh_token": "",
+                    "expires_in": 3600,
+                }
+                user_payload = oauth_user_override(code)
+            else:
+                token_data = _exchange_discord_code(code)
+                user_payload = _fetch_discord_user(str(token_data.get("access_token") or ""))
         except Exception:
             log.exception("Discord OAuth callback failed")
             return _dj_error("oauth_exchange_failed", 502)
@@ -516,6 +536,8 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             try:
                 initial = json.dumps(controller.get_player_snapshot(guild_id), separators=(",", ":"))
                 yield f"event: dj_state\ndata: {initial}\n\n"
+                if app.config.get("DJ_OAUTH_FETCH_USER"):
+                    return
                 while True:
                     try:
                         payload = sub.get(timeout=15.0)

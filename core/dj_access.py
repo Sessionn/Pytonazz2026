@@ -133,6 +133,7 @@ class DJAccessController:
                 "autoplay_enabled": False,
                 "filter_name": "off",
                 "eq": {"low": 0.0, "mid": 0.0, "high": 0.0},
+                "tone_filters": {"highpass_hz": 0.0, "lowpass_hz": 20000.0},
                 "current_track": None,
                 "queue": [],
             }
@@ -257,6 +258,8 @@ class DJAccessController:
             await player.set_filter(str(payload.get("filter_name", "off")))
         elif action == "set_eq":
             await player.set_eq(payload.get("eq") or {})
+        elif action == "set_tone_filters":
+            await player.set_tone_filters(payload.get("tone_filters") or {})
         else:
             return {"ok": False, "error": "invalid_action"}
 

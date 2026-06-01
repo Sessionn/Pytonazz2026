@@ -5,15 +5,10 @@ Comandi riservati ai developer/owner del bot.
 Espone tutti i comandi slash originali + gruppo /cache per la cache query.
 """
 
-import asyncio
-import io
-import json
 import logging
 import os
 import sys
 import zipfile
-from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 import discord
@@ -25,42 +20,15 @@ from core.bot_config import cfg
 from core.ai_client import invalidate_prompt_cache
 from core.ai_runtime import clear_conversation_memory
 from core.constants import TYPE_MAP, STAT_MAP, TYPE_LABEL, STATUS_LABEL, UNDISABLEABLE, command_slug
+from core.devops.backup import MAX_RESTORE_BYTES, build_backup_archive, restore_backup_archive
 from core.log_colors import tag, b, hi, user, _BGRN, _BRED
-from core.paths import (
-    BOT_CONFIG_PATH,
-    BIRTHDAYS_PATH,
-    CUSTOM_STATUSES_PATH,
-    WELCOME_CONFIG_PATH,
-    WELCOME_IMAGES_DIR,
-)
 from core.permissions import owner_check, dev_check
+from core.devops.status_store import load_custom_statuses, save_custom_statuses
 
 log = logging.getLogger("pitonazz.dev")
 
-BACKUP_FILES = [
-    BOT_CONFIG_PATH,
-    CUSTOM_STATUSES_PATH,
-    WELCOME_CONFIG_PATH,
-    BIRTHDAYS_PATH,
-]
-_MAX_RESTORE_BYTES = 10 * 1024 * 1024  # 10 MB
 _OWN = "\U0001f527"
 _CTX_ICON = "\U0001f4cb"
-
-
-def _load_custom() -> list:
-    if not CUSTOM_STATUSES_PATH.exists():
-        return []
-    try:
-        return json.loads(CUSTOM_STATUSES_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-
-def _save_custom(data: list):
-    CUSTOM_STATUSES_PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
 
 
 def _check_cache_env() -> list[str]:
@@ -174,40 +142,12 @@ class Dev(commands.Cog):
     @owner_check
     async def backupconfig(self, inter: discord.Interaction):
         await inter.response.defer(ephemeral=True)
-        buf = io.BytesIO()
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        included = []
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for fpath in BACKUP_FILES:
-                if fpath.exists():
-                    zf.write(fpath, fpath.name)
-                    included.append(fpath.name)
-                    log.info(tag("BACKUP", f"incluso: {b(fpath.name)}"))
-                else:
-                    if fpath.resolve() == BIRTHDAYS_PATH.resolve():
-                        zf.writestr(fpath.name, "{}\n")
-                        included.append(fpath.name)
-                        log.info(tag("BACKUP", f"incluso (vuoto): {b(fpath.name)}"))
-                        continue
-                    log.info(tag("BACKUP", f"non trovato (skip): {b(fpath.name)}"))
-            if WELCOME_IMAGES_DIR.exists():
-                for img in WELCOME_IMAGES_DIR.iterdir():
-                    if img.is_file():
-                        arc_name = f"welcome_images/{img.name}"
-                        zf.write(img, arc_name)
-                        included.append(arc_name)
-                        log.info(tag("BACKUP", f"incluso: {b(arc_name)}"))
-            meta = {
-                "timestamp": ts,
-                "bot": str(self.bot.user),
-                "guilds": len(self.bot.guilds),
-                "files": included,
-            }
-            zf.writestr("backup_info.json", json.dumps(meta, indent=2))
-        buf.seek(0)
-        filename = f"pytonazz_backup_{ts}.zip"
+        buf, filename, included = build_backup_archive(
+            bot_label=str(self.bot.user),
+            guild_count=len(self.bot.guilds),
+            log=log,
+        )
         file = discord.File(buf, filename=filename)
-        log.info(tag("BACKUP", f"backup esportato: {b(filename)} ({len(included)} file)"))
         file_list = ", ".join(f"`{f}`" for f in included) or "*nessuno*"
         await inter.followup.send(
             f"\u2705 Backup esportato: `{filename}`\n"
@@ -223,36 +163,17 @@ class Dev(commands.Cog):
         await inter.response.defer(ephemeral=True)
         if not backup.filename.endswith(".zip"):
             return await inter.followup.send("\u274c Devi allegare un file `.zip` generato da `/backupconfig`.", ephemeral=True)
-        if backup.size > _MAX_RESTORE_BYTES:
+        if backup.size > MAX_RESTORE_BYTES:
             return await inter.followup.send(
-                f"\u274c File troppo grande (max {_MAX_RESTORE_BYTES // 1024 // 1024} MB).",
+                f"\u274c File troppo grande (max {MAX_RESTORE_BYTES // 1024 // 1024} MB).",
                 ephemeral=True,
             )
         data = await backup.read()
-        buf = io.BytesIO(data)
-        restored = []
         try:
-            with zipfile.ZipFile(buf, "r") as zf:
-                names = zf.namelist()
-                for fpath in BACKUP_FILES:
-                    if fpath.name in names:
-                        content = zf.read(fpath.name)
-                        fpath.parent.mkdir(parents=True, exist_ok=True)
-                        fpath.write_bytes(content)
-                        restored.append(fpath.name)
-                        log.info(tag("RESTORE", f"ripristinato: {b(fpath.name)}"))
-                for name in names:
-                    if name.startswith("welcome_images/") and not name.endswith("/"):
-                        img_name = Path(name).name
-                        dest = WELCOME_IMAGES_DIR / img_name
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_bytes(zf.read(name))
-                        restored.append(name)
-                        log.info(tag("RESTORE", f"ripristinato: {b(name)}"))
+            restored = restore_backup_archive(data, log)
         except zipfile.BadZipFile:
             return await inter.followup.send("\u274c File ZIP non valido o corrotto.", ephemeral=True)
         cfg.reload()
-        log.info(tag("RESTORE", f"ripristinati {b(len(restored))} file"))
         await inter.followup.send(
             f"\u2705 Configurazione ripristinata!\n"
             f"File ripristinati: {', '.join(f'`{r}`' for r in restored)}\n"
@@ -393,9 +314,9 @@ class Dev(commands.Cog):
     ])
     @dev_check
     async def status_add(self, inter: discord.Interaction, tipo: str, nome: str, stato: str = "online"):
-        data = _load_custom()
+        data = load_custom_statuses()
         data.append({"type": tipo, "name": nome, "status": stato})
-        _save_custom(data)
+        save_custom_statuses(data)
         self.bot.reload_status_list()
         log.info(tag("STATUS", f"add {b(nome)} tipo={tipo} stato={stato} totale={len(self.bot._status_list)}"))
         await inter.response.send_message(
@@ -416,7 +337,7 @@ class Dev(commands.Cog):
                 f"I custom partono dall'indice **{base_count}** in poi.",
                 ephemeral=True,
             )
-        data = _load_custom()
+        data = load_custom_statuses()
         if not data:
             return await inter.response.send_message("\u274c Nessuna attivit\u00e0 custom da rimuovere.", ephemeral=True)
         custom_idx = indice - base_count
@@ -427,7 +348,7 @@ class Dev(commands.Cog):
                 ephemeral=True,
             )
         removed = data.pop(custom_idx)
-        _save_custom(data)
+        save_custom_statuses(data)
         self.bot.reload_status_list()
         log.info(tag("STATUS", f"remove {b(removed['name'])} rotazione={len(self.bot._status_list)}"))
         await inter.response.send_message(
@@ -462,7 +383,7 @@ class Dev(commands.Cog):
         tipo: Optional[str] = None,
         stato: Optional[str] = None,
     ):
-        data = _load_custom()
+        data = load_custom_statuses()
         if not data:
             return await inter.response.send_message("\u274c Nessuna attivit\u00e0 custom da modificare.", ephemeral=True)
         if not (0 <= indice < len(data)):
@@ -474,7 +395,7 @@ class Dev(commands.Cog):
         if nome is not None: entry["name"] = nome
         if tipo is not None: entry["type"] = tipo
         if stato is not None: entry["status"] = stato
-        _save_custom(data)
+        save_custom_statuses(data)
         self.bot.reload_status_list()
         log.info(tag("STATUS", f"edit #{indice} {b(old['name'])} \u2192 {b(entry['name'])} tipo={entry['type']} stato={entry['status']}"))
         await inter.response.send_message(
@@ -489,7 +410,7 @@ class Dev(commands.Cog):
     @dev_check
     async def status_list(self, inter: discord.Interaction):
         from assets.status_messages import STATUS_CYCLE
-        custom = _load_custom()
+        custom = load_custom_statuses()
         lines = []
         for i, e in enumerate(STATUS_CYCLE):
             s = STATUS_LABEL.get(e.get("status", "online"), e.get("status", ""))

@@ -4,6 +4,11 @@ tests/test_soundcloud_short_routing.py
 Esecuzione:
     python tests/test_soundcloud_short_routing.py
 """
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from cogs.music import _is_text_search, _normalize_url_like
 
 

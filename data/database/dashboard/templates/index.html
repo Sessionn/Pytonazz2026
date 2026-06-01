@@ -4,25 +4,34 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pytonazz Dashboard</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>💿</text></svg>">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
 <div class="shell">
-
   <nav>
-    <div class="logo">💿 <span>Pytonazz</span></div>
-    <div class="nav-section-label">Sezioni</div>
+    <div class="logo">
+      <span class="logo-mark">PZ</span>
+      <div class="logo-copy">
+        <strong>Pytonazz</strong>
+        <span>Cache Control</span>
+      </div>
+    </div>
+
+    <div class="nav-section-label">Workspace</div>
     <a href="#" class="active" onclick="showSection('cache', this); return false;">
-      <span class="nav-icon">🎵</span> Song Cache
+      <span class="nav-icon">CACHE</span>
+      <span>Song Cache</span>
     </a>
     <a href="#" onclick="showSection('aliases', this); return false;">
-      <span class="nav-icon">🔗</span> Aliases
+      <span class="nav-icon">LINK</span>
+      <span>Aliases</span>
     </a>
+
     <div class="nav-divider"></div>
-    <div class="nav-section-label">Info</div>
-    <a style="cursor:default;pointer-events:none">
-      <span class="nav-icon">📁</span> cache.db
+    <div class="nav-section-label">Runtime</div>
+    <a class="nav-static">
+      <span class="nav-icon">SQL</span>
+      <span>{{ db_name }}</span>
     </a>
 
     <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">
@@ -36,71 +45,112 @@
   <main>
     <div class="page-header">
       <div class="page-header-top">
-        <div>
+        <div class="page-copy">
+          <p class="eyebrow">Database Dashboard</p>
           <h1>Cache Dashboard</h1>
-          <p id="gen-time"></p>
+          <p class="page-sub">Monitoraggio cache, alias e attivita in tempo reale.</p>
+          <p id="gen-time" class="gen-time"></p>
         </div>
-        <a href="{{ url_for('logout') }}" class="btn btn-ghost header-action">Logout</a>
+        <div class="page-actions">
+          <div class="runtime-rack">
+            <div class="runtime-pill runtime-pill-live">
+              <span class="runtime-pill-label">Mode</span>
+              <strong>Realtime</strong>
+            </div>
+            <div class="runtime-pill runtime-pill-runtime">
+              <span class="runtime-pill-label">Runtime</span>
+              <strong>{{ runtime_label }}</strong>
+            </div>
+            <div class="runtime-pill runtime-pill-db">
+              <span class="runtime-pill-label">Database</span>
+              <strong>{{ db_name }}</strong>
+            </div>
+            <div class="runtime-footnote">{{ runtime_stack }}</div>
+          </div>
+          <a href="{{ url_for('logout') }}" class="btn btn-ghost header-action">Logout</a>
+        </div>
       </div>
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card">
+      <div class="stat-card stat-card-primary">
+        <div class="stat-top">
+          <span class="stat-kicker">Entries</span>
+          <span class="stat-spark"></span>
+        </div>
         <div class="val count-up" data-target="{{ stats.total or 0 }}" data-stat="total">0</div>
         <div class="lbl">Entry totali</div>
       </div>
       <div class="stat-card">
+        <div class="stat-top">
+          <span class="stat-kicker">Valid</span>
+          <span class="stat-spark stat-green"></span>
+        </div>
         <div class="val green count-up" data-target="{{ stats.valid or 0 }}" data-stat="valid">0</div>
         <div class="lbl">Valide</div>
       </div>
       <div class="stat-card">
+        <div class="stat-top">
+          <span class="stat-kicker">Invalid</span>
+          <span class="stat-spark stat-red"></span>
+        </div>
         <div class="val red count-up" data-target="{{ stats.invalid or 0 }}" data-stat="invalid">0</div>
         <div class="lbl">Invalide</div>
       </div>
       <div class="stat-card">
+        <div class="stat-top">
+          <span class="stat-kicker">Hits</span>
+          <span class="stat-spark stat-amber"></span>
+        </div>
         <div class="val yellow count-up" data-target="{{ stats.hits or 0 }}" data-stat="hits">0</div>
         <div class="lbl">Hit totali</div>
       </div>
       <div class="stat-card">
+        <div class="stat-top">
+          <span class="stat-kicker">Aliases</span>
+          <span class="stat-spark"></span>
+        </div>
         <div class="val count-up" data-target="{{ aliases_count }}" data-stat="aliases">0</div>
-        <div class="lbl">Aliases</div>
+        <div class="lbl">Alias registrati</div>
       </div>
     </div>
 
-    <div id="cache-section">
+    <div id="cache-section" class="section-stack">
       <div class="toolbar">
-        <input type="text" id="search-input"
-          placeholder="🔍  Cerca titolo, artista, query…"
-          oninput="debouncedFetch()">
-        <div class="custom-select-wrap">
-          <select id="filter-source" onchange="fetchSongs()">
-            <option value="">Tutte le sorgenti</option>
-            <option value="youtube">YouTube</option>
-            <option value="spotify">Spotify</option>
-          </select>
+        <div class="toolbar-main">
+          <input type="text" id="search-input" placeholder="Search title, artist, query..." oninput="debouncedFetch()">
+          <div class="custom-select-wrap">
+            <select id="filter-source" onchange="fetchSongs()">
+              <option value="">Tutte le sorgenti</option>
+              <option value="youtube">YouTube</option>
+              <option value="spotify">Spotify</option>
+            </select>
+          </div>
+          <div class="custom-select-wrap">
+            <select id="filter-valid" onchange="fetchSongs()">
+              <option value="">Tutti gli stati</option>
+              <option value="1">Valide</option>
+              <option value="0">Invalide</option>
+            </select>
+          </div>
         </div>
-        <div class="custom-select-wrap">
-          <select id="filter-valid" onchange="fetchSongs()">
-            <option value="">Tutti gli stati</option>
-            <option value="1">✅ Valide</option>
-            <option value="0">❌ Invalide</option>
-          </select>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost" onclick="clearFilters()">Reset</button>
         </div>
-        <button class="btn btn-ghost" onclick="clearFilters()">Reset</button>
       </div>
 
       <div class="table-wrap">
         <table id="songs-table">
           <thead>
             <tr>
-              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">↕</span></th>
+              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">v</span></th>
               <th>Titolo / Artista</th>
-              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">↕</span></th>
+              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">v</span></th>
               <th>Sorgente</th>
               <th>Dur.</th>
-              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">↓</span></th>
-              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">↕</span></th>
-              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">↕</span></th>
+              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">v</span></th>
+              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">v</span></th>
+              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">v</span></th>
               <th>Stato</th>
               <th>Azioni</th>
             </tr>
@@ -110,7 +160,7 @@
       </div>
     </div>
 
-    <div id="aliases-section">
+    <div id="aliases-section" class="section-stack" style="display:none">
       <div class="table-wrap">
         <table>
           <thead>
@@ -132,7 +182,7 @@
 
 <div class="modal-bg" id="modal-bg">
   <div class="modal">
-    <button class="close" onclick="closeModal()">✕</button>
+    <button class="close" onclick="closeModal()">x</button>
     <div id="modal-content"></div>
   </div>
 </div>

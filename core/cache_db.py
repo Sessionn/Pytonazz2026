@@ -32,7 +32,6 @@ Note sul comportamento degli alias:
 
 import hashlib
 import logging
-import os
 import re
 import sqlite3
 import threading
