@@ -148,7 +148,7 @@ class DJAccessController:
         )
         return snapshot
 
-    async def _resolve_member(self, guild_id: int, user_id: int):
+    async def _resolve_member(self, guild_id: int, user_id: int, force_refresh: bool = False):
         if not self.bot or not getattr(self.bot, "is_ready", lambda: False)():
             log.debug("DJ access bot not ready yet [guild_id=%s, user_id=%s]", guild_id, user_id)
             return None, "bot_not_ready"
@@ -156,7 +156,7 @@ class DJAccessController:
         if not guild:
             log.info("DJ access guild not found [guild_id=%s, user_id=%s]", guild_id, user_id)
             return None, "guild_not_found"
-        member = guild.get_member(user_id)
+        member = None if force_refresh else guild.get_member(user_id)
         if member:
             log.debug("DJ access member resolved from cache [guild_id=%s, user_id=%s]", guild_id, user_id)
             return member, None
@@ -170,6 +170,10 @@ class DJAccessController:
             return None, "member_lookup_failed"
         log.debug("DJ access member fetched remotely [guild_id=%s, user_id=%s]", guild_id, user_id)
         return member, None
+
+    @staticmethod
+    def _member_has_role(member: discord.Member, role_id: int) -> bool:
+        return any(role.id == role_id for role in getattr(member, "roles", ()))
 
     async def _check_access_async(self, guild_id: int, user_id: int) -> tuple[bool, str | None]:
         role_id = get_dj_role(guild_id)
@@ -188,15 +192,32 @@ class DJAccessController:
                 err,
             )
             return False, err
-        if any(role.id == role_id for role in getattr(member, "roles", ())):
+        if self._member_has_role(member, role_id):
             log.debug("DJ access granted [guild_id=%s, user_id=%s, role_id=%s]", guild_id, user_id, role_id)
             return True, None
+        refreshed_member, refresh_err = await self._resolve_member(guild_id, user_id, force_refresh=True)
+        if refreshed_member and self._member_has_role(refreshed_member, role_id):
+            log.info(
+                "DJ access granted after member refresh [guild_id=%s, user_id=%s, role_id=%s]",
+                guild_id,
+                user_id,
+                role_id,
+            )
+            return True, None
+        if refresh_err and refresh_err != "member_lookup_failed":
+            log.info(
+                "DJ access deny refresh unresolved [guild_id=%s, user_id=%s, role_id=%s, error=%s]",
+                guild_id,
+                user_id,
+                role_id,
+                refresh_err,
+            )
         log.info(
             "DJ access denied: missing role [guild_id=%s, user_id=%s, role_id=%s, roles=%s]",
             guild_id,
             user_id,
             role_id,
-            [getattr(role, "id", None) for role in getattr(member, "roles", ())],
+            [getattr(role, "id", None) for role in getattr((refreshed_member or member), "roles", ())],
         )
         return False, "missing_dj_role"
 

@@ -238,7 +238,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         ):
             session.pop(key, None)
 
-    def _ensure_discord_auth_link() -> tuple[bool, str | None]:
+    def _ensure_discord_auth_link(force_validate: bool = False) -> tuple[bool, str | None]:
         access_token = str(session.get("dj_access_token") or "")
         refresh_token = str(session.get("dj_refresh_token") or "")
         expires_at = int(session.get("dj_token_expires_at") or 0)
@@ -271,7 +271,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             )
 
         last_checked = int(session.get("dj_identity_checked_at") or 0)
-        if (now - last_checked) >= 60:
+        if force_validate or (now - last_checked) >= 60:
             try:
                 user_payload = _fetch_discord_user(access_token)
             except Exception:
@@ -298,7 +298,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             )
         return True, None
 
-    def _require_dj_session(guild_id: int) -> tuple[bool, str | None]:
+    def _require_dj_session(guild_id: int, force_identity_validation: bool = False) -> tuple[bool, str | None]:
         if not controller:
             _dj_log("session_rejected", level=logging.WARNING, guild_id=guild_id, error="dj_controller_unavailable")
             return False, "dj_controller_unavailable"
@@ -317,7 +317,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
                 session_user_id=discord_user_id,
             )
             return False, "auth_required"
-        linked, auth_error = _ensure_discord_auth_link()
+        linked, auth_error = _ensure_discord_auth_link(force_validate=force_identity_validation)
         if not linked:
             _dj_log(
                 "session_rejected",
@@ -405,7 +405,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             return _dj_error("invalid_guild", 400)
         guild_id = int(raw_guild_id)
         _dj_log("console_entry", guild_id=guild_id, session_guild_id=session.get("dj_guild_id"), session_user_id=session.get("dj_discord_user_id"))
-        allowed, error = _require_dj_session(guild_id)
+        allowed, error = _require_dj_session(guild_id, force_identity_validation=True)
         if not allowed:
             if error == "auth_required":
                 _dj_log("console_redirect_login", guild_id=guild_id)
