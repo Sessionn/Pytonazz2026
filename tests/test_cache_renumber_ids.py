@@ -23,67 +23,101 @@ tmp.close()
 conn = sqlite3.connect(tmp.name)
 conn.executescript(
     """
-    CREATE TABLE song_cache (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        query_hash   TEXT    NOT NULL UNIQUE,
-        query_raw    TEXT    NOT NULL,
-        webpage_url  TEXT,
-        source       TEXT    NOT NULL DEFAULT 'youtube',
-        title        TEXT,
-        artist       TEXT,
-        duration     INTEGER,
-        thumbnail    TEXT,
-        spotify_url  TEXT,
-        created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-        last_used    INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-        hit_count    INTEGER NOT NULL DEFAULT 1,
-        is_valid     INTEGER NOT NULL DEFAULT 1
+    CREATE TABLE cache_tracks (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        canonical_query_hash TEXT NOT NULL UNIQUE,
+        canonical_query_raw  TEXT NOT NULL,
+        normalized_query     TEXT NOT NULL UNIQUE,
+        canonical_title      TEXT NOT NULL DEFAULT '',
+        canonical_artist     TEXT NOT NULL DEFAULT '',
+        created_at           INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        updated_at           INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        is_active            INTEGER NOT NULL DEFAULT 1
     );
 
-    CREATE TABLE query_aliases (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        query_hash TEXT    NOT NULL UNIQUE,
-        query_raw  TEXT    NOT NULL,
-        alias_type TEXT    NOT NULL DEFAULT 'text',
-        cache_id   INTEGER NOT NULL REFERENCES song_cache(id) ON DELETE CASCADE
+    CREATE TABLE cache_sources (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        track_id        INTEGER NOT NULL REFERENCES cache_tracks(id) ON DELETE CASCADE,
+        webpage_url     TEXT NOT NULL DEFAULT '',
+        source          TEXT NOT NULL DEFAULT 'youtube',
+        resolved_title  TEXT NOT NULL DEFAULT '',
+        resolved_artist TEXT NOT NULL DEFAULT '',
+        duration        INTEGER NOT NULL DEFAULT 0,
+        thumbnail       TEXT NOT NULL DEFAULT '',
+        spotify_url     TEXT NOT NULL DEFAULT '',
+        source_confidence REAL NOT NULL DEFAULT 1.0,
+        created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        last_used       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        hit_count       INTEGER NOT NULL DEFAULT 1,
+        is_valid        INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE cache_queries (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        query_hash       TEXT NOT NULL UNIQUE,
+        query_raw        TEXT NOT NULL,
+        query_norm       TEXT NOT NULL,
+        track_id         INTEGER NOT NULL REFERENCES cache_tracks(id) ON DELETE CASCADE,
+        source_id        INTEGER NOT NULL REFERENCES cache_sources(id) ON DELETE CASCADE,
+        alias_type       TEXT NOT NULL DEFAULT 'text',
+        match_method     TEXT NOT NULL DEFAULT 'canonical',
+        match_confidence REAL NOT NULL DEFAULT 1.0,
+        first_seen       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        last_seen        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        hit_count        INTEGER NOT NULL DEFAULT 1,
+        is_confirmed     INTEGER NOT NULL DEFAULT 1,
+        is_active        INTEGER NOT NULL DEFAULT 1
     );
     """
 )
 conn.execute(
     """
-    INSERT INTO song_cache
-        (id, query_hash, query_raw, webpage_url, source, title, artist, duration, thumbnail, spotify_url)
+    INSERT INTO cache_tracks
+        (id, canonical_query_hash, canonical_query_raw, normalized_query, canonical_title, canonical_artist)
     VALUES
-        (27, 'h27', 'q27', 'https://youtube.com/watch?v=27', 'youtube', 'Song 27', 'Artist', 100, '', ''),
-        (30, 'h30', 'q30', 'https://youtube.com/watch?v=30', 'youtube', 'Song 30', 'Artist', 100, '', '')
+        (27, 'h27', 'q27', 'q27', 'Song 27', 'Artist'),
+        (30, 'h30', 'q30', 'q30', 'Song 30', 'Artist')
     """
 )
 conn.execute(
     """
-    INSERT INTO query_aliases (id, query_hash, query_raw, alias_type, cache_id)
+    INSERT INTO cache_sources
+        (id, track_id, webpage_url, source, resolved_title, resolved_artist, duration, thumbnail, spotify_url)
     VALUES
-        (9, 'a9', 'alias 9', 'text', 27),
-        (14, 'a14', 'alias 14', 'spotify', 30)
+        (11, 27, 'https://youtube.com/watch?v=27', 'youtube', 'Song 27', 'Artist', 100, '', ''),
+        (18, 30, 'https://youtube.com/watch?v=30', 'youtube', 'Song 30', 'Artist', 100, '', '')
+    """
+)
+conn.execute(
+    """
+    INSERT INTO cache_queries
+        (id, query_hash, query_raw, query_norm, track_id, source_id, alias_type)
+    VALUES
+        (9, 'a9', 'alias 9', 'alias 9', 27, 11, 'text'),
+        (14, 'a14', 'alias 14', 'alias 14', 30, 18, 'spotify')
     """
 )
 conn.commit()
 conn.close()
 
 dry = renumber(tmp.name, apply=False)
-assert dry["song_changed"] == 2, dry
-assert dry["alias_changed"] == 2, dry
+assert dry["track_changed"] == 2, dry
+assert dry["source_changed"] == 2, dry
+assert dry["query_changed"] == 2, dry
 assert dry["applied"] is False, dry
 
 applied = renumber(tmp.name, apply=True)
 assert applied["applied"] is True, applied
 
 conn = sqlite3.connect(tmp.name)
-song_rows = conn.execute("SELECT id, query_raw FROM song_cache ORDER BY id ASC").fetchall()
-alias_rows = conn.execute("SELECT id, cache_id, query_raw FROM query_aliases ORDER BY id ASC").fetchall()
+track_rows = conn.execute("SELECT id, canonical_query_raw FROM cache_tracks ORDER BY id ASC").fetchall()
+source_rows = conn.execute("SELECT id, track_id, webpage_url FROM cache_sources ORDER BY id ASC").fetchall()
+query_rows = conn.execute("SELECT id, track_id, source_id, query_raw FROM cache_queries ORDER BY id ASC").fetchall()
 conn.close()
 
-assert song_rows == [(1, "q27"), (2, "q30")], song_rows
-assert alias_rows == [(1, 1, "alias 9"), (2, 2, "alias 14")], alias_rows
+assert track_rows == [(1, "q27"), (2, "q30")], track_rows
+assert source_rows == [(1, 1, "https://youtube.com/watch?v=27"), (2, 2, "https://youtube.com/watch?v=30")], source_rows
+assert query_rows == [(1, 1, 1, "alias 9"), (2, 2, 2, "alias 14")], query_rows
 
 try:
     os.unlink(tmp.name)

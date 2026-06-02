@@ -434,7 +434,7 @@ function ensureScratchAudio() {
   drive.gain.value = 0.0001;
 
   const master = context.createGain();
-  master.gain.value = 0.25;
+  master.gain.value = 0.88;
 
   const panner = context.createStereoPanner();
   panner.pan.value = 0;
@@ -447,7 +447,7 @@ function ensureScratchAudio() {
   master.connect(context.destination);
   source.start();
 
-  scratchAudio = { context, source, bandpass, highpass, panner, drive };
+  scratchAudio = { context, source, bandpass, highpass, panner, drive, master };
   return scratchAudio;
 }
 

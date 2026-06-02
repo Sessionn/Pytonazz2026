@@ -484,10 +484,20 @@ class Music(commands.Cog):
                 return await inter.edit_original_response(
                     embed=error_embed(f"Coda piena (max {Config.MAX_QUEUE} tracce).")
                 )
-            await inter.edit_original_response(
+            t_after_resolve = time.perf_counter()
+            response_task = asyncio.create_task(inter.edit_original_response(
                 embed=queue_notification_embed(track, position, inter.user)
-            )
-            await start_if_idle(player, vc, was_empty)
+            ))
+            if was_empty:
+                t_playback = time.perf_counter()
+                await start_if_idle(player, vc, was_empty)
+                log.debug(tag("PERF", f"/play direct autostart  {ms((time.perf_counter()-t_playback)*1000)}"))
+            await response_task
+            if not was_empty:
+                t_playback = time.perf_counter()
+                await start_if_idle(player, vc, was_empty)
+                log.debug(tag("PERF", f"/play direct autostart  {ms((time.perf_counter()-t_playback)*1000)}"))
+            log.debug(tag("PERF", f"/play direct post-resolve  {ms((time.perf_counter()-t_after_resolve)*1000)}"))
             log.info(tag("PERF", f"/play direct total={ms((time.perf_counter()-t_cmd)*1000)}"))
 
         else:

@@ -15,6 +15,9 @@ from core.source_resolver.scoring import (
     _str_sim,
     _is_variant,
     _query_requests_variant,
+    _normalize_for_sim,
+    _jaccard_tokens,
+    _query_artist_signal,
 )
 
 log = logging.getLogger("pitonazz.resolver")
@@ -62,13 +65,42 @@ def _spotify_item_artists(item: dict) -> str:
 
 
 def _spotify_item_query_similarity(query: str, item: dict) -> float:
-    name    = _spotify_item_name(item)
+    """Rank Spotify search items with token-aware scoring plus soft typo fallback.
+
+    Pure character similarity is too permissive for short or noisy queries and
+    can overvalue strings that merely "look similar". Here we keep a small
+    character component for typo tolerance, but base the ranking primarily on
+    token overlap and artist signal.
+    """
+    q_norm = _normalize_for_sim(query)
+    name = _spotify_item_name(item)
     artists = _spotify_item_artists(item)
-    if not artists:
-        return _str_sim(query, name)
-    sim_name = _str_sim(query, name)
-    sim_full = _str_sim(query, f"{name} {artists}")
-    return max(sim_name, sim_full)
+    name_norm = _normalize_for_sim(name)
+    full_norm = _normalize_for_sim(f"{name} {artists}".strip())
+
+    if not q_norm:
+        return 0.0
+    if not full_norm:
+        return _str_sim(q_norm, name_norm)
+
+    title_jaccard = _jaccard_tokens(q_norm, name_norm)
+    full_jaccard = _jaccard_tokens(q_norm, full_norm)
+    title_str = _str_sim(q_norm, name_norm)
+    full_str = _str_sim(q_norm, full_norm)
+    artist_sim, artist_hint_present = _query_artist_signal(query, artists)
+
+    score = max(
+        (title_jaccard * 0.70) + (title_str * 0.30),
+        (full_jaccard * 0.62) + (full_str * 0.23) + ((artist_sim * 0.15) if artist_hint_present else 0.0),
+    )
+
+    if q_norm == name_norm or q_norm == full_norm:
+        score += 0.05
+
+    if not _query_requests_variant(query) and _is_variant(name):
+        score -= 0.12
+
+    return max(0.0, min(1.0, score))
 
 
 def _choose_spotify_track_item(query: str, items: list[dict]) -> Optional[dict]:

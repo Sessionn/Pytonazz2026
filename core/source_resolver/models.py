@@ -17,6 +17,8 @@ class TrackInfo:
     origin_query: str = field(default="", repr=False)
     spotify_url: str = field(default="", repr=False)
     popularity: int = field(default=0, repr=False)
+    thumbnail_source: str = field(default="", repr=False)
+    thumbnail_confidence: float = field(default=0.0, repr=False)
 
 
 def clone_track(track: TrackInfo) -> TrackInfo:
@@ -33,4 +35,6 @@ def clone_track(track: TrackInfo) -> TrackInfo:
         origin_query=track.origin_query,
         spotify_url=track.spotify_url,
         popularity=track.popularity,
+        thumbnail_source=track.thumbnail_source,
+        thumbnail_confidence=track.thumbnail_confidence,
     )

@@ -15,6 +15,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
+import core.cache_db as cache_db
 from core.dj_access import get_dj_access_controller, init_dj_access_controller
 
 log = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     db_path = db_path or os.path.join(base_dir, "..", "cache.db")
     db_path = os.path.abspath(db_path)
+    Config.DB_PATH = db_path
     secret_key = (os.getenv("DASH_SECRET_KEY") or os.getenv("DASHBOARD_SECRET") or "").strip()
     dashboard_user = (os.getenv("DASH_USER") or os.getenv("DASHBOARD_USER") or "").strip()
     dashboard_pw = os.getenv("DASH_PASSWORD") or os.getenv("DASHBOARD_PASSWORD") or ""
@@ -191,6 +193,9 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         return token_resp.json()
 
     def _refresh_discord_token(refresh_token: str) -> dict:
+        override = app.config.get("DJ_OAUTH_REFRESH_TOKEN")
+        if override:
+            return override(refresh_token)
         token_resp = httpx.post(
             f"{_DISCORD_API}/oauth2/token",
             data={
@@ -204,6 +209,30 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         )
         token_resp.raise_for_status()
         return token_resp.json()
+
+    def _refresh_and_store_dj_tokens() -> tuple[bool, str]:
+        refresh_token = str(session.get("dj_refresh_token") or "")
+        if not refresh_token:
+            _clear_dj_session("missing_refresh_token")
+            return False, ""
+        try:
+            token_data = _refresh_discord_token(refresh_token)
+        except Exception:
+            log.exception("Discord token refresh failed")
+            _clear_dj_session("token_refresh_failed")
+            return False, ""
+        _store_dj_tokens(
+            int(session.get("dj_guild_id") or 0),
+            int(session.get("dj_discord_user_id") or 0),
+            token_data,
+        )
+        _dj_log(
+            "auth_link_refreshed",
+            guild_id=session.get("dj_guild_id"),
+            user_id=session.get("dj_discord_user_id"),
+            expires_at=session.get("dj_token_expires_at"),
+        )
+        return True, str(session.get("dj_access_token") or "")
 
     def _fetch_discord_user(access_token: str) -> dict:
         override = app.config.get("DJ_OAUTH_FETCH_USER")
@@ -266,32 +295,35 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             return False, "auth_required"
 
         if expires_at and now >= max(0, expires_at - 30):
-            if not refresh_token:
-                _clear_dj_session("missing_refresh_token")
+            refreshed, access_token = _refresh_and_store_dj_tokens()
+            if not refreshed:
                 return False, "auth_required"
-            try:
-                token_data = _refresh_discord_token(refresh_token)
-            except Exception:
-                log.exception("Discord token refresh failed")
-                _clear_dj_session("token_refresh_failed")
-                return False, "auth_required"
-            _store_dj_tokens(
-                int(session.get("dj_guild_id") or 0),
-                int(session.get("dj_discord_user_id") or 0),
-                token_data,
-            )
-            access_token = str(session.get("dj_access_token") or "")
-            _dj_log(
-                "auth_link_refreshed",
-                guild_id=session.get("dj_guild_id"),
-                user_id=session.get("dj_discord_user_id"),
-                expires_at=session.get("dj_token_expires_at"),
-            )
 
         last_checked = int(session.get("dj_identity_checked_at") or 0)
         if force_validate or (now - last_checked) >= 60:
             try:
                 user_payload = _fetch_discord_user(access_token)
+            except httpx.HTTPStatusError as exc:
+                if exc.response is not None and exc.response.status_code == 401:
+                    _dj_log(
+                        "auth_link_identity_unauthorized",
+                        level=logging.WARNING,
+                        guild_id=session.get("dj_guild_id"),
+                        user_id=session.get("dj_discord_user_id"),
+                    )
+                    refreshed, access_token = _refresh_and_store_dj_tokens()
+                    if not refreshed:
+                        return False, "auth_required"
+                    try:
+                        user_payload = _fetch_discord_user(access_token)
+                    except Exception:
+                        log.exception("Discord identity validation failed after token refresh")
+                        _clear_dj_session("identity_validation_failed")
+                        return False, "auth_required"
+                else:
+                    log.exception("Discord identity validation failed")
+                    _clear_dj_session("identity_validation_failed")
+                    return False, "auth_required"
             except Exception:
                 log.exception("Discord identity validation failed")
                 _clear_dj_session("identity_validation_failed")
@@ -628,101 +660,56 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             params.append(int(valid))
 
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
-        rows = query_db(f"SELECT * FROM song_cache {where} ORDER BY {sort} {order}", params)
+        rows = cache_db.list_song_rows(search=search, source=source, valid=valid, sort=sort, order=order)
         return jsonify(rows)
 
     @app.route("/api/aliases")
     @login_required
     def api_aliases():
-        rows = query_db(
-            """
-            SELECT qa.id, qa.query_raw, qa.cache_id,
-                   qa.alias_type, sc.title, sc.artist, sc.spotify_url, sc.webpage_url
-            FROM query_aliases qa
-            LEFT JOIN song_cache sc ON sc.id = qa.cache_id
-            ORDER BY qa.id DESC
-            """
-        )
+        rows = cache_db.list_alias_rows()
         return jsonify(rows)
+
+    @app.route("/api/tracks")
+    @login_required
+    def api_tracks():
+        return jsonify(cache_db.list_track_rows())
+
+    @app.route("/api/sources")
+    @login_required
+    def api_sources():
+        return jsonify(cache_db.list_source_rows())
+
+    @app.route("/api/queries")
+    @login_required
+    def api_queries():
+        return jsonify(cache_db.list_query_rows())
+
+    @app.route("/api/schema")
+    @login_required
+    def api_schema():
+        return jsonify(cache_db.schema_overview())
 
     @app.route("/api/associate", methods=["POST"])
     @login_required
     def api_associate():
         data = request.get_json(force=True, silent=True) or {}
-        raw_url = (data.get("spotify_url") or "").strip()
-        title = (data.get("title") or "").strip().lower()
-        artist = (data.get("artist") or "").strip().lower()
-
-        if not raw_url or not _RE_SPOTIFY.search(raw_url):
-            return jsonify({"ok": False, "action": "invalid_url", "cache_id": None}), 400
-
-        spotify_url = _extract_spotify_id(raw_url)
-        h_spotify = _hash(spotify_url)
-
-        conn = get_conn()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT id FROM song_cache WHERE spotify_url = ? AND is_valid = 1 LIMIT 1", (spotify_url,))
-            row = cur.fetchone()
-            if row:
-                return jsonify({"ok": True, "action": "already_set", "cache_id": row["id"]})
-
-            cur.execute("SELECT cache_id FROM query_aliases WHERE query_hash = ? LIMIT 1", (h_spotify,))
-            alias_row = cur.fetchone()
-            if alias_row:
-                return jsonify({"ok": True, "action": "already_alias", "cache_id": alias_row["cache_id"]})
-
-            target = None
-            if title:
-                filters, params = ["LOWER(title) LIKE ?"], [f"%{title}%"]
-                if artist:
-                    filters.append("LOWER(artist) LIKE ?")
-                    params.append(f"%{artist}%")
-                cur.execute(f"SELECT id FROM song_cache WHERE {' AND '.join(filters)} AND is_valid=1 LIMIT 1", params)
-                target = cur.fetchone()
-
-            if target is None:
-                return jsonify({"ok": False, "action": "not_found", "cache_id": None})
-
-            cache_id = target["id"]
-            cur.execute(
-                "UPDATE song_cache SET spotify_url = ? WHERE id = ? AND (spotify_url IS NULL OR spotify_url = '')",
-                (spotify_url, cache_id),
-            )
-            cur.execute(
-                """
-                INSERT INTO query_aliases (query_hash, query_raw, alias_type, cache_id)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(query_hash) DO UPDATE SET
-                    query_raw = excluded.query_raw,
-                    alias_type = excluded.alias_type,
-                    cache_id  = excluded.cache_id
-                """,
-                (h_spotify, spotify_url, "spotify", cache_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        return jsonify({"ok": True, "action": "associated", "cache_id": cache_id})
+        result = cache_db.associate_spotify(
+            spotify_url=(data.get("spotify_url") or "").strip(),
+            title=(data.get("title") or "").strip(),
+            artist=(data.get("artist") or "").strip(),
+        )
+        status = 200 if result.get("ok") else 400
+        return jsonify(result), status
 
     @app.route("/api/delete/<int:row_id>", methods=["DELETE"])
     @login_required
     def delete_song(row_id):
-        conn = get_conn()
-        conn.execute("DELETE FROM song_cache WHERE id = ?", (row_id,))
-        conn.commit()
-        conn.close()
-        return jsonify({"ok": True})
+        return jsonify({"ok": cache_db.delete_song_row(row_id)})
 
     @app.route("/api/aliases/<int:alias_id>", methods=["DELETE"])
     @login_required
     def delete_alias(alias_id):
-        conn = get_conn()
-        conn.execute("DELETE FROM query_aliases WHERE id = ?", (alias_id,))
-        conn.commit()
-        conn.close()
-        return jsonify({"ok": True})
+        return jsonify({"ok": cache_db.delete_alias(alias_id)})
 
     return app
 

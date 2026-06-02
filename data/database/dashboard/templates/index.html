@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+<div class="page-orb page-orb-a" aria-hidden="true"></div>
+<div class="page-orb page-orb-b" aria-hidden="true"></div>
 <div class="shell">
   <nav>
     <div class="logo">
@@ -23,18 +25,34 @@
 
     <div class="nav-section-label">Workspace</div>
     <a href="#" class="active" onclick="showSection('cache', this); return false;">
-      <span class="nav-icon">CACHE</span>
-      <span>Song Cache</span>
+      <span class="nav-icon" aria-hidden="true">⌁</span>
+      <span>Vista operativa</span>
     </a>
     <a href="#" onclick="showSection('aliases', this); return false;">
-      <span class="nav-icon">LINK</span>
-      <span>Aliases</span>
+      <span class="nav-icon" aria-hidden="true">⛓</span>
+      <span>Vista alias</span>
+    </a>
+    <a href="#" onclick="showSection('tracks', this); return false;">
+      <span class="nav-icon" aria-hidden="true">♪</span>
+      <span>Tracce canoniche</span>
+    </a>
+    <a href="#" onclick="showSection('sources', this); return false;">
+      <span class="nav-icon" aria-hidden="true">↯</span>
+      <span>Sorgenti risolte</span>
+    </a>
+    <a href="#" onclick="showSection('queries', this); return false;">
+      <span class="nav-icon" aria-hidden="true">⌕</span>
+      <span>Query e alias</span>
+    </a>
+    <a href="#" onclick="showSection('schema', this); return false;">
+      <span class="nav-icon" aria-hidden="true">▦</span>
+      <span>Struttura DB</span>
     </a>
 
     <div class="nav-divider"></div>
     <div class="nav-section-label">Runtime</div>
     <a class="nav-static">
-      <span class="nav-icon">SQL</span>
+      <span class="nav-icon" aria-hidden="true">◫</span>
       <span>{{ db_name }}</span>
     </a>
 
@@ -50,16 +68,21 @@
     <div class="page-header">
       <div class="page-header-top">
         <div class="page-copy">
-          <p class="eyebrow">Database Dashboard</p>
-          <h1>Cache Dashboard</h1>
-          <p class="page-sub">Monitoraggio cache, alias e attivita in tempo reale.</p>
+          <p class="eyebrow">Dashboard Database</p>
+          <h1>Cache DB</h1>
+          <p class="page-sub">Monitoraggio della cache, delle query osservate e delle sorgenti risolte in tempo reale.</p>
           <p id="gen-time" class="gen-time"></p>
+          <div class="signal-row">
+            <span class="signal-chip signal-chip-live">Aggiornamento live</span>
+            <span class="signal-chip signal-chip-cache">Schema normalizzato</span>
+            <span class="signal-chip signal-chip-audio">Sorgenti audio</span>
+          </div>
         </div>
         <div class="page-actions">
           <div class="runtime-rack">
             <div class="runtime-pill runtime-pill-live">
-              <span class="runtime-pill-label">Mode</span>
-              <strong>Realtime</strong>
+              <span class="runtime-pill-label">Modalita</span>
+              <strong>Tempo reale</strong>
             </div>
             <div class="runtime-pill runtime-pill-runtime">
               <span class="runtime-pill-label">Runtime</span>
@@ -120,9 +143,16 @@
     </div>
 
     <div id="cache-section" class="section-stack">
+      <div class="section-banner section-banner-cache">
+        <div>
+          <p class="section-kicker">Vista compatibile</p>
+          <h2>song_cache operativa</h2>
+        </div>
+        <p>Vista derivata da <code>cache_sources</code> e <code>cache_tracks</code> per ricerca, filtri e interventi rapidi.</p>
+      </div>
       <div class="toolbar">
         <div class="toolbar-main">
-          <input type="text" id="search-input" placeholder="Search title, artist, query..." oninput="debouncedFetch()">
+          <input type="text" id="search-input" placeholder="Cerca titolo, artista o query..." oninput="debouncedFetch()">
           <div class="custom-select-wrap">
             <select id="filter-source" onchange="fetchSongs()">
               <option value="">Tutte le sorgenti</option>
@@ -147,14 +177,15 @@
         <table id="songs-table">
           <thead>
             <tr>
-              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">v</span></th>
+              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">↕</span></th>
               <th>Titolo / Artista</th>
-              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">v</span></th>
+              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">↕</span></th>
               <th>Sorgente</th>
+              <th>Cover</th>
               <th>Dur.</th>
-              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">v</span></th>
-              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">v</span></th>
-              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">v</span></th>
+              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">↓</span></th>
+              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">↕</span></th>
+              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">↕</span></th>
               <th>Stato</th>
               <th>Azioni</th>
             </tr>
@@ -165,6 +196,13 @@
     </div>
 
     <div id="aliases-section" class="section-stack" style="display:none">
+      <div class="section-banner section-banner-alias">
+        <div>
+          <p class="section-kicker">Vista compatibile</p>
+          <h2>query_aliases</h2>
+        </div>
+        <p>Vista rapida sugli alias esposti alla dashboard, derivata da <code>cache_queries</code>.</p>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -179,6 +217,118 @@
           </thead>
           <tbody id="aliases-body"></tbody>
         </table>
+      </div>
+    </div>
+
+    <div id="tracks-section" class="section-stack" style="display:none">
+      <div class="section-banner section-banner-tracks">
+        <div>
+          <p class="section-kicker">Tabella reale</p>
+          <h2>cache_tracks</h2>
+        </div>
+        <p>Una riga per identita canonica del brano. Qui si separa il brano logico dalle sue singole sorgenti.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Titolo canonico</th>
+              <th>Artista canonico</th>
+              <th>Chiave normalizzata</th>
+              <th>Sorgenti</th>
+              <th>Query attive</th>
+              <th>Creata</th>
+              <th>Aggiornata</th>
+            </tr>
+          </thead>
+          <tbody id="tracks-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="sources-section" class="section-stack" style="display:none">
+      <div class="section-banner section-banner-sources">
+        <div>
+          <p class="section-kicker">Tabella reale</p>
+          <h2>cache_sources</h2>
+        </div>
+        <p>Una riga per sorgente risolta: URL, durata, validita, hit e legame con la traccia canonica.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Track ID</th>
+              <th>Brano canonico</th>
+              <th>Sorgente</th>
+              <th>Risolto come</th>
+              <th>Cover</th>
+              <th>Durata</th>
+              <th>Hits</th>
+              <th>Stato</th>
+              <th>Usata</th>
+            </tr>
+          </thead>
+          <tbody id="sources-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="queries-section" class="section-stack" style="display:none">
+      <div class="section-banner section-banner-queries">
+        <div>
+          <p class="section-kicker">Tabella reale</p>
+          <h2>cache_queries</h2>
+        </div>
+        <p>Una riga per query osservata o alias confermato, con confidence, tipo e puntamento a track/source.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Track / Source</th>
+              <th>Query grezza</th>
+              <th>Tipo alias</th>
+              <th>Confidence</th>
+              <th>Hits</th>
+              <th>Stato</th>
+              <th>Ultima vista</th>
+            </tr>
+          </thead>
+          <tbody id="queries-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="schema-section" class="section-stack" style="display:none">
+      <div class="section-banner section-banner-schema">
+        <div>
+          <p class="section-kicker">Spiegazione architettura</p>
+          <h2>Perche il database e cambiato</h2>
+        </div>
+        <p>Il vecchio modello mescolava identita del brano, sorgente fisica e alias. Il nuovo schema li separa per ridurre associazioni errate e rendere il dato piu auditabile.</p>
+      </div>
+
+      <div class="schema-grid" id="schema-grid"></div>
+
+      <div class="table-wrap schema-notes">
+        <div class="schema-note-list">
+          <div class="schema-note">
+            <h3>Scopo</h3>
+            <p>Tenere distinta l'identita canonica del brano dalla singola risoluzione tecnica e dalle query che l'hanno prodotta.</p>
+          </div>
+          <div class="schema-note">
+            <h3>Perche migliora</h3>
+            <p>Una query sporca o un alias dubbio non sporca direttamente la traccia canonica e puo essere disattivato o corretto senza perdere storico.</p>
+          </div>
+          <div class="schema-note">
+            <h3>Compatibilita</h3>
+            <p><code>song_cache</code> e <code>query_aliases</code> restano come viste compatibili per dashboard, debug e integrazioni legacy.</p>
+          </div>
+        </div>
       </div>
     </div>
   </main>

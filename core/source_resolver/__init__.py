@@ -302,6 +302,16 @@ def _should_enrich_with_spotify(query: str, tracks: list["TrackInfo"]) -> bool:
     return True
 
 
+def _is_short_or_ambiguous_query(query: str) -> bool:
+    q_norm = _normalize_for_sim(query)
+    if not q_norm:
+        return False
+    parts = q_norm.split()
+    if len(parts) <= 2:
+        return True
+    return len(q_norm) <= 14
+
+
 # ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
@@ -319,6 +329,7 @@ def _get_query_cache():
                     from core.cache_db import add_alias as _cache_add_alias
                     from core.cache_db import get as _cache_get, put as _cache_put
                     from core.cache_db import invalidate_webpage_url as _cache_invalidate_url
+                    from core.cache_db import update_stream_url as _cache_update_stream_url
 
                     class _Adapter:
                         """Adatta l'API funzionale di cache_db all'interfaccia lookup/store."""
@@ -337,6 +348,10 @@ def _get_query_cache():
                         @staticmethod
                         def invalidate_url(webpage_url: str) -> None:
                             _cache_invalidate_url(webpage_url)
+
+                        @staticmethod
+                        def update_stream_url(webpage_url: str, stream_url: str) -> None:
+                            _cache_update_stream_url(webpage_url, stream_url)
 
                     _qc_instance = _Adapter()
                 except Exception as e:
@@ -360,6 +375,8 @@ def _cache_hit_to_track(
         stream_url   = stream_url,
         artist       = hit.get("artist") or "",
         spotify_url  = hit.get("spotify_url") or "",
+        thumbnail_source = hit.get("thumbnail_source") or "",
+        thumbnail_confidence = float(hit.get("thumbnail_confidence") or 0.0),
     )
 
 
@@ -368,6 +385,51 @@ class SourceResolver:
     _cache_lock = threading.Lock()
     _ytdlp_query_cache: dict[tuple[int, str], tuple[float, list["TrackInfo"]]] = {}
     _stream_url_cache: dict[str, tuple[float, str]] = {}
+
+    @staticmethod
+    def _apply_spotify_meta(track: "TrackInfo", meta: dict, score: dict) -> None:
+        decision = score["decision"]
+        apply_cover_and_spotify = decision in ("full", "cover_only")
+
+        if apply_cover_and_spotify and meta.get("spotify_url"):
+            track.spotify_url = meta["spotify_url"]
+
+        if apply_cover_and_spotify and meta.get("thumbnail"):
+            track.thumbnail = meta["thumbnail"]
+            track.thumbnail_source = meta.get("thumbnail_source") or "spotify"
+            track.thumbnail_confidence = max(
+                float(meta.get("thumbnail_confidence") or 0.0),
+                float(score.get("confidence") or 0.0),
+            )
+
+        if decision == "full":
+            if meta.get("title"):
+                track.title = meta["title"]
+            if meta.get("artist"):
+                track.artist = meta["artist"]
+
+    @staticmethod
+    def _log_spotify_enrich(idx: int, original_query: str, yt_title_before: str, meta: dict, score: dict) -> None:
+        decision = score["decision"]
+        _dc = _BGRN if decision == "full" else (_BYEL if decision == "cover_only" else _BRED)
+        sp_title = meta.get("title", "")
+        sp_artist = meta.get("artist", "")
+        conf_pct = int(score["confidence"] * 100)
+        _sp_label = b(sp_title) + (f"  {sp_artist}" if sp_artist else "")
+        _yt_label = dim(yt_title_before) if decision == "full" else b(yt_title_before)
+        enrich_log.info(tag(
+            "SPOTIFY",
+            f"enrich[{idx}]  {b(original_query)}  →  {_sp_label}"
+            f"  |  yt: {_yt_label}"
+            f"  |  {hi(decision, _dc)}  {hi(f'{conf_pct}%', _dc)}",
+        ))
+        enrich_log.debug(tag(
+            "SPOTIFY",
+            f"  scores  q={int(score['query_sim'] * 100)}%  yt={int(score['yt_sim'] * 100)}%"
+            f"  art={int(score['artist_sim'] * 100)}%  dur={int(score['duration_sim'] * 100)}%"
+            f"  junk={int(score['variant_penalty'] * 100)}%  nm={int(score['non_music_penalty'] * 100)}%"
+            f"  reason={dim(score['reason'])}",
+        ))
 
     @classmethod
     def _cache_prune_locked(cls, cache: dict, max_size: int) -> None:
@@ -462,6 +524,8 @@ class SourceResolver:
                 return {
                     "title":       t.get("name", ""),
                     "thumbnail":   images[0]["url"] if images else "",
+                    "thumbnail_source": "spotify" if images else "",
+                    "thumbnail_confidence": 0.92 if images else 0.0,
                     "duration":    int((t.get("duration_ms") or 0) / 1000),
                     "artist":      ", ".join(a["name"] for a in t.get("artists", [])),
                     "spotify_url": t.get("external_urls", {}).get("spotify", ""),
@@ -502,6 +566,8 @@ class SourceResolver:
                     meta = {
                         "title": item.get("name", ""),
                         "thumbnail": images[0]["url"] if images else "",
+                        "thumbnail_source": "spotify" if images else "",
+                        "thumbnail_confidence": 0.92 if images else 0.0,
                         "duration": int((item.get("duration_ms") or 0) / 1000),
                         "artist": ", ".join(a["name"] for a in item.get("artists", [])),
                         "spotify_url": item.get("external_urls", {}).get("spotify", ""),
@@ -540,10 +606,10 @@ class SourceResolver:
                 enrich_log.info(tag("SPOTIFY", f"enrich[{idx}]  {b(track.title)}  skip  reason=empty_meta"))
                 continue
 
+            yt_title_before = track.title
             decision = score["decision"]
             sp_title = meta.get("title", "")
             sp_artist = meta.get("artist", "")
-            yt_title_before = track.title
             apply_cover_and_spotify = decision in ("full", "cover_only")
 
             if apply_cover_and_spotify and meta.get("spotify_url"):
@@ -551,6 +617,11 @@ class SourceResolver:
 
             if apply_cover_and_spotify and meta.get("thumbnail"):
                 track.thumbnail = meta["thumbnail"]
+                track.thumbnail_source = meta.get("thumbnail_source") or "spotify"
+                track.thumbnail_confidence = max(
+                    float(meta.get("thumbnail_confidence") or 0.0),
+                    float(score.get("confidence") or 0.0),
+                )
             if decision == "full":
                 if sp_title:
                     track.title = sp_title
@@ -647,9 +718,19 @@ class SourceResolver:
                 if qc is not None:
                     hit = qc.lookup(query)
                     if hit and hit.get("webpage_url"):
-                        stream_url = await loop.run_in_executor(
-                            None, cls._fetch_stream_url, hit["webpage_url"]
-                        )
+                        now_ts = int(time.time())
+                        stream_url = ""
+                        cached_stream = (hit.get("stream_url") or "").strip()
+                        stream_expires_at = int(hit.get("stream_expires_at") or 0)
+                        if cached_stream and stream_expires_at > now_ts + 60:
+                            stream_url = cached_stream
+                            log.debug(tag("STREAM", f"db stream hit  {b(hit['webpage_url'])}"))
+                        else:
+                            stream_url = await loop.run_in_executor(
+                                None, cls._fetch_stream_url, hit["webpage_url"]
+                            )
+                            if stream_url and hasattr(qc, "update_stream_url"):
+                                qc.update_stream_url(hit["webpage_url"], stream_url)
                         if stream_url:
                             track = _cache_hit_to_track(hit, requester, requester_id, stream_url)
                             elapsed = (time.perf_counter() - t0) * 1000
@@ -662,37 +743,128 @@ class SourceResolver:
                 log.debug(tag("CACHE", f"read path error (ignorato): {_ce}"))
         # ─────────────────────────────────────────────────────────────────────────────
 
+        search_n = max(n, _YT_CANDIDATES)
+        results = []
         sp_meta_hint: Optional[dict] = None
-        yt_query = query
-        if n == 1 and not _is_url_like_query(query) and Config.SPOTIFY_CLIENT_ID:
-            try:
-                sp_meta_hint = await loop.run_in_executor(
-                    None, cls._sp_search_track_meta, query
-                )
-            except Exception:
-                sp_meta_hint = None
-            if sp_meta_hint:
+        used_spotify_hint = False
+        fast_path = n == 1 and not _is_url_like_query(query)
+        sp_future = None
+
+        if fast_path:
+            if Config.SPOTIFY_CLIENT_ID:
+                sp_future = loop.run_in_executor(None, cls._sp_search_track_meta, query)
+            yt_t0 = time.perf_counter()
+            results = await loop.run_in_executor(
+                None, cls._run_ytdlp, f"ytsearch1:{query}", requester, requester_id
+            )
+            log.debug(tag("PERF", f"ytsearch1 raw  {b(query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
+
+            if sp_future is not None:
+                sp_t0 = time.perf_counter()
+                if not sp_future.done():
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(sp_future),
+                            timeout=max(0.0, float(Config.SPOTIFY_HINT_WAIT_SECONDS)),
+                        )
+                    except asyncio.TimeoutError:
+                        log.debug(tag("PERF", f"spotify hint timeout  {b(query)}"))
+                    except Exception:
+                        pass
+                if sp_future.done():
+                    try:
+                        sp_meta_hint = sp_future.result()
+                    except Exception:
+                        sp_meta_hint = None
+                    log.debug(tag("PERF", f"spotify hint  {b(query)}  {ms((time.perf_counter() - sp_t0) * 1000)}"))
+
+            if sp_meta_hint and results:
+                score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
+                if score["decision"] in ("full", "cover_only"):
+                    used_spotify_hint = True
+                    yt_title_before = results[0].title
+                    cls._apply_spotify_meta(results[0], sp_meta_hint, score)
+                    cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, score)
+                else:
+                    canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
+                    if canonical:
+                        log.debug(tag(
+                            "SPOTIFY",
+                            f"raw hint debole  {b(query)}  score={int(score['confidence'] * 100)}%"
+                            f"  reason={dim(score['reason'])}  fallback={b(canonical)}",
+                        ))
+                        yt_t0 = time.perf_counter()
+                        canonical_results = await loop.run_in_executor(
+                            None, cls._run_ytdlp, f"ytsearch{search_n}:{canonical}", requester, requester_id
+                        )
+                        log.debug(tag("PERF", f"ytsearch{search_n} canonical  {b(canonical)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
+                        if canonical_results:
+                            results = canonical_results
+                            used_spotify_hint = True
+
+            if not results and sp_meta_hint:
                 canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                 if canonical:
-                    yt_query = canonical
-                    log.debug(tag("SPOTIFY", f"first  {b(query)}  \u2192  {b(yt_query)}"))
+                    yt_t0 = time.perf_counter()
+                    results = await loop.run_in_executor(
+                        None, cls._run_ytdlp, f"ytsearch{search_n}:{canonical}", requester, requester_id
+                    )
+                    log.debug(tag("PERF", f"ytsearch{search_n} canonical  {b(canonical)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
 
-        search_n = max(n, _YT_CANDIDATES)
-        results  = await loop.run_in_executor(
-            None, cls._run_ytdlp, f"ytsearch{search_n}:{yt_query}", requester, requester_id
-        )
+        if not results:
+            yt_t0 = time.perf_counter()
+            results  = await loop.run_in_executor(
+                None, cls._run_ytdlp, f"ytsearch{search_n}:{query}", requester, requester_id
+            )
+            log.debug(tag("PERF", f"ytsearch{search_n} fallback  {b(query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
 
         if results:
+            if fast_path and sp_meta_hint is None and sp_future is not None:
+                late_wait = 0.0
+                elapsed_so_far = time.perf_counter() - t0
+                if sp_future.done():
+                    late_wait = 0.0
+                elif _is_short_or_ambiguous_query(query):
+                    late_wait = 0.55 if elapsed_so_far >= 2.0 else 0.25
+                elif elapsed_so_far >= 4.0:
+                    late_wait = 0.35
+
+                if late_wait > 0.0:
+                    try:
+                        sp_t0 = time.perf_counter()
+                        await asyncio.wait_for(asyncio.shield(sp_future), timeout=late_wait)
+                        log.debug(tag("PERF", f"spotify late hint  {b(query)}  {ms((time.perf_counter() - sp_t0) * 1000)}"))
+                    except asyncio.TimeoutError:
+                        log.debug(tag("PERF", f"spotify late hint timeout  {b(query)}"))
+                    except Exception:
+                        pass
+
+                if sp_future.done():
+                    try:
+                        sp_meta_hint = sp_future.result()
+                    except Exception:
+                        sp_meta_hint = None
+
             sp_dur = float(sp_meta_hint.get("duration", 0) or 0) if sp_meta_hint else 0.0
             if n == 1 and len(results) > 1:
                 best = _prefer_studio(results, sp_dur=sp_dur, user_query=query)
                 results = [best] if best else results[:1]
 
-            enrich_query = yt_query if sp_meta_hint else query
-            if _should_enrich_with_spotify(enrich_query, results):
-                results = await loop.run_in_executor(
-                    None, cls._enrich_with_spotify, results, enrich_query
+            if sp_meta_hint and results and not used_spotify_hint:
+                score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
+                yt_title_before = results[0].title
+                cls._apply_spotify_meta(results[0], sp_meta_hint, score)
+                cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, score)
+            elif not sp_meta_hint and _should_enrich_with_spotify(query, results):
+                should_retry_enrich = (
+                    not fast_path
+                    or _is_short_or_ambiguous_query(query)
+                    or (time.perf_counter() - t0) >= 4.0
                 )
+                if should_retry_enrich:
+                    results = await loop.run_in_executor(
+                        None, cls._enrich_with_spotify, results, query
+                    )
 
         # ── WRITE PATH: salva il risultato in cache ─────────────────────────────────────────────
         if n == 1 and results and not _is_url_like_query(query):
@@ -909,6 +1081,8 @@ class SourceResolver:
         chosen.popularity  = sp_pop
         if sp_thumb:
             chosen.thumbnail = sp_thumb
+            chosen.thumbnail_source = "spotify"
+            chosen.thumbnail_confidence = 0.95
         chosen.artist      = artists_str
         chosen.origin_query = query_with_artist
         chosen.spotify_url = sp_url
@@ -1110,6 +1284,8 @@ class SourceResolver:
                 stream_url   = url,
                 artist       = artist,
                 origin_query = origin_query,
+                thumbnail_source = src,
+                thumbnail_confidence = 0.45,
             ))
         cls._set_cached_ytdlp_results(cache_key, results)
         return results

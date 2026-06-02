@@ -38,8 +38,20 @@ dirty = _compute_enrich_confidence(
     sp_meta,
 )
 
+notte_blu = _compute_enrich_confidence(
+    "Notte blu dj shokka",
+    Track("Notte Blu", "", 0),
+    {
+        "title": "Notte Blu",
+        "artist": "DJ Shocca, Frank Siciliano",
+        "duration": 0,
+    },
+)
+
 assert clean["decision"] in {"full", "cover_only"}, clean
 assert dirty["decision"] == "skip", dirty
 assert dirty["variant_penalty"] >= clean["variant_penalty"] + 0.20, (clean, dirty)
+assert notte_blu["decision"] == "cover_only", notte_blu
+assert notte_blu["reason"] == "strong_yt_title_cover", notte_blu
 
 print("OK: scoring guardrails per query rischiose")

@@ -38,15 +38,31 @@ track_b = {**track_a, "webpage_url": "https://youtube.com/watch?v=B"}
 db.put("song artist", track_a)
 
 conn = sqlite3.connect(tmp.name)
+track_row = conn.execute("SELECT id FROM cache_tracks LIMIT 1").fetchone()
+assert track_row is not None
 conn.execute(
     """
-    INSERT INTO song_cache
-        (query_hash, query_raw, webpage_url, source, title, artist, duration, thumbnail, spotify_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO cache_tracks
+        (canonical_query_hash, canonical_query_raw, normalized_query, canonical_title, canonical_artist)
+    VALUES (?, ?, ?, ?, ?)
     """,
     (
         "legacy-duplicate-hash",
         "song artist duplicate",
+        "song artist duplicate",
+        track_b["title"],
+        track_b["artist"],
+    ),
+)
+dup_track_id = conn.execute("SELECT MAX(id) FROM cache_tracks").fetchone()[0]
+conn.execute(
+    """
+    INSERT INTO cache_sources
+        (track_id, webpage_url, source, resolved_title, resolved_artist, duration, thumbnail, spotify_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+    (
+        dup_track_id,
         track_b["webpage_url"],
         "youtube",
         track_b["title"],
@@ -66,8 +82,8 @@ applied = db.dedupe_canonical(dry_run=False)
 assert applied["duplicates"] == 1 and applied["applied"] is True, applied
 
 conn = sqlite3.connect(tmp.name)
-count = conn.execute("SELECT COUNT(*) FROM song_cache WHERE is_valid = 1").fetchone()[0]
-alias_count = conn.execute("SELECT COUNT(*) FROM query_aliases").fetchone()[0]
+count = conn.execute("SELECT COUNT(*) FROM cache_tracks WHERE is_active = 1").fetchone()[0]
+alias_count = conn.execute("SELECT COUNT(*) FROM cache_queries").fetchone()[0]
 conn.close()
 
 assert count == 1, f"FAIL: restano {count} righe valide"

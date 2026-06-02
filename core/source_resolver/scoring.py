@@ -51,6 +51,8 @@ class _TrackLike(Protocol):
 
 _ENRICH_CONFIDENCE_HIGH          = 0.72
 _ENRICH_CONFIDENCE_MEDIUM        = 0.68
+_ENRICH_CONFIDENCE_COVER_LOW     = 0.58
+_ENRICH_YT_TITLE_COVER_STRONG    = 0.82
 _ENRICH_CONFIDENCE_EXTREME_LOW   = 0.22
 _ENRICH_DURATION_GOOD            = 0.62
 _DURATION_DEFAULT_SCORE          = 0.45
@@ -289,6 +291,16 @@ def _compute_enrich_confidence(
     elif confidence >= _ENRICH_CONFIDENCE_MEDIUM and not artist_mismatch and duration_good:
         decision = "cover_only"
         reason   = "medium_confidence"
+    elif (
+        confidence >= _ENRICH_CONFIDENCE_COVER_LOW
+        and yt_sim >= _ENRICH_YT_TITLE_COVER_STRONG
+        and not artist_mismatch
+        and variant_penalty <= 0.0
+        and non_music_penalty <= 0.0
+        and duration_sim >= _DURATION_DEFAULT_SCORE
+    ):
+        decision = "cover_only"
+        reason   = "strong_yt_title_cover"
     else:
         decision = "skip"
         if artist_mismatch:

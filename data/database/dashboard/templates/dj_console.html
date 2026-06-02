@@ -7,11 +7,18 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dj_console.css') }}">
 </head>
 <body data-guild-id="{{ guild_id }}">
+  <div class="console-aura console-aura-left" aria-hidden="true"></div>
+  <div class="console-aura console-aura-right" aria-hidden="true"></div>
   <main class="console-shell">
     <section class="hero-panel">
       <div class="brand-block">
         <p class="eyebrow">Pitonazz Remote Deck</p>
         <h1>DJ Console</h1>
+        <div class="console-signal-row">
+          <span class="console-chip console-chip-live">Realtime</span>
+          <span class="console-chip console-chip-fx">Mixer FX</span>
+          <span class="console-chip console-chip-queue">Queue control</span>
+        </div>
       </div>
       <div class="status-grid">
         <div class="status-card status-card-voice">
@@ -115,7 +122,7 @@
                       <span class="filter-select-kicker">Live Filter</span>
                       <strong id="filter-select-label">Off</strong>
                     </span>
-                    <span class="filter-select-chevron" aria-hidden="true">⌄</span>
+                    <span class="filter-select-chevron" aria-hidden="true">↓</span>
                   </button>
                   <div id="filter-select-menu" class="filter-select-menu" role="listbox" aria-label="Filtro console">
                     <button type="button" class="filter-option is-selected" data-filter-option="off">Off</button>

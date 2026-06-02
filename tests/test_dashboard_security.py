@@ -23,23 +23,8 @@ os.environ["DASH_SESSION_SAMESITE"] = "Lax"
 
 with tempfile.TemporaryDirectory() as td:
     db_path = Path(td) / "cache.db"
-    conn = sqlite3.connect(db_path)
-    conn.executescript(
-        """
-        CREATE TABLE song_cache (
-            id INTEGER PRIMARY KEY,
-            is_valid INTEGER NOT NULL DEFAULT 1,
-            hit_count INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE query_aliases (
-            id INTEGER PRIMARY KEY,
-            query_raw TEXT,
-            cache_id INTEGER
-        );
-        """
-    )
-    conn.commit()
-    conn.close()
+    import core.cache_db as cache_db
+    cache_db.rebuild_database(db_path)
 
     from data.database.dashboard.app import create_app
 

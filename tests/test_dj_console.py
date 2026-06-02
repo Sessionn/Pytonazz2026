@@ -7,6 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+import httpx
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,31 +21,13 @@ os.environ["DJ_CONSOLE_CALLBACK_URL"] = "http://127.0.0.1:5000/dj-console/callba
 
 from data.database.dashboard.app import create_app
 from core.dj_access import get_dj_access_controller
+import core.cache_db as cache_db
 
 
 def make_db() -> str:
     with tempfile.TemporaryDirectory() as td:
         db_path = Path(td) / "cache.db"
-        conn = sqlite3.connect(db_path)
-        conn.executescript(
-            """
-            CREATE TABLE song_cache (
-                id INTEGER PRIMARY KEY,
-                query_hash TEXT,
-                query_raw TEXT,
-                is_valid INTEGER NOT NULL DEFAULT 1,
-                hit_count INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE query_aliases (
-                id INTEGER PRIMARY KEY,
-                query_hash TEXT,
-                query_raw TEXT,
-                cache_id INTEGER
-            );
-            """
-        )
-        conn.commit()
-        conn.close()
+        cache_db.rebuild_database(db_path)
         copy_path = Path(tempfile.gettempdir()) / "pytonazz_dj_console_test.db"
         copy_path.write_bytes(db_path.read_bytes())
         return str(copy_path)
@@ -114,6 +97,41 @@ with client.session_transaction() as sess:
     sess["dj_guild_id"] = 123
 
 denied = client.get("/dj-console?guild_id=123", follow_redirects=False)
-assert denied.status_code == 403
+assert denied.status_code == 302
+assert "/dj-console/login?guild_id=123" in denied.headers["Location"]
 
 print("OK: dj console oauth/access/routes")
+
+refresh_calls: list[str] = []
+
+
+def fetch_user_with_401_retry(token: str) -> dict:
+    if token == "expired-token":
+        req = httpx.Request("GET", "https://discord.com/api/v10/users/@me")
+        resp = httpx.Response(401, request=req)
+        raise httpx.HTTPStatusError("401 Unauthorized", request=req, response=resp)
+    return {"id": "42"}
+
+
+app.config["DJ_OAUTH_FETCH_USER"] = fetch_user_with_401_retry
+app.config["DJ_OAUTH_REFRESH_TOKEN"] = lambda refresh_token: (
+    refresh_calls.append(refresh_token) or {
+        "access_token": "fresh-token",
+        "refresh_token": "fresh-refresh-token",
+        "expires_in": 3600,
+    }
+)
+
+with client.session_transaction() as sess:
+    sess["dj_discord_user_id"] = 42
+    sess["dj_guild_id"] = 123
+    sess["dj_access_token"] = "expired-token"
+    sess["dj_refresh_token"] = "refresh-me"
+    sess["dj_token_expires_at"] = int(2**31 - 1)
+    sess["dj_identity_checked_at"] = 0
+
+recovered = client.get("/dj-console?guild_id=123", follow_redirects=False)
+assert recovered.status_code == 200
+assert refresh_calls == ["refresh-me"]
+
+print("OK: dj console recovers from 401 identity check via refresh token")

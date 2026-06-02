@@ -17,42 +17,25 @@ os.environ["DASH_PASSWORD"] = "secret-pass"
 os.environ["DASH_SECRET_KEY"] = "test-secret-key"
 
 from data.database.dashboard.app import create_app
+import core.cache_db as cache_db
 
 tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 tmp.close()
 
-conn = sqlite3.connect(tmp.name)
-conn.executescript(
-    """
-    CREATE TABLE song_cache (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        query_hash TEXT NOT NULL UNIQUE,
-        query_raw TEXT NOT NULL,
-        webpage_url TEXT,
-        source TEXT NOT NULL DEFAULT 'youtube',
-        title TEXT,
-        artist TEXT,
-        duration INTEGER,
-        thumbnail TEXT,
-        spotify_url TEXT,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-        last_used INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-        hit_count INTEGER NOT NULL DEFAULT 1,
-        is_valid INTEGER NOT NULL DEFAULT 1
-    );
-    CREATE TABLE query_aliases (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        query_hash TEXT NOT NULL UNIQUE,
-        query_raw TEXT NOT NULL,
-        alias_type TEXT NOT NULL DEFAULT 'text',
-        cache_id INTEGER NOT NULL REFERENCES song_cache(id) ON DELETE CASCADE
-    );
-    INSERT INTO song_cache (query_hash, query_raw, webpage_url, source, title, artist, duration, thumbnail, spotify_url)
-    VALUES ('h1', 'song artist', 'https://youtube.com/watch?v=1', 'youtube', 'Song', 'Artist', 100, '', '');
-    """
+cache_db.rebuild_database(tmp.name)
+cache_db.init_db(db_path=tmp.name, enabled=True)
+cache_db.put(
+    "song artist",
+    {
+        "title": "Song",
+        "artist": "Artist",
+        "webpage_url": "https://youtube.com/watch?v=1",
+        "source": "youtube",
+        "duration": 100,
+        "thumbnail": "",
+        "spotify_url": "",
+    },
 )
-conn.commit()
-conn.close()
 
 app = create_app(db_path=tmp.name)
 client = app.test_client()
@@ -66,6 +49,23 @@ assert stats.get_json()["total"] == 1
 aliases = client.get("/api/aliases")
 assert aliases.status_code == 200, aliases.data
 
+tracks = client.get("/api/tracks")
+assert tracks.status_code == 200, tracks.data
+assert tracks.get_json()[0]["canonical_title"] == "Song"
+
+sources = client.get("/api/sources")
+assert sources.status_code == 200, sources.data
+assert sources.get_json()[0]["source"] == "youtube"
+
+queries = client.get("/api/queries")
+assert queries.status_code == 200, queries.data
+assert queries.get_json()[0]["query_norm"] == "song artist"
+
+schema = client.get("/api/schema")
+assert schema.status_code == 200, schema.data
+schema_names = {row["name"] for row in schema.get_json()}
+assert {"cache_tracks", "cache_sources", "cache_queries", "song_cache", "query_aliases"} <= schema_names
+
 assoc = client.post(
     "/api/associate",
     json={
@@ -78,7 +78,7 @@ assert assoc.status_code == 200, assoc.data
 assert assoc.get_json()["action"] == "associated"
 
 conn = sqlite3.connect(tmp.name)
-row = conn.execute("SELECT alias_type FROM query_aliases LIMIT 1").fetchone()
+row = conn.execute("SELECT alias_type FROM cache_queries WHERE query_raw LIKE 'https://open.spotify.com/%' LIMIT 1").fetchone()
 conn.close()
 assert row and row[0] == "spotify"
 

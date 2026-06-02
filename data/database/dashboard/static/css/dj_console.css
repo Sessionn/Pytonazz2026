@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap");
+
 :root {
   --bg-1: #070912;
   --bg-2: #0f0f23;
@@ -20,12 +22,37 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: "Bahnschrift", "Trebuchet MS", sans-serif;
+  font-family: "Fira Sans", "Bahnschrift", "Trebuchet MS", sans-serif;
   background:
     radial-gradient(circle at 15% 20%, rgba(96, 165, 250, 0.16), transparent 25%),
     radial-gradient(circle at 85% 14%, rgba(249, 115, 22, 0.16), transparent 26%),
     radial-gradient(circle at 50% 100%, rgba(67, 56, 202, 0.24), transparent 34%),
     linear-gradient(150deg, #03040a 0%, #0a0d16 38%, #11192a 100%);
+}
+
+.console-aura {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(88px);
+  opacity: 0.28;
+  z-index: 0;
+}
+
+.console-aura-left {
+  left: 18px;
+  top: 120px;
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(circle, rgba(96,165,250,0.92), transparent 68%);
+}
+
+.console-aura-right {
+  right: 24px;
+  bottom: 54px;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(249,115,22,0.88), transparent 70%);
 }
 
 body::before {
@@ -105,6 +132,38 @@ body::before {
   display: grid;
   align-content: center;
   min-height: 160px;
+  gap: 12px;
+}
+
+.console-signal-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.console-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.console-chip-live { color: #ddfff0; background: rgba(61,255,155,0.08); }
+.console-chip-fx { color: #ffd7ac; background: rgba(249,115,22,0.1); }
+.console-chip-queue { color: #dbeafe; background: rgba(96,165,250,0.1); }
+
+.status-value,
+.state-pill,
+.track-meta h2,
+#volume-value,
+.knob-value {
+  font-family: "Fira Code", monospace;
 }
 
 .controls-header h3,
@@ -703,7 +762,8 @@ button.is-active {
 
 .filter-select-chevron {
   color: #ffd8b0;
-  font-size: 1.3rem;
+  font-size: 1.05rem;
+  font-weight: 700;
   line-height: 1;
   transition: transform 180ms ease;
 }
@@ -1070,6 +1130,13 @@ button.is-active {
   background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)), rgba(255,255,255,0.02);
   border: 1px solid var(--line);
   transform-origin: left center;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.queue-item:hover {
+  transform: translateX(2px);
+  border-color: rgba(96,165,250,0.22);
+  background: linear-gradient(180deg, rgba(96,165,250,0.08), rgba(255,255,255,0.02)), rgba(255,255,255,0.02);
 }
 
 .queue-item.is-new {
@@ -1221,6 +1288,10 @@ button.is-active {
   .tone-grid,
   .knob-bank {
     grid-template-columns: 1fr;
+  }
+
+  .console-signal-row {
+    gap: 8px;
   }
 
   .channel-strip {

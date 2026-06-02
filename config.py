@@ -80,6 +80,7 @@ class Config:
     DISCORD_CLIENT_SECRET: str = os.getenv("DISCORD_CLIENT_SECRET", "").strip()
     SPOTIFY_CLIENT_ID:     str = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+    SPOTIFY_HINT_WAIT_SECONDS: float = float(os.getenv("SPOTIFY_HINT_WAIT_SECONDS", "0.25"))
     GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
     YTDLP_PATH:            str = os.getenv("YTDLP_PATH", "").strip()
     FFMPEG_PATH:           str = os.getenv("FFMPEG_PATH", "").strip()
@@ -122,6 +123,9 @@ class Config:
             (f"-http_proxy {_ffmpeg_proxy} " if _ffmpeg_proxy else "")
             + "-reconnect 1 "
               "-reconnect_streamed 1 "
+              "-reconnect_on_network_error 1 "
+              "-reconnect_on_http_error 429,5xx "
+              "-reconnect_max_retries 3 "
               "-reconnect_delay_max 5 "
               "-protocol_whitelist file,http,https,tcp,tls,crypto,httpproxy "
               "-nostdin"
@@ -142,6 +146,10 @@ class Config:
         "source_address": "0.0.0.0",
         "skip_download": True,
         "extract_flat": False,
+        "socket_timeout": 8,
+        "retries": 2,
+        "fragment_retries": 2,
+        "extractor_retries": 2,
         **({
             "proxy": _proxy} if _proxy else {}),
     }

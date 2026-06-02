@@ -1,10 +1,12 @@
 """
-Rinumera gli ID del DB cache a partire da 1.
+Rinumera gli ID del nuovo cache DB a partire da 1.
 
 Per default:
-- rinumera `song_cache.id` in ordine crescente
-- aggiorna `query_aliases.cache_id`
-- rinumera anche `query_aliases.id`
+- rinumera `cache_tracks.id`
+- aggiorna `cache_sources.track_id` e `cache_queries.track_id`
+- rinumera `cache_sources.id`
+- aggiorna `cache_queries.source_id`
+- rinumera `cache_queries.id`
 - riallinea `sqlite_sequence`
 
 Uso:
@@ -44,7 +46,7 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return row is not None
 
 
-def _apply_song_cache_mapping(conn: sqlite3.Connection, id_map: dict[int, int]) -> None:
+def _apply_map(conn: sqlite3.Connection, table: str, id_map: dict[int, int], fk_updates: list[tuple[str, str]]) -> None:
     if not id_map:
         return
     conn.execute("PRAGMA foreign_keys=OFF")
@@ -54,33 +56,19 @@ def _apply_song_cache_mapping(conn: sqlite3.Connection, id_map: dict[int, int]) 
             if old_id == new_id:
                 continue
             temp_id = -new_id
-            conn.execute("UPDATE song_cache SET id = ? WHERE id = ?", (temp_id, old_id))
-            conn.execute("UPDATE query_aliases SET cache_id = ? WHERE cache_id = ?", (temp_id, old_id))
+            conn.execute(f"UPDATE {table} SET id = ? WHERE id = ?", (temp_id, old_id))
+            for fk_table, fk_col in fk_updates:
+                conn.execute(f"UPDATE {fk_table} SET {fk_col} = ? WHERE {fk_col} = ?", (temp_id, old_id))
 
-        conn.execute("UPDATE song_cache SET id = -id WHERE id < 0")
-        conn.execute("UPDATE query_aliases SET cache_id = -cache_id WHERE cache_id < 0")
+        conn.execute(f"UPDATE {table} SET id = -id WHERE id < 0")
+        for fk_table, fk_col in fk_updates:
+            conn.execute(f"UPDATE {fk_table} SET {fk_col} = -{fk_col} WHERE {fk_col} < 0")
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.execute("PRAGMA foreign_keys=ON")
-
-
-def _apply_query_alias_ids(conn: sqlite3.Connection, id_map: dict[int, int]) -> None:
-    if not id_map:
-        return
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        for old_id, new_id in id_map.items():
-            if old_id == new_id:
-                continue
-            conn.execute("UPDATE query_aliases SET id = ? WHERE id = ?", (-new_id, old_id))
-        conn.execute("UPDATE query_aliases SET id = -id WHERE id < 0")
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
 
 
 def _reset_sqlite_sequence(conn: sqlite3.Connection, table: str) -> None:
@@ -98,28 +86,36 @@ def _reset_sqlite_sequence(conn: sqlite3.Connection, table: str) -> None:
 def renumber(db_path: str, apply: bool) -> dict:
     conn = sqlite3.connect(db_path)
     try:
-        song_ids = _load_ids(conn, "song_cache")
-        alias_ids = _load_ids(conn, "query_aliases")
-        song_map = _mapping(song_ids)
-        alias_map = _mapping(alias_ids)
+        track_ids = _load_ids(conn, "cache_tracks")
+        source_ids = _load_ids(conn, "cache_sources")
+        query_ids = _load_ids(conn, "cache_queries")
+
+        track_map = _mapping(track_ids)
+        source_map = _mapping(source_ids)
+        query_map = _mapping(query_ids)
 
         result = {
-            "song_rows": len(song_ids),
-            "song_changed": sum(1 for old_id, new_id in song_map.items() if old_id != new_id),
-            "alias_rows": len(alias_ids),
-            "alias_changed": sum(1 for old_id, new_id in alias_map.items() if old_id != new_id),
+            "track_rows": len(track_ids),
+            "track_changed": sum(1 for old_id, new_id in track_map.items() if old_id != new_id),
+            "source_rows": len(source_ids),
+            "source_changed": sum(1 for old_id, new_id in source_map.items() if old_id != new_id),
+            "query_rows": len(query_ids),
+            "query_changed": sum(1 for old_id, new_id in query_map.items() if old_id != new_id),
             "applied": False,
         }
 
         if not apply:
             return result
 
-        _apply_song_cache_mapping(conn, song_map)
-        _apply_query_alias_ids(conn, alias_map)
+        _apply_map(conn, "cache_tracks", track_map, [("cache_sources", "track_id"), ("cache_queries", "track_id")])
+        _apply_map(conn, "cache_sources", source_map, [("cache_queries", "source_id")])
+        _apply_map(conn, "cache_queries", query_map, [])
+
         conn.execute("BEGIN IMMEDIATE")
         try:
-            _reset_sqlite_sequence(conn, "song_cache")
-            _reset_sqlite_sequence(conn, "query_aliases")
+            _reset_sqlite_sequence(conn, "cache_tracks")
+            _reset_sqlite_sequence(conn, "cache_sources")
+            _reset_sqlite_sequence(conn, "cache_queries")
             conn.commit()
         except Exception:
             conn.rollback()
@@ -144,8 +140,9 @@ def main() -> int:
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(
         f"{mode}: "
-        f"song_rows={result['song_rows']} song_changed={result['song_changed']} "
-        f"alias_rows={result['alias_rows']} alias_changed={result['alias_changed']} "
+        f"track_rows={result['track_rows']} track_changed={result['track_changed']} "
+        f"source_rows={result['source_rows']} source_changed={result['source_changed']} "
+        f"query_rows={result['query_rows']} query_changed={result['query_changed']} "
         f"applied={result['applied']}"
     )
     return 0
