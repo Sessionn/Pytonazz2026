@@ -125,7 +125,6 @@ class Config:
               "-reconnect_streamed 1 "
               "-reconnect_on_network_error 1 "
               "-reconnect_on_http_error 429,5xx "
-              "-reconnect_max_retries 3 "
               "-reconnect_delay_max 5 "
               "-protocol_whitelist file,http,https,tcp,tls,crypto,httpproxy "
               "-nostdin"

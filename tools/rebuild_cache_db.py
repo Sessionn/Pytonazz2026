@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
+#
 """
 Ricrea da zero il cache DB nel nuovo schema normalizzato.
 
 Uso:
     python tools/rebuild_cache_db.py
     python tools/rebuild_cache_db.py --db data/database/cache.db
+    ./tools/rebuild_cache_db.py --backup
 """
 
 from __future__ import annotations
