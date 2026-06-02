@@ -32,7 +32,7 @@ _SPOTIFY_BATCH_MAX_CONCURRENCY = 10
 
 def _spotify_client() -> Optional[object]:
     """Return an authenticated spotipy.Spotify instance, or None if unavailable."""
-    if not Config.SPOTIFY_CLIENT_ID:
+    if not Config.SPOTIFY_CLIENT_ID or not Config.SPOTIFY_CLIENT_SECRET:
         return None
     try:
         import spotipy
