@@ -1,233 +1,206 @@
-# 🐍 Pitonazz Discord Bot
-![Pytonazz Gif](assets/git/demo.gif)
+# Pytonazz2026
 
-### Pitonazz è un'applicazione bot modulare e multifunzionale di livello enterprise per Discord, sviluppata in Python sull'architettura asincrona di `discord.py`. Progettato per coniugare l'intrattenimento multimediale ad alta fedeltà con l'automazione di community e l'intelligenza artificiale, il bot si appoggia su un motore di caching persistente SQLite custom e su una dashboard locale pubblicata correttamente dietro reverse proxy HTTPS.
+Pytonazz2026 e' un bot Discord modulare scritto in Python, costruito su `discord.py` 2.x. Il progetto copre musica, AI, moderazione, welcome/goodbye, compleanni, TTS, console DJ remota e una dashboard web per ispezionare il cache database musicale.
 
----
+Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
 
-## 📍 Indice
-1. [Caratteristiche Principali](#-caratteristiche-principali)
-2. [Stack Tecnologico](#%EF%B8%8F-stack-tecnologico)
-3. [Prerequisiti di Sistema](#-prerequisiti-di-sistema)
-4. [Guida all'Installazione Rapida](#-guida-allinstallazione-rapida)
-5. [Configurazione delle Variabili d'Ambiente (`.env`)](#-configurazione-delle-variabili-dambiente-env)
-6. [Struttura Essenziale della Repository](#-struttura-essenziale-della-repository)
-7. [Licenza e Sviluppo](#-licenza-e-sviluppo)
+- [DOCS.md](DOCS.md): manuale tecnico e operativo per sviluppatori.
+- [CACHE_DB.md](CACHE_DB.md): schema, algoritmo e manutenzione del cache DB musicale.
+- [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md): installazione e deploy su VM Ubuntu.
+- [QUERY_CACHE_SETUP.md](QUERY_CACHE_SETUP.md): note storiche e operative sulla query cache.
+- [CACHE_DB_REVIEW_2026-06.md](CACHE_DB_REVIEW_2026-06.md): review architetturale della cache.
 
----
+## Funzioni principali
 
-## ✨ Caratteristiche Principali
+- Musica Discord: `/play`, `/search`, playlist/album Spotify, YouTube, SoundCloud, queue, loop, seek, history, autoplay e filtri live.
+- Resolve musicale: `yt-dlp` per sorgenti audio, Spotify per canonicalizzazione e cover, FFmpeg per playback voice.
+- Cache DB musicale: SQLite normalizzato con tracce canoniche, sorgenti risolte, query/alias osservati, stream URL temporanei e viste compatibili.
+- Dashboard web: Flask + Waitress, login, statistiche DB, tabelle cache, associazioni Spotify, eliminazioni, schema DB e console DJ.
+- Console DJ remota: OAuth Discord, controllo ruolo DJ, eventi server-sent e azioni player da browser.
+- AI: risposte tramite Groq, memoria per canale, supporto immagini e ricerca live via trigger web.
+- Community: compleanni, welcome/goodbye, autorole, quote card, 8-ball, roulette.
+- Moderazione: purge, ruoli, kick, ban, timeout, isolamento/museruola, gestione canali voice.
+- Dev tools: sync slash commands, restart, maintenance, backup/restore config, runtime command enable/disable, cache commands.
 
-* **🎵 Riproduzione Audio Avanzata:** Core di streaming ottimizzato via FFmpeg e `yt-dlp`. Supporta query testuali e URL da YouTube, Spotify (tracce, album, playlist) e SoundCloud. Include un sistema di code dinamico con filtri di equalizzazione in tempo reale.
-* **🧠 Assistente AI Conversazionale:** Integrazione con LLM remoti dotati di memoria a lungo termine isolata per singolo canale e capacità di computer vision (analisi immagini). Implementa una modalità `#web` per il recupero del contesto live tramite Wikipedia Search API.
-* **🗄️ Query Cache Proprietaria:** Sottosistema relazionale SQLite per l'indicizzazione e l'ottimizzazione delle tracce musicali con lookup predittivo, algoritmi di similarità testuale e auto-pruning.
-* **🎂 Community & Automazione:** Gestione centralizzata dei compleanni degli utenti con messaggi di auguri customizzati pianificati a cron, oltre a un sistema dinamico di benvenuto/addio per i nuovi membri.
-* **📊 Dashboard Amministrativa:** Dashboard Flask servita tramite `waitress`, protetta da credenziali, per ispezione cache e monitoraggio operativo.
+## Stack
 
----
+- Python 3.10+.
+- `discord.py` 2.x per bot, slash commands, voice e UI.
+- `yt-dlp` per ricerca ed estrazione stream.
+- FFmpeg per playback audio su Discord.
+- `spotipy` per metadati Spotify, cover e canonicalizzazione.
+- SQLite via `sqlite3` per cache persistente.
+- Flask + Waitress per dashboard locale.
+- Groq API per AI.
+- Edge TTS per sintesi vocale.
+- Pillow per quote card.
+- `httpx` / `aiohttp` per richieste HTTP.
 
-## 🛠️ Stack Tecnologico
-
-* **Linguaggio:** Python 3.10 o superiore (struttura completamente asincrona via `asyncio`).
-* **Libreria Core:** `discord.py` v2.x (sfrutta nativamente gli Application Commands / Slash Commands).
-* **Audio Processing:** Binari di `FFmpeg` combinati con l'estrattore di metadati dinamico `yt-dlp`.
-* **Database Layer:** Modulo nativo `sqlite3` isolato tramite thread-lock e astrazioni di persistenza JSON locali.
-* **Web Engine:** `Flask` + `waitress` (Dashboard) e `aiohttp` (richieste di rete asincrone verso API AI e Wikipedia).
-
----
-
-## 📋 Prerequisiti di Sistema
-
-Prima di procedere all'installazione, assicurarsi che sul sistema di hosting (locale o VPS Linux Ubuntu/Debian) siano installati i seguenti pacchetti:
+## Avvio rapido
 
 ```bash
-# Aggiornamento dei repository ed installazione di FFmpeg e Python3 pip
-sudo apt update && sudo apt install ffmpeg python3-pip python3-venv -y
-```
-
----
-
-## 🚀 Guida all'Installazione Rapida
-
-### 1. Clonazione e Isolamento dell'Ambiente
-
-Clona la repository ed accedi alla cartella radice, quindi crea un ambiente virtuale per isolare le dipendenze:
-
-```bash
-git clone https://github.com/tuo-username/Pitonazz.git
-cd Pitonazz
+git clone <repo-url> Pytonazz2026
+cd Pytonazz2026
 python3 -m venv venv
-```
-
-### 2. Attivazione ed Installazione dei Pacchetti
-
-Attiva l'ambiente virtuale ed esegui lo script di setup o installa direttamente i requisiti:
-
-```bash
 source venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-```
-
-### 3. Primo Avvio
-
-Configura il file `.env` (vedi sezione successiva) ed esegui il punto d'ingresso dell'applicazione:
-
-```bash
+cp .env.example .env
 python main.py
 ```
 
----
+Su Windows PowerShell:
 
-## ⚙️ Configurazione delle Variabili d'Ambiente (`.env`)
+```powershell
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python main.py
+```
 
-Crea un file nominato `.env` nella directory principale del bot. Di seguito viene schematizzato il modello dei parametri richiesti:
+Lo script `scripts/setup.sh` automatizza setup base su Linux:
+
+```bash
+bash scripts/setup.sh
+```
+
+## Requisiti esterni
+
+- Bot Discord creato nel Developer Portal, token in `DISCORD_TOKEN`.
+- FFmpeg installato nel sistema o disponibile in `PATH`.
+- Spotify app opzionale ma consigliata per cover e matching: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`.
+- Groq API key opzionale se vuoi usare il modulo AI: `GROQ_API_KEY`.
+- Cookie YouTube opzionali ma utili su VPS/VM: `COOKIE_FILE=/percorso/assoluto/cookies.txt`.
+
+## Variabili importanti
+
+Le variabili sono lette da `config.py` tramite `.env`.
 
 ```env
-# ====== DISCORD IDENTITY ======
-DISCORD_TOKEN=il_tuo_token_bot_discord
+DISCORD_TOKEN=
+OWNER_ID=
+DEV_IDS=
+GUILD_IDS=
 
-# ====== PERMESSI E SVILUPPO ======
-OWNER_ID=123456789012345678      # ID Discord dell'owner principale
-DEV_IDS=123456789,987654321      # ID dei collaboratori autorizzati (CSV)
-DEV_ID=123456789012345678       # ID dello sviluppatore di riferimento
-GUILD_IDS=000000000000000000     # ID gilda per il sync immediato dei comandi
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+SPOTIFY_HINT_WAIT_SECONDS=0.25
+SPOTIFY_AMBIGUOUS_WAIT_SECONDS=0.75
 
-# ====== INTEGRAZIONE AI ======
-GROQ_API_KEY=gsk_la_tua_api_key_groq_qui
+GROQ_API_KEY=
 
-# ====== CREDENZIALI SPOTIFY ======
-SPOTIFY_CLIENT_ID=client_id_della_dashboard_spotify
-SPOTIFY_CLIENT_SECRET=client_secret_della_dashboard_spotify
-
-# ====== SETTAGGI DELLA QUERY CACHE ======
 CACHE_ENABLED=true
 DB_PATH=data/database/cache.db
 CACHE_TTL_DAYS=30
-CACHE_MAX_ENTRIES=10000
+CACHE_MAX_ENTRIES=500
 
-# ====== FLASK WEB DASHBOARD ======
 DASHBOARD_SOCKET=127.0.0.1:5000
 DASH_USER=admin
-DASH_PASSWORD=password_super_sicura_dashboard
-DASH_SECRET_KEY=chiave_esadecimale_per_le_sessioni_flask
+DASH_PASSWORD=
+DASH_SECRET_KEY=
 DASH_TRUST_PROXY=true
 DASH_SESSION_SECURE=true
 DASH_SESSION_SAMESITE=Lax
-DASH_LOGIN_WINDOW_SECONDS=900
-DASH_LOGIN_MAX_ATTEMPTS=5
-DASH_LOG_SCANNERS=false
+DASHBOARD_PUBLIC_BASE_URL=
+DJ_CONSOLE_CALLBACK_URL=
 
-# ====== NETWORK PROXY & COOKIES ======
-YTDLP_PROXY=http://indirizzo_proxy:porta
-FFMPEG_PROXY=http://indirizzo_proxy:porta
-COOKIE_FILE=data/cookies.txt
+COOKIE_FILE=
+YTDLP_PROXY=
+FFMPEG_PROXY=
 LOG_LEVEL=INFO
 SHOW_BANNER=true
 ```
 
----
+Vedi [.env.example](.env.example) e [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md) per deploy completo.
 
-## 📁 Struttura Essenziale della Repository
-
-```plaintext
-Pitonazz/
-│   .env                  # File delle credenziali di produzione (Ignorato da Git)
-│   .env.example          # File di esempio per la configurazione dell'ambiente
-│   config.py             # Parser globale centralizzato delle variabili d'ambiente
-│   main.py               # Punto d'ingresso e inizializzatore asincrono del bot
-│   requirements.txt      # Elenco delle dipendenze e librerie Python
-│
-├───assets/               # File di configurazione statica e prompt
-│   ├───config/           # JSON per impostazioni interne e rotazione status
-│   ├───data/             # JSON locali per la persistenza dei compleanni
-│   └───prompts/          # Prompt di sistema e configurazioni per l'AI
-│
-├───cache_db/             # Motore relazionale di caching musicale (SQLite)
-│
-├───cogs/                 # Moduli funzionali del bot (Comandi Slash)
-│
-├───core/                 # Logica di backend (Player audio, code, permessi)
-│
-├───data/                 # Directory di runtime per DB e Dashboard Flask
-│   ├───database/         # File di persistenza cache.db
-│   └───dashboard/        # Template HTML, fogli di stile CSS e logica Flask
-│
-├───embeds/               # Costruttori grafici standardizzati per i messaggi Rich Embed
-│
-└───scripts/              # Script di utility per installazione e manutenzione
-```
-
----
-
-## 📜 Licenza e Sviluppo
-
-## Dashboard in Produzione
-
-Per un setup completo da zero su Ubuntu usa [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
-
-Per un deploy Internet-facing non esporre direttamente `0.0.0.0:5000`.
-Schema consigliato:
+## Struttura repository
 
 ```text
-Internet -> 443/TLS (Caddy o Nginx) -> 127.0.0.1:5000 (dashboard Flask)
+.
+|-- main.py                         # entrypoint bot, load cogs, status rotation, dashboard bootstrap
+|-- config.py                       # parser .env e opzioni runtime
+|-- requirements.txt                # dipendenze Python
+|-- cogs/                           # comandi slash e domini funzionali
+|-- core/                           # logica condivisa: player, resolver, cache, permessi, runtime
+|-- core/source_resolver/           # yt-dlp, Spotify, scoring e resolve musicale
+|-- core/music/                     # player voice, queue, input parser, live FX
+|-- data/database/dashboard/        # Flask app, template, CSS/JS dashboard e DJ console
+|-- tools/                          # manutenzione DB, benchmark, audit
+|-- scripts/                        # setup e deploy slash commands
+|-- tests/                          # test script-style eseguibili con python
+|-- assets/                         # prompt, config JSON, status, dati statici
+|-- ui/                             # embed e view Discord
 ```
 
-Passi minimi su Ubuntu:
+## Cache DB e reset
+
+Il cache DB non e' piu' una singola tabella legacy: usa schema normalizzato con:
+
+- `cache_tracks`: identita' logica/canonica della traccia.
+- `cache_sources`: sorgenti riproducibili, stream URL temporaneo, cover e metadati.
+- `cache_queries`: query osservate, alias e associazioni.
+- viste compatibili `song_cache` e `query_aliases`.
+
+Reset DB:
 
 ```bash
-cd /PERCORSO/DELLA/REPO
-cp .env .env.backup.$(date +%F-%H%M%S)
-sed -i 's/^DASHBOARD_SOCKET=.*/DASHBOARD_SOCKET=127.0.0.1:5000/' .env
-sed -i 's/^DASH_LOG_SCANNERS=.*/DASH_LOG_SCANNERS=false/' .env
-sudo apt update
-sudo apt install -y ufw
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw deny 5000/tcp
-sudo ufw --force enable
-sudo ufw status verbose
+python tools/rebuild_cache_db.py --backup
 ```
 
-Setup rapido con `Caddy` e DuckDNS:
+Non usare `source tools/rebuild_cache_db.py`: e' uno script Python, non shell.
+
+Dettagli: [CACHE_DB.md](CACHE_DB.md).
+
+## Deploy VM
+
+Su Ubuntu la dashboard deve ascoltare su `127.0.0.1:5000` e stare dietro reverse proxy HTTPS. Non esporre direttamente la porta `5000`.
+
+Percorso consigliato:
+
+```text
+Internet -> 80/443 -> Caddy -> 127.0.0.1:5000 -> dashboard Flask
+Discord voice -> processo Python -> FFmpeg
+```
+
+Guida completa: [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
+
+## Debug performance musicale
+
+Benchmark resolver:
 
 ```bash
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list > /dev/null
-sudo apt update
-sudo apt install -y caddy
-sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.backup.$(date +%F-%H%M%S)
-sudo tee /etc/caddy/Caddyfile > /dev/null <<'EOF'
-tuodominio.duckdns.org {
-    encode gzip zstd
-    reverse_proxy 127.0.0.1:5000
-}
-EOF
-sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl restart caddy
-sudo systemctl status caddy --no-pager
+python tools/benchmark_resolve.py "trust me"
 ```
 
-Verifiche:
+Benchmark yt-dlp diretto:
 
 ```bash
-curl -I http://127.0.0.1:5000
-curl -I http://tuodominio.duckdns.org
-curl -I https://tuodominio.duckdns.org
+python tools/benchmark_ytdlp.py "Trust Me Pandora"
 ```
 
-Se `curl https://tuodominio.duckdns.org` resta appeso, controlla prima:
+Nota sui retry: in `config.py`, `retries`, `fragment_retries` e `extractor_retries` indicano quanti tentativi extra yt-dlp fa dopo un errore. Non sono "quante ricerche YouTube normali" fa il bot. Ridurli taglia tempo quando YouTube risponde male o con anti-bot, ma puo' rendere meno tolleranti alcuni errori temporanei.
+
+## Test
+
+I test sono script Python indipendenti:
 
 ```bash
-sudo systemctl status caddy --no-pager
-sudo journalctl -u caddy -n 100 --no-pager
-getent hosts tuodominio.duckdns.org
-sudo ss -tulpn | grep -E ':80|:443|:5000'
+python tests/test_resolver_spotify_canonical_fallback_cover.py
+python tests/test_cache_thumbnail_stream.py
 ```
 
-Dopo il test positivo, chiudi definitivamente `5000/tcp` anche lato OCI e lascia pubbliche solo `80`, `443` e `22`.
+Esecuzione completa in PowerShell:
 
----
+```powershell
+Get-ChildItem tests -Filter *.py | ForEach-Object { .\venv\Scripts\python.exe $_.FullName }
+```
 
-Ho sviluppato questo progetto personale a per scopo puramente ludico e didattico. Per maggiori dettagli sull'utilizzo dei singoli comandi o sulla logica del database, consultare rispettivamente i file **[`DOCS.md`](DOCS.md)** e **[`QUERY_CACHE_SETUP.md`](QUERY_CACHE_SETUP.md)**.
+Esecuzione completa in bash:
+
+```bash
+for f in tests/*.py; do python "$f"; done
+```
+
+## Licenza e note
+
+Progetto personale a scopo ludico, didattico e operativo per una community Discord. Non committare `.env`, cookie, token Discord, segreti Spotify, chiavi Groq o backup contenenti dati reali.

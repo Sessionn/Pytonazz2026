@@ -1,284 +1,494 @@
-# 📖 Manuale Tecnico Esteso e Legenda dei Comandi
+# Pytonazz2026 Developer Manual
 
-Questo documento costituisce il manuale operativo e la specifica tecnica dettagliata di tutti i moduli funzionali ed i comandi applicativi presenti all'interno di **Pitonazz**. Ciascun comando viene analizzato sotto il profilo sintattico, dei vincoli di runtime e dei requisiti autorizzativi.
+Questo documento e' il manuale tecnico del bot. Il README resta la panoramica; questo file spiega architettura, flussi runtime, moduli, configurazione, comandi, test e manutenzione.
 
----
+## 1. Architettura generale
 
-## 📍 Indice
-1. [Architettura dei Cogs (Moduli Applicativi)](#-architettura-dei-cogs-moduli-applicativi)
-2. [Modello di Gestione dei Permessi](#-modello-di-gestione-dei-permessi)
-3. [Manuale dei Comandi: Modulo Musica](#-manuale-des-comandi-modulo-musica)
-4. [Manuale dei Comandi: Modulo Intelligenza Artificiale & TTS](#-manuale-dei-comandi-modulo-intelligenza-artificiale--tts)
-5. [Manuale dei Comandi: Modulo Compleanni](#-manuale-dei-comandi-modulo-compleanni-bday)
-6. [Manuale dei Comandi: Modulo Developer & Gestione Interna](#-manuale-dei-comandi-modulo-developer--gestione-interna)
-7. [Automazioni di Runtime e Ciclo di Vita](#-automazioni-di-runtime-e-ciclo-of-vita)
+Pytonazz2026 e' un bot Discord asincrono basato su `discord.py`.
 
----
+Flusso di avvio:
 
-## 🧩 Architettura dei Cogs (Moduli Applicativi)
+1. `main.py` carica `.env` via `python-dotenv`.
+2. `config.py` costruisce `Config`, normalizzando variabili, path, proxy, cookie, FFmpeg, yt-dlp, cache e dashboard.
+3. `setup_logging()` configura logger leggibili con tag di dominio.
+4. `ensure_runtime_dirs()` prepara directory runtime.
+5. `init_db(enabled=Config.CACHE_ENABLED)` inizializza o ricrea lo schema SQLite.
+6. Se la cache e' attiva, `start_dashboard_thread()` avvia Flask/Waitress in thread separato.
+7. `load_extensions()` carica i cogs elencati in `core/runtime.py`.
+8. `on_ready()` sincronizza slash commands, avvia watchdog hot-reload e rotazione status.
 
-Il bot sposa un'architettura modulare guidata dalla classe `discord.ext.commands.Cog`. Ogni file presente nella cartella `cogs/` isola un dominio funzionale:
+Moduli principali:
 
 ```text
+main.py
+config.py
+core/runtime.py
+core/cache_db.py
+core/source_resolver/
+core/music/
+data/database/dashboard/
 cogs/
-├── ai.py           # Gestione LLM, chat contestuale ed immagini
-├── birthdays.py    # Logica applicativa e scadenziario dei compleanni
-├── dev.py          # Utility di base dell'owner (riavvio, sync)
-├── dev_audio.py    # Debug avanzato dello stream FFmpeg e volumi TTS
-├── dev_cache.py    # Strumenti di ispezione diretta sulla cache SQLite
-├── filters.py      # Manipolazione dei parametri audio di FFmpeg
-├── fun.py          # Comandi ricreativi e d'interazione della community
-├── help.py         # Generatore dinamico della guida ai comandi
-├── moderation.py   # Strumenti di controllo dei canali e dei membri
-├── music.py        # Core operativo del player, delle code e delle interfacce
-├── tts.py          # Interfaccia con i motori di sintesi vocale Edge-TTS
-└── welcome.py      # Trigger e generazione eventi d'ingresso nuovi membri
+ui/
+tools/
+tests/
 ```
 
----
+## 2. Runtime e cogs
 
-## 👑 Modello di Gestione dei Permessi
+I cogs caricati di default sono definiti in `core/runtime.py`:
 
-I comandi sono protetti da verifiche gerarchiche strutturate su tre livelli logici:
+```text
+cogs.ai
+cogs.birthdays
+cogs.dj
+cogs.dev
+cogs.dev_audio
+cogs.dev_cache
+cogs.filters
+cogs.fun
+cogs.help
+cogs.moderation
+cogs.music
+cogs.tts
+cogs.welcome
+```
 
-| Livello | Definizione | Criterio di Verifica |
-| :--- | :--- | :--- |
-| **L1: Utente Standard** | Qualsiasi membro della gilda. | Nessuna restrizione di ID o ruolo di gilda. |
-| **L2: Amministratore** | Gestori della community locale. | Controllo del flag Discord `manage_guild` o `administrator` nel contesto del comando. |
-| **L3: Bot Developer / Owner** | Sviluppatori dell'infrastruttura. | Controllo di corrispondenza binaria dell'ID utente con i campi `OWNER_ID` o `DEV_IDS` nel file `.env`. |
+Il watchdog di `main.py` controlla gli mtime dei file dei cogs ogni 5 secondi e prova `bot.reload_extension()` quando un cog cambia. Questo e' comodo in sviluppo, ma in produzione resta preferibile riavviare il processo dopo deploy importanti.
 
----
+## 3. Configurazione
 
-## 🎵 Manuale dei Comandi: Modulo Musica
+`config.py` e' l'unico punto centrale per le variabili d'ambiente.
 
-I comandi musicali richiedono che l'utente sia connesso a un canale vocale all'interno della stessa gilda. La dimensione massima invalicabile della coda è impostata a **200 tracce**.
+### Discord
 
-### `/play`
-* **Livello Permessi:** L1
-* **Argomenti:** `query` (Stringa, Obbligatorio)
-* **Descrizione:** Accetta testo libero (esegue lookup su cache e poi ricerca su YouTube), URL di YouTube (singoli o playlist), URL di Spotify (singoli brani, album interi o playlist commerciali/pubbliche), e URL SoundCloud.
-* **Eccezioni:** Restituisce un errore se l'URL appartiene a un profilo artista Spotify o a un canale YouTube privato.
+- `DISCORD_TOKEN`: token bot.
+- `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`: usati per OAuth Discord della console DJ.
+- `OWNER_ID`: owner principale.
+- `DEV_IDS`: CSV di sviluppatori autorizzati.
+- `GUILD_IDS`: CSV per sync slash commands mirato.
 
-### `/search`
-* **Livello Permessi:** L1
-* **Argomenti:** `query` (Stringa, Obbligatorio)
-* **Descrizione:** Interroga la rete e propone un menu a tendina interattivo (`discord.ui.Select`) contenente i primi 7 risultati trovati. L'utente ha 60 secondi per selezionare la traccia, pena l'annullamento della richiesta.
+### Spotify
 
-### `/versions`
-* **Livello Permessi:** L1
-* **Argomenti:** Nessuno
-* **Descrizione:** Analizza i metadati del brano attualmente in riproduzione e genera un menu di selezione proponendo 5 varianti acustiche sintetiche pre-elaborate (es: *Nightcore, Slowed, Speed Up, Bass Boosted*).
+- `SPOTIFY_CLIENT_ID`
+- `SPOTIFY_CLIENT_SECRET`
+- `SPOTIFY_HINT_WAIT_SECONDS`, default `0.25`
+- `SPOTIFY_AMBIGUOUS_WAIT_SECONDS`, default `0.75`
 
-### `/artistshuffle`
-* **Livello Permessi:** L1
-* **Argomenti:** `artista` (Stringa, Obbligatorio), `quantita` (Intero, Opzionale - Default: 20, Max: 50)
-* **Descrizione:** Sfrutta le API di Spotify per estrarre le Top Tracks dell'artista specificato e dei suoi artisti correlati, mixandole ed immettendole istantaneamente nella coda di riproduzione.
+Spotify non streamma audio. Serve per:
 
-### `/skip`
-* **Livello Permessi:** L1
-* **Descrizione:** Interrompe immediatamente la traccia corrente e passa alla successiva. Se la coda è vuota, il player si ferma mantenendo la connessione vocale.
+- canonicalizzare query testuali;
+- scegliere title/artist ufficiali;
+- recuperare cover album;
+- migliorare ranking e guardrail del resolver.
 
-### `/skipto`
-* **Livello Permessi:** L1
-* **Argomenti:** `posizione` (Intero, Obbligatorio)
-* **Descrizione:** Salta direttamente all'indice specificato all'interno della coda. Tutte le tracce intermedie vengono rimosse dalla memoria volatile del player.
+### yt-dlp e FFmpeg
 
-### `/pause` / `/resume`
-* **Livello Permessi:** L1
-* **Descrizione:** Modificano lo stato di riproduzione del player audio asincrono. Lo stato di pausa inibisce temporaneamente il timer di disconnessione automatica del bot.
+- `COOKIE_FILE`: file cookie Netscape per YouTube.
+- `YTDLP_PROXY`: proxy per yt-dlp.
+- `FFMPEG_PROXY`: proxy per FFmpeg. Se vuoto, usa `YTDLP_PROXY` solo se e' HTTP/HTTPS.
+- `YTDLP_PATH`, `FFMPEG_PATH`: path diagnostici/log; FFmpeg deve comunque essere raggiungibile da Discord.py.
 
-### `/stop`
-* **Livello Permessi:** L1
-* **Descrizione:** Resetta la coda, interrompe l'istanza FFmpeg corrente, pulisce lo stato del player e disconnette il bot dal canale vocale.
+`Config.YDL_OPTIONS` imposta:
 
-### `/disconnect`
-* **Livello Permessi:** L1
-* **Descrizione:** Disconnette il bot dal canale vocale lasciando intatta la coda dei brani per un utilizzo futuro all'interno della sessione di runtime attuale.
+- formato bestaudio;
+- cookie se presenti;
+- `socket_timeout=8`;
+- retry a `1`, per limitare tempo perso su errori anti-bot;
+- proxy se configurato.
 
-### `/clearqueue`
-* **Livello Permessi:** L1
-* **Descrizione:** Rimuove tutti i brani dalla coda ad eccezione di quello correntemente in riproduzione.
+`Config.FFMPEG_OPTIONS` usa opzioni reconnect compatibili con FFmpeg Ubuntu 4.4.2. Non usare `-reconnect_max_retries`: alcune build FFmpeg non la supportano.
 
-### `/queue`
-* **Livello Permessi:** L1
-* **Descrizione:** Mostra un Rich Embed paginato provvisto di bottoni di navigazione (`Prec / Succ`) per scorrere la coda dei brani a blocchi di 10 elementi per pagina.
+### Cache e dashboard
 
-### `/nowplaying`
-* **Livello Permessi:** L1
-* **Descrizione:** Invia un embed grafico dettagliato che mostra la barra di avanzamento della traccia in tempo reale, la thumbnail, la sorgente e l'utente che ha richiesto il brano. Include bottoni interattivi per Play/Pause, Skip e Stop.
+- `CACHE_ENABLED=true`
+- `DB_PATH=data/database/cache.db`
+- `CACHE_TTL_DAYS=30`
+- `CACHE_MAX_ENTRIES=500`
+- `DASHBOARD_SOCKET=127.0.0.1:5000`
+- `DASH_USER`, `DASH_PASSWORD`
+- `DASH_SECRET_KEY`
+- `DASH_TRUST_PROXY=true`
+- `DASH_SESSION_SECURE=true`
+- `DASH_SESSION_SAMESITE=Lax`
+- `DASHBOARD_PUBLIC_BASE_URL`
+- `DJ_CONSOLE_CALLBACK_URL`
 
-### `/loop`
-* **Livello Permessi:** L1
-* **Argomenti:** `modalita` (Scelta fissa: `off`, `track`, `queue`, Obbligatorio)
-* **Descrizione:** Modifica il comportamento del loop: `off` disattiva il riciclo, `track` ripete la traccia corrente all'infinito, `queue` rimette in coda i brani esauriti in fondo alla lista.
+La dashboard deve stare dietro reverse proxy HTTPS se esposta fuori dalla macchina.
 
-### `/shuffle`
-* **Livello Permessi:** L1
-* **Descrizione:** Attiva/disattiva la modalità di miscelazione casuale standard della coda utilizzando l'algoritmo nativo di sampling pseudo-casuale.
+## 4. Musica: flusso `/play`
 
-### `/smartshuffle`
-* **Livello Permessi:** L1
-* **Descrizione:** Algoritmo avanzato di shuffle: riordina la coda applicando un vincolo di isolamento acustico che impedisce la riproduzione consecutiva di brani dello stesso artista.
+File principali:
 
-### `/remove`
-* **Livello Permessi:** L1
-* **Argomenti:** `posizione` (Intero, Obbligatorio)
-* **Descrizione:** Elimina permanentemente dalla coda la singola traccia presente all'indice inserito.
+- `cogs/music.py`: slash commands e orchestrazione.
+- `core/source_resolver/__init__.py`: resolve testuale, URL, Spotify, playlist.
+- `core/source_resolver/scoring.py`: normalizzazione, Jaccard, durata, penalita'.
+- `core/source_resolver/spotify.py`: client Spotify e ranking item.
+- `core/source_resolver/ytdlp.py`: opzioni yt-dlp e utility URL.
+- `core/music/player.py`: player Discord voice, FFmpeg, queue playback.
+- `core/music/queue.py`: struttura coda.
+- `core/music/live_fx.py`: filtri live PCM.
 
-### `/move`
-* **Livello Permessi:** L1
-* **Argomenti:** `da` (Intero, Obbligatorio), `a` (Intero, Obbligatorio)
-* **Descrizione:** Sposta un brano internamente alla coda modificando la sua priorità di riproduzione.
+Flusso per query testuale:
 
-### `/history`
-* **Livello Permessi:** L1
-* **Descrizione:** Restituisce un embed contenente lo storico degli ultimi 10 brani effettivamente riprodotti e completati all'interno della sessione corrente della gilda.
+1. `cogs/music.py` riceve `/play query`.
+2. `SourceResolver.resolve_choices(query, ..., n=1)` prova cache DB se attiva.
+3. Se cache hit e stream URL temporaneo valido: ritorna subito.
+4. Se cache miss: per query corte/ambigue prova Spotify-first con finestra breve.
+5. Costruisce query YouTube, spesso canonicalizzata da Spotify.
+6. Esegue `ytsearch1` per il direct play.
+7. Applica scoring Spotify/YouTube:
+   - `full`: title, artist, cover e Spotify URL vengono applicati;
+   - `cover_only`: cover/Spotify URL vengono applicati, ma title/artist YouTube restano piu' conservativi;
+   - `skip`: non arricchisce.
+8. Salva risultato in cache DB.
+9. `MusicPlayer.play_next()` usa `track.stream_url` se presente, altrimenti chiama `resolve_fresh_url()`.
+10. FFmpeg riproduce lo stream in voice.
 
-### `/join`
-* **Livello Permessi:** L1
-* **Argomenti:** `canale` (Canale Vocale, Opzionale)
-* **Descrizione:** Sposta o connette il bot al canale vocale specificato o a quello in cui si trova l'utente che impartisce il comando.
+Per playlist/album Spotify il resolver usa stream asincroni e batch, cosi' il bot puo' iniziare a caricare la prima traccia senza aspettare l'intera lista.
 
-### `/filter`
-* **Livello Permessi:** L1
-* **Argomenti:** `tipo` (Scelta fissa: `nightcore`, `vaporwave`, `8d`, `off`, Obbligatorio)
-* **Descrizione:** Riavvia a caldo l'istanza di streaming FFmpeg modificando i parametri audio della pipeline (`-af`) per applicare l'effetto selezionato senza interrompere bruscamente l'ascolto.
+## 5. Resolver: accuratezza e performance
 
----
+Il resolver bilancia tempo e correttezza. Le scelte principali sono:
 
-## 🧠 Manuale dei Comandi: Modulo Intelligenza Artificiale & TTS
+- cache-first solo per `n==1`;
+- `ytsearch1` per direct play;
+- `ytsearch3` solo dove servono piu' candidati o fallback multi-risultato;
+- Spotify in parallelo o con finestra breve per query ambigue;
+- query canonica Spotify con suffisso `audio` solo quando la query originale e' corta/ambigua e non richiede varianti;
+- retry yt-dlp ridotti a `1`.
 
-Il modulo AI risponde alle menzioni dirette nei canali abilitati e gestisce in parallelo la sintesi vocale multilingua.
+### Cosa significa retry
 
-### 💬 Chat Conversazionale Naturale (Trigger: `@Pitonazz` o Messaggio Diretto DM)
-* **Funzionamento:** Il bot analizza il contesto del canale mantenendo in un oggetto `deque` gli ultimi **20 messaggi** scambiati per non perdere il filo del discorso.
-* **Riconoscimento Vision:** Se al messaggio viene allegata un'immagine (formati supportati: `PNG, JPEG, WEBP, GIF, BMP`), il bot effettua una codifica asincrona in Base64 e interroga l'LLM attivando le funzionalità multimodali per descrivere o commentare il file multimediale.
-* **Modalità Ricerca Live (`#web`):** Se il testo contiene i token `cerca web:`, `web:` o l'omonimo tag `#web`, il bot interrope la pipeline standard, interroga Wikipedia tramite le sue Search API, estrae i 3 snippet informativi più rilevanti e li inserisce all'interno del prompt di sistema prima di formulare la risposta finale dell'LLM.
+`retry` non significa "quante ricerche YouTube fa il bot". Significa quante volte yt-dlp riprova una richiesta che e' gia' fallita. Esempio:
 
-### `/tts`
-* **Livello Permessi:** L1
-* **Argomenti:** `testo` (Stringa, Obbligatorio, Max 500 caratteri), `voce` (Scelta a tendina, Opzionale)
-* **Descrizione:** Converte il testo in un flusso vocale e lo riproduce nel canale audio. Le voci disponibili emulano i profili neurali standard:
-  * `Diego` (Italiano Maschile - Standard predefinito)
-  * `Elsa` / `Isabella` (Italiano Femminile)
-  * `Ryan` (Inglese UK Maschile)
-  * `Aria` (Inglese US Femminile)
+- `ytsearch1:Trust Me Pandora` e' una ricerca.
+- se YouTube risponde con timeout, errore temporaneo o anti-bot, `retries=1` concede un tentativo extra.
+- `retries=2` concede due tentativi extra, ma puo' far salire molto il tempo su VM.
 
----
+Ridurre retry taglia tempo nei casi problematici, ma rende yt-dlp meno paziente verso errori transitori.
 
-## 🎂 Manuale dei Comandi: Modulo Compleanni (`/bday`)
+### Limite pratico VM
 
-Il modulo organizza l'anagrafica interna memorizzando i dati all'interno del file locale `assets/data/birthdays.json`.
+Su alcune VM YouTube/yt-dlp puo' impiegare 4-6 secondi anche per una singola `ytsearch1`, specialmente con segnali anti-bot. In quel caso il bot non puo' riprodurre prima di avere uno stream audio valido. Cache DB e stream URL temporanei sono il modo principale per rendere veloci replay e query simili.
 
-### `/bday set`
-* **Livello Permessi:** L1
-* **Argomenti:** `giorno` (Intero, Obbligatorio), `mese` (Intero, Obbligatorio), `anno` (Intero, Opzionale)
-* **Descrizione:** Registra la data di nascita dell'utente. Se viene inserito l'anno, il bot calcolerà automaticamente l'età esatta della persona nel messaggio di auguri pubblico.
+## 6. Cache DB
 
-### `/bday remove`
-* **Livello Permessi:** L1
-* **Descrizione:** Cancella definitivamente l'utente dal database dei compleanni.
+La cache persistente e' in `core/cache_db.py`. Lo schema attuale e' normalizzato:
 
-### `/bday check`
-* **Livello Permessi:** L1
-* **Argomenti:** `utente` (Membro Discord, Opzionale)
-* **Descrizione:** Mostra un embed riepilogativo con i dati del compleanno dell'utente target o dell'esecutore, indicando i giorni mancanti alla ricorrenza.
+- `cache_tracks`: identita' logica del brano.
+- `cache_sources`: sorgenti riproducibili e metadati tecnici.
+- `cache_queries`: query osservate, alias, metodi di match.
+- `song_cache`: vista compatibile per dashboard/test legacy.
+- `query_aliases`: vista compatibile.
 
-### `/bday list`
-* **Livello Permessi:** L1
-* **Descrizione:** Genera la lista completa di tutti i compleanni della gilda ordinati cronologicamente a partire dal giorno corrente.
+Vedi [CACHE_DB.md](CACHE_DB.md) per schema e algoritmo.
 
-### `/bday adminset`
-* **Livello Permessi:** L2
-* **Argomenti:** `utente` (Membro, Obbligatorio), `giorno` (Intero, Obbligatorio), `mese` (Intero, Obbligatorio), `anno` (Intero, Opzionale)
-* **Descrizione:** Permette ad un amministratore di inserire o correggere manualmente i dati di un utente del server.
+Comandi owner:
 
-### `/bday adminremove`
-* **Livello Permessi:** L2
-* **Argomenti:** `utente` (Membro, Obbligatorio)
-* **Descrizione:** Forza la rimozione dei dati di un utente specifico dal database gilda.
+- `/cache status`
+- `/cache stats`
+- `/cache on`
+- `/cache off`
+- `/cache prune`
+- `/cache invalidate`
+- `/cache clear`
+- `/cache export`
 
-### `/bday channel`
-* **Livello Permessi:** L2
-* **Argomenti:** `canale` (Canale Testuale, Opzionale)
-* **Descrizione:** Configura il canale dove verranno inviati gli auguri automatici alle **00:00 UTC** di ogni giorno. Se non viene specificato alcun canale, la funzione di annuncio automatico viene disattivata.
+Script:
 
-### `/bday tags`
-* **Livello Permessi:** L2
-* **Descrizione:** Mostra la legenda dei tag di formattazione dinamica supportati dai messaggi di auguri:
-  * `{mention}`: Menziona l'utente festeggiato con tag cliccabile.
-  * `{name}`: Mostra il nome utente nativo di Discord.
-  * `{display_name}`: Mostra il nickname del membro all'interno del server corrente.
-  * `{age}`: Inserisce l'età calcolata (es: "18"). Se l'anno non è configurato nel DB, restituisce una stringa vuota.
-  * `{guild}`: Inserisce il nome del server Discord corrente.
+```bash
+python tools/rebuild_cache_db.py --backup
+python tools/renumber_cache_ids.py --db data/database/cache.db --apply
+python tools/dedupe_cache_db.py --db data/database/cache.db --apply
+python tools/benchmark_resolve.py "trust me"
+python tools/benchmark_ytdlp.py "Trust Me Pandora"
+```
 
-### `/bday messages_set`
-* **Livello Permessi:** L2
-* **Argomenti:** `messaggi` (Stringa, Obbligatorio)
-* **Descrizione:** Sostituisce in blocco tutti i messaggi di auguri impostati per il server. Accetta testi multi-linea: ogni riga viene interpretata come un template di augurio singolo che verrà poi estratto casualmente dal bot a runtime.
+## 7. Dashboard e console DJ
 
-### `/bday messages_add` / `/bday messages_remove`
-* **Livello Permessi:** L2
-* **Descrizione:** Aggiungono o rimuovono un singolo template di auguri dalla lista di rotazione del server. Rimozione guidata dall'indice numerico ricavabile da `/bday messages_list`.
+La dashboard vive in `data/database/dashboard/app.py`.
 
-### `/bday messages_list`
-* **Livello Permessi:** L2
-* **Descrizione:** Mostra l'elenco completo e numerato di tutti i template di auguri configurati nella gilda corrente.
+Route principali:
 
-### `/bday test`
-* **Livello Permessi:** L2
-* **Descrizione:** Genera un messaggio di test immediato in modalità effimera simulando l'annuncio dei compleanni per verificare l'effettivo rendering grafico dei tag dinamici.
+- `/login`, `/logout`
+- `/`
+- `/api/stats`
+- `/api/events`
+- `/api/songs`
+- `/api/aliases`
+- `/api/tracks`
+- `/api/sources`
+- `/api/queries`
+- `/api/schema`
+- `/api/associate`
+- `/api/delete/<id>`
+- `/api/aliases/<id>`
 
----
+Console DJ:
 
-## ⚙️ Manuale dei Comandi: Modulo Developer & Gestione Interna
+- `/dj-console`
+- `/dj-console/login`
+- `/dj-console/callback`
+- `/dj-console/state`
+- `/dj-console/action`
+- `/dj-console/events`
 
-I seguenti comandi sono rigorosamente accessibili solo dagli utenti inclusi nel livello di permessi **L3**.
+La console DJ usa OAuth Discord per identificare l'utente, poi `core/dj_access.py` verifica ruolo e permessi. Le azioni vengono inoltrate al player del server tramite controller condiviso.
 
-### `/restart`
-* **Descrizione:** Chiude in sicurezza i loop asincroni attivi, interrompe le connessioni di rete e lancia un sottoprocesso OS per rieseguire `main.py`, applicando a caldo gli aggiornamenti del codice sorgente.
+## 8. AI
 
-### `/sync`
-* **Argomenti:** `clear_global` (Booleano, Opzionale)
-* **Descrizione:** Forza la sincronizzazione dell'albero dei comandi slash applicativi verso le API di Discord. Se `clear_global` è impostato su True, ripulisce la cache globale dei comandi di Discord prima di eseguire il push locale sulle gilde.
+`cogs/ai.py` gestisce risposte conversazionali e contesto per canale. Usa Groq tramite `core/ai_client.py` e runtime/memoria dedicati.
 
-### `/maintenance`
-* **Argomenti:** `attiva` (Booleano, Obbligatorio)
-* **Descrizione:** Muta lo stato operativo del bot. Se attiva, il bot rifiuta qualsiasi interazione proveniente da utenti di livello L1 ed L2, rispondendo con un messaggio di alert temporaneo ed applicando uno status visivo dedicato ("*In Manutenzione*").
+Caratteristiche:
 
-### `/backupconfig`
-* **Descrizione:** Compila a caldo un archivio `.zip` binario contenente i database JSON, i file `.env`, `cache.db` e le impostazioni, inviandolo direttamente nel canale Discord sotto forma di allegato protetto.
+- risposta a menzioni/DM secondo logica del cog;
+- memoria breve per canale;
+- supporto immagini;
+- trigger web testuali per arricchire prompt con ricerca live;
+- cooldown configurato in `Config.AI_COOLDOWN_SECONDS`.
 
-### `/restoreconfig`
-* **Argomenti:** `file_zip` (Allegato Discord, Obbligatorio)
-* **Descrizione:** Accetta l'archivio generato da `/backupconfig`, estrae i file sovrascrivendo le configurazioni corrotte o obsolete sul disco ed esegue un reload a caldo di tutti i moduli software core.
+## 9. TTS
 
-### `/disable_command` / `/enable_command`
-* **Argomenti:** `comando` (Stringa, Obbligatorio)
-* **Descrizione:** Inibisce o riabilita globalmente l'utilizzo di uno specifico comando all'interno del bot a runtime. I comandi di sicurezza del modulo Dev (come `/enable_command` e `/restart`) sono protetti nativamente e non possono essere disabilitati.
+`cogs/tts.py` usa `edge-tts` per generare audio temporaneo, poi FFmpeg/Discord voice per riprodurlo. Il volume TTS e' gestibile dai comandi dev.
 
-### `/command_list`
-* **Descrizione:** Mostra una tabella riepilogativa dello stato operativo di ciascun comando applicativo, distinguendo tra quelli *Abilitati*, *Disabilitati a runtime* o *Protetti di Sistema*.
+## 10. Moderazione
 
-### `/set_log_channel`
-* **Argomenti:** `canale` (Canale Testuale, Opzionale)
-* **Descrizione:** Configura un canale di log centralizzato all'interno di Discord. Tutte le eccezioni non gestite (Error 500, crash di moduli, timeout di rete) genereranno un dump completo dello stacktrace in questo canale per facilitare il debugging.
+`cogs/moderation.py` copre:
 
-### `/say`
-* **Argomenti:** `testo` (Stringa, Obbligatorio), `canale` (Canale Testuale, Opzionale)
-* **Descrizione:** Permette allo sviluppatore di inviare stringhe o comunicazioni ufficiali parlando direttamente attraverso l'identità del bot all'interno del canale specificato.
+- `/purge`
+- `/ruolo`
+- `/kick`
+- `/ban`
+- `/timeout`
+- museruola/sordina e liste
+- gestione voice isolation/quarantine
+- comandi canale/permessi definiti nel cog
 
-### Gruppo `/status` (Gestione Presenza)
-* `/status add`: Aggiunge una stringa di attività custom (es: "*Watching my code*") alla rotazione dinamica del bot memorizzandola nel file JSON.
-* `/status remove`: Elimina una presenza custom tramite il suo indice identificativo.
-* `/status list`: Mostra la coda complessiva delle presenze registrate e dei relativi stati di connessione (`online`, `idle`, `dnd`).
-* `/status interval <secondi>`: Imposta il tempo di polling del loop asincrono che si occupa di cambiare l'attività visibile sul profilo Discord del bot.
+I controlli condivisi sono in:
 
----
+- `core/cmd_perm.py`
+- `core/moderation/actions.py`
+- `core/moderation/state.py`
+- `core/moderation/utils.py`
+- `core/moderation/isolation_registry.py`
 
-## 📊 Automazioni di Runtime e Ciclo di Vita
+## 11. Welcome, goodbye, autorole
 
-Il bot implementa una serie di routine in background guidate dal modulo `discord.ext.tasks`:
-1. **Loop di Inattività Vocale:** Ogni 60 secondi il bot analizza lo stato dei propri player attivi. Se rileva che il bot è l'unico membro rimasto nel canale vocale, o se lo stream è fermo da più di **10 minuti continui**, avvia autonomamente la procedura di disconnessione e pulizia della memoria per risparmiare risorse di rete sulla macchina ospitante.
-2. **Ciclo degli Auguri (Task Giornaliero):** Un ciclo impostato ad intervalli regolari controlla il superamento della mezzanotte UTC. Al trigger temporale, interroga il database dei compleanni e formula i messaggi di auguri inviandoli nei rispettivi canali registrati nelle gilde.
-3. **Dashboard Flask:** La web dashboard gira su un thread parallelo isolato dal loop principale di Discord ed è servita tramite `waitress`. In produzione va bindata su `127.0.0.1:5000` e pubblicata solo dietro reverse proxy HTTPS. Gli eventi di scansione o traffico anomalo possono essere registrati nei log con l'identificativo `[NET_SCAN]`, ma la mitigazione principale resta non esporre la porta `5000` pubblicamente.
+`cogs/welcome.py` gestisce gruppi:
+
+- `/welcome ...`
+- `/goodbye ...`
+- `/autorole ...`
+
+Persistenza e rendering:
+
+- `core/welcome/store.py`
+- `core/welcome/render.py`
+- `core/welcome/assets.py`
+- `ui/welcome/embeds.py`
+
+Supporta messaggi, embed, immagini, field dinamici, preview e reset.
+
+## 12. Compleanni
+
+`cogs/birthdays.py` gestisce gruppo `/bday`.
+
+Comandi principali:
+
+- `/bday set`
+- `/bday remove`
+- `/bday check`
+- `/bday list`
+- `/bday adminset`
+- `/bday adminremove`
+- `/bday channel`
+- `/bday tags`
+- `/bday messages_set`
+- `/bday messages_add`
+- `/bday messages_remove`
+- `/bday messages_list`
+- `/bday test`
+
+I dati sono salvati in JSON sotto `assets/data`.
+
+## 13. Fun, help, dev tools
+
+Fun:
+
+- `/8ball`
+- `/citazione`
+- `/roulette`
+
+Help:
+
+- `/help`
+- `/devhelp`
+
+Developer:
+
+- `/restart`
+- `/sync`
+- `/maintenance`
+- `/backupconfig`
+- `/restoreconfig`
+- `/disable_command`
+- `/enable_command`
+- `/command_list`
+- `/set_log_channel`
+- `/tts_volume`
+- `/status add/remove/edit/list/set/interval`
+- `/say`
+- `/announce`
+- `/cog_list`
+- `/ai_reset`
+- `/debug`
+
+Dev audio:
+
+- comandi di test MP3/voice in `cogs/dev_audio.py`.
+
+## 14. Filtri audio
+
+`cogs/filters.py` espone filtri preset:
+
+- `/filteroff`
+- `/nightcore`
+- `/vaporwave`
+- `/audio8d`
+- `/bassboost`
+- `/trebleboost`
+- `/vocalboost`
+- `/radio`
+- `/nightmode`
+
+`core/music/live_fx.py` applica trasformazioni PCM live. `MusicPlayer` conserva stato EQ, filtri e notifica dashboard/DJ console.
+
+## 15. Test
+
+I test sono script Python, non una suite pytest classica.
+
+Esempi:
+
+```bash
+python tests/test_scoring_guardrails.py
+python tests/test_resolver_spotify_canonical_fallback_cover.py
+python tests/test_cache_thumbnail_stream.py
+python tests/test_dashboard_api.py
+```
+
+Tutti i test in bash:
+
+```bash
+for f in tests/*.py; do python "$f"; done
+```
+
+Tutti i test in PowerShell:
+
+```powershell
+Get-ChildItem tests -Filter *.py | ForEach-Object { .\venv\Scripts\python.exe $_.FullName }
+```
+
+## 16. Setup VM e deploy
+
+Per installazione completa segui [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
+
+Deploy tipico:
+
+```bash
+cd ~/Pytonazz2026
+git pull --rebase
+source venv/bin/activate
+pip install -r requirements.txt
+python -m py_compile config.py main.py
+```
+
+Se usi `screen`:
+
+```bash
+screen -S pytonazz
+source venv/bin/activate
+python main.py
+```
+
+Se usi systemd, aggiorna e riavvia:
+
+```bash
+sudo systemctl restart pytonazz
+sudo systemctl status pytonazz --no-pager
+```
+
+## 17. Troubleshooting
+
+### `source tools/rebuild_cache_db.py` fallisce
+
+E' normale: e' uno script Python. Usa:
+
+```bash
+python tools/rebuild_cache_db.py --backup
+```
+
+### `cannot pull with rebase: unstaged changes`
+
+Hai modifiche locali. Su VM, se sono file runtime (`cache.db-wal`, `screenlog.0`, backup DB), non committarli. Se invece sono file codice copiati manualmente, riallinea con cautela:
+
+```bash
+git status --short
+git stash push -m vm-local-code -- config.py core/source_resolver/__init__.py
+git pull --rebase
+```
+
+### FFmpeg non riproduce e stampa `Unrecognized option`
+
+Controlla:
+
+```bash
+ffmpeg -version
+```
+
+Ubuntu 22.04 usa spesso FFmpeg 4.4.2. Il bot evita opzioni non portabili come `-reconnect_max_retries`.
+
+### Resolve lento su VM
+
+Misura:
+
+```bash
+python tools/benchmark_resolve.py "trust me"
+python tools/benchmark_ytdlp.py "Trust Me Pandora"
+```
+
+Se `ytsearch1` costa 4-6 secondi, il limite e' YouTube/yt-dlp/rete VM. Soluzioni pragmatiche:
+
+- cache DB attiva;
+- cookie YouTube aggiornati;
+- non azzerare spesso il DB;
+- proxy buono se la VM e' penalizzata da YouTube;
+- accettare cold miss intorno a 4-6s.
+
+### Spotify cover non applicata
+
+Controlla benchmark:
+
+```bash
+python tools/benchmark_resolve.py "trust me"
+```
+
+Se `spotify_probe_ms=... cover=True` ma finale `cover='youtube'`, e' un problema di scoring/fallback resolver. I test da rilanciare:
+
+```bash
+python tests/test_resolver_spotify_canonical_fallback_cover.py
+python tests/test_resolver_spotify_late_hint.py
+```
+
+## 18. Regole di sviluppo
+
+- Non committare `.env`, cookie, DB runtime o backup con dati reali.
+- Dopo modifiche al resolver, esegui test scoring, Spotify fallback e cache thumbnail.
+- Dopo modifiche dashboard, esegui `tests/test_dashboard_api.py` e `tests/test_dashboard_security.py`.
+- Dopo modifiche player/voice, esegui `tests/test_dj_player.py` e test manuale in voice.
+- Dopo modifiche cache DB, esegui test cache e smoke rebuild:
+
+```bash
+python tools/rebuild_cache_db.py --db /tmp/cache_smoke.db --backup
+```
+
+Su Windows usa un path temporaneo compatibile, ad esempio `C:\tmp\cache_smoke.db`.
