@@ -1,4 +1,4 @@
-let currentSort = "hit_count";
+﻿let currentSort = "hit_count";
 let currentOrder = "desc";
 let currentSection = "cache";
 let debounceTimer;
@@ -35,7 +35,7 @@ function normalizeSortArrows() {
   document.querySelectorAll("th[data-col]").forEach(th => {
     const arrow = th.querySelector(".arrow");
     if (!arrow) return;
-    arrow.textContent = th.classList.contains("sorted") ? "↓" : "↕";
+    arrow.textContent = th.classList.contains("sorted") ? "â†“" : "â†•";
   });
 }
 
@@ -209,8 +209,8 @@ function makeActionLink(url, label, extraClass, title) {
 function patchRowActions(tr, song) {
   const actionsDiv = tr.querySelector(".row-actions");
   if (!actionsDiv) return;
-  const webLink = makeActionLink(song.webpage_url, "↗", "", "Apri sorgente web");
-  const spLink = makeActionLink(song.spotify_url, "♪", "sp", "Apri su Spotify");
+  const webLink = makeActionLink(song.webpage_url, "&#8599;", "", "Apri sorgente web");
+  const spLink = makeActionLink(song.spotify_url, "&#9835;", "sp", "Apri su Spotify");
   const delBtn = actionsDiv.querySelector(".del-btn");
   actionsDiv.innerHTML = webLink + spLink;
   if (delBtn) actionsDiv.appendChild(delBtn);
@@ -225,8 +225,8 @@ function buildSongRow(song, index = 0) {
     ? `<img class="thumb" src="${esc(song.thumbnail)}" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
     : `<div class="thumb-placeholder">ART</div>`;
 
-  const webLink = makeActionLink(song.webpage_url, "↗", "", "Apri sorgente web");
-  const spLink = makeActionLink(song.spotify_url, "♪", "sp", "Apri su Spotify");
+  const webLink = makeActionLink(song.webpage_url, "&#8599;", "", "Apri sorgente web");
+  const spLink = makeActionLink(song.spotify_url, "&#9835;", "sp", "Apri su Spotify");
   const coverSource = song.thumbnail_source || inferCoverSource(song);
 
   const tr = document.createElement("tr");
@@ -258,7 +258,7 @@ function buildSongRow(song, index = 0) {
     <td>
       <div class="row-actions">
         ${webLink}${spLink}
-        <button class="icon-btn del-btn" title="Elimina" aria-label="Elimina" onclick="deleteSong(${song.id})">×</button>
+        <button class="icon-btn del-btn" title="Elimina" aria-label="Elimina" onclick="deleteSong(${song.id})">&times;</button>
       </div>
     </td>
   `;
@@ -347,13 +347,13 @@ function sortBy(column) {
   document.querySelectorAll("th[data-col]").forEach(th => {
     th.classList.remove("sorted");
     const arrow = th.querySelector(".arrow");
-    if (arrow) arrow.textContent = "↕";
+    if (arrow) arrow.textContent = "â†•";
   });
   const currentHeader = document.querySelector(`th[data-col="${column}"]`);
   if (currentHeader) {
     currentHeader.classList.add("sorted");
     const arrow = currentHeader.querySelector(".arrow");
-    if (arrow) arrow.textContent = currentOrder === "desc" ? "↓" : "↑";
+    if (arrow) arrow.textContent = currentOrder === "desc" ? "â†“" : "â†‘";
   }
   fetchSongs(false);
 }
@@ -381,43 +381,77 @@ function hideSkeleton() {
   document.querySelectorAll(".skeleton").forEach(el => el.closest("tr")?.remove());
 }
 
+function refreshLoadedSections() {
+  loadedSections.forEach(section => {
+    const loader = sectionLoaders[section];
+    if (loader) loader();
+  });
+  if (currentSection === "cache") {
+    fetchSongs(false);
+  }
+}
+
 function deleteSong(id) {
-  const tr = document.querySelector(`tr[data-id="${id}"]`);
   fetch("/api/delete/" + id, { method: "DELETE" })
     .then(r => r.json())
     .then(data => {
-      if (!data.ok) return;
-      if (tr) {
-        tr.style.transition = "opacity .3s, transform .3s";
-        tr.style.opacity = "0";
-        tr.style.transform = "translateX(20px)";
-        setTimeout(() => tr.remove(), 300);
-      }
+      if (!data.ok) throw new Error("delete failed");
       lastSongIds.delete(id);
       lastSongUrls.delete(id);
       showToast("Entry eliminata", "success");
       closeModal();
+      refreshLoadedSections();
       setTimeout(refreshStats, 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
 }
 
+function deleteTrack(id) {
+  fetch("/api/tracks/" + id, { method: "DELETE" })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) throw new Error("delete track failed");
+      showToast("Traccia canonica eliminata", "success");
+      refreshLoadedSections();
+      setTimeout(refreshStats, 350);
+    })
+    .catch(() => showToast("Errore durante l'eliminazione traccia", "error"));
+}
+
+function deleteSource(id) {
+  fetch("/api/sources/" + id, { method: "DELETE" })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) throw new Error("delete source failed");
+      showToast("Sorgente eliminata", "success");
+      refreshLoadedSections();
+      setTimeout(refreshStats, 350);
+    })
+    .catch(() => showToast("Errore durante l'eliminazione sorgente", "error"));
+}
+
 function deleteAlias(id) {
-  const tr = document.querySelector(`tr[data-alias-id="${id}"]`);
   fetch("/api/aliases/" + id, { method: "DELETE" })
     .then(r => r.json())
     .then(data => {
-      if (!data.ok) return;
-      if (tr) {
-        tr.style.transition = "opacity .3s, transform .3s";
-        tr.style.opacity = "0";
-        tr.style.transform = "translateX(20px)";
-        setTimeout(() => tr.remove(), 300);
-      }
+      if (!data.ok) throw new Error("delete alias failed");
       showToast("Alias eliminato", "success");
+      refreshLoadedSections();
       setTimeout(refreshStats, 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione alias", "error"));
+}
+
+function deleteQuery(id) {
+  fetch("/api/queries/" + id, { method: "DELETE" })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) throw new Error("delete query failed");
+      showToast("Query eliminata", "success");
+      refreshLoadedSections();
+      setTimeout(refreshStats, 350);
+    })
+    .catch(() => showToast("Errore durante l'eliminazione query", "error"));
 }
 
 function openModal(song) {
@@ -471,8 +505,8 @@ function fetchAliases() {
         return;
       }
       tbody.innerHTML = data.map((alias, index) => {
-        const webLink = makeActionLink(alias.webpage_url, "↗", "", "Apri sorgente web");
-        const spLink = makeActionLink(alias.spotify_url, "♪", "sp", "Apri su Spotify");
+        const webLink = makeActionLink(alias.webpage_url, "&#8599;", "", "Apri sorgente web");
+        const spLink = makeActionLink(alias.spotify_url, "&#9835;", "sp", "Apri su Spotify");
         return `
           <tr style="animation-delay:${index * 25}ms" data-alias-id="${alias.id}">
             <td class="id-col">${alias.id}</td>
@@ -486,7 +520,7 @@ function fetchAliases() {
             <td>
               <div class="row-actions">
                 ${webLink}${spLink}
-                <button class="icon-btn del-btn" title="Elimina alias" aria-label="Elimina alias" onclick="deleteAlias(${alias.id})">×</button>
+                <button class="icon-btn del-btn" title="Elimina alias" aria-label="Elimina alias" onclick="deleteAlias(${alias.id})">&times;</button>
               </div>
             </td>
           </tr>`;
@@ -499,7 +533,7 @@ function fetchTracks() {
   fetch("/api/tracks")
     .then(r => r.json())
     .then(data => {
-      renderSimpleTable("tracks-body", data, 8, row => `
+      renderSimpleTable("tracks-body", data, 9, row => `
         <td class="id-col">${row.id}</td>
         <td><span class="title-text">${esc(row.canonical_title || "")}</span></td>
         <td><span class="artist-text">${esc(row.canonical_artist || "")}</span></td>
@@ -508,6 +542,7 @@ function fetchTracks() {
         <td class="id-col">${row.query_count ?? 0}</td>
         <td class="dim">${fmtTs(row.created_at)}</td>
         <td class="dim">${fmtTs(row.updated_at)}</td>
+        <td><div class="row-actions"><button class="icon-btn del-btn" title="Elimina traccia canonica" aria-label="Elimina traccia canonica" onclick="deleteTrack(${row.id})">&times;</button></div></td>
       `, "Nessuna traccia canonica registrata.");
       loadedSections.add("tracks");
     });
@@ -517,7 +552,7 @@ function fetchSources() {
   fetch("/api/sources")
     .then(r => r.json())
     .then(data => {
-      renderSimpleTable("sources-body", data, 10, row => `
+      renderSimpleTable("sources-body", data, 11, row => `
         <td class="id-col">${row.id}</td>
         <td class="id-col">${row.track_id}</td>
         <td>
@@ -534,6 +569,7 @@ function fetchSources() {
         <td class="hits-num">${row.hit_count ?? 0}</td>
         <td>${row.is_valid ? `<span class="badge ok">valida</span>` : `<span class="badge err">invalida</span>`}</td>
         <td class="dim">${fmtTs(row.last_used)}</td>
+        <td><div class="row-actions"><button class="icon-btn del-btn" title="Elimina sorgente" aria-label="Elimina sorgente" onclick="deleteSource(${row.id})">&times;</button></div></td>
       `, "Nessuna sorgente risolta registrata.");
       loadedSections.add("sources");
     });
@@ -543,7 +579,7 @@ function fetchQueries() {
   fetch("/api/queries")
     .then(r => r.json())
     .then(data => {
-      renderSimpleTable("queries-body", data, 8, row => `
+      renderSimpleTable("queries-body", data, 9, row => `
         <td class="id-col">${row.id}</td>
         <td class="dim">T${row.track_id} / S${row.source_id}</td>
         <td>
@@ -555,6 +591,7 @@ function fetchQueries() {
         <td class="hits-num">${row.hit_count ?? 0}</td>
         <td>${row.is_active ? `<span class="badge ok">attiva</span>` : `<span class="badge err">disattiva</span>`}</td>
         <td class="dim">${fmtTs(row.last_seen)}</td>
+        <td><div class="row-actions"><button class="icon-btn del-btn" title="Elimina query" aria-label="Elimina query" onclick="deleteQuery(${row.id})">&times;</button></div></td>
       `, "Nessuna query osservata registrata.");
       loadedSections.add("queries");
     });
@@ -650,9 +687,9 @@ function coverBadge(source, confidence) {
     spotify: `
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <circle cx="12" cy="12" r="10"></circle>
-        <path d="M7.2 9.3c3.4-1 6.9-.8 10 1"></path>
-        <path d="M8 12.1c2.8-.7 5.7-.5 8 1"></path>
-        <path d="M8.8 14.8c2.1-.5 4.2-.3 5.9.7"></path>
+        <path class="cover-glyph-cutout cover-glyph-stroke" d="M7.3 9.4c3.5-1 6.9-.7 9.8 1"></path>
+        <path class="cover-glyph-cutout cover-glyph-stroke" d="M8.1 12.2c2.6-.6 5.3-.3 7.5 1"></path>
+        <path class="cover-glyph-cutout cover-glyph-stroke" d="M8.9 14.9c1.9-.4 3.9-.2 5.5.6"></path>
       </svg>
     `,
     youtube: `
@@ -717,3 +754,4 @@ function makePlaceholder() {
   div.textContent = "ART";
   return div;
 }
+

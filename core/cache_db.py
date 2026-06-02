@@ -1293,6 +1293,19 @@ def delete_song_row(row_id: int) -> bool:
     return True
 
 
+def delete_track_row(track_id: int) -> bool:
+    with _cursor() as cur:
+        cur.execute("DELETE FROM cache_tracks WHERE id = ?", (int(track_id),))
+        deleted = cur.rowcount > 0
+    if deleted:
+        compact_ids()
+    return deleted
+
+
+def delete_source_row(source_id: int) -> bool:
+    return delete_song_row(source_id)
+
+
 def delete_alias(alias_id: int) -> bool:
     with _cursor() as cur:
         cur.execute("DELETE FROM cache_queries WHERE id = ?", (int(alias_id),))

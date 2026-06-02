@@ -1,5 +1,9 @@
 # Pytonazz2026
 
+![Pytonazz Gif](assets/git/demo.gif)
+
+Pitonazz è un'applicazione bot modulare e multifunzionale di livello enterprise per Discord, sviluppata in Python sull'architettura asincrona di discord.py. Progettato per coniugare l'intrattenimento multimediale ad alta fedeltà con l'automazione di community e l'intelligenza artificiale, il bot si appoggia su un motore di caching persistente SQLite custom e su una dashboard locale pubblicata correttamente dietro reverse proxy HTTPS.
+
 Pytonazz2026 e' un bot Discord modulare scritto in Python, costruito su `discord.py` 2.x. Il progetto copre musica, AI, moderazione, welcome/goodbye, compleanni, TTS, console DJ remota e una dashboard web per ispezionare il cache database musicale.
 
 Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:

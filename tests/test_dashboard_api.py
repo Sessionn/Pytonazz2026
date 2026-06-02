@@ -151,6 +151,28 @@ tracks_after_insert = client.get("/api/tracks?sort=id&order=ASC")
 assert tracks_after_insert.status_code == 200, tracks_after_insert.data
 assert [row["id"] for row in tracks_after_insert.get_json()] == [3, 2, 1], tracks_after_insert.get_json()
 
+delete_query = client.delete("/api/queries/1")
+assert delete_query.status_code == 200, delete_query.data
+assert delete_query.get_json()["ok"] is True
+
+delete_source = client.delete("/api/sources/1")
+assert delete_source.status_code == 200, delete_source.data
+assert delete_source.get_json()["ok"] is True
+
+delete_track = client.delete("/api/tracks/1")
+assert delete_track.status_code == 200, delete_track.data
+assert delete_track.get_json()["ok"] is True
+
+conn = sqlite3.connect(tmp.name)
+final_tracks = conn.execute("SELECT id, canonical_title FROM cache_tracks ORDER BY id ASC").fetchall()
+final_sources = conn.execute("SELECT id, track_id FROM cache_sources ORDER BY id ASC").fetchall()
+final_queries = conn.execute("SELECT id, track_id, source_id FROM cache_queries ORDER BY id ASC").fetchall()
+conn.close()
+
+assert final_tracks == [(1, "Song Four")], final_tracks
+assert final_sources == [(1, 1)], final_sources
+assert final_queries == [(1, 1, 1)], final_queries
+
 try:
     os.unlink(tmp.name)
 except PermissionError:

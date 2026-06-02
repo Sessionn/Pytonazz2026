@@ -706,6 +706,21 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
     def delete_song(row_id):
         return jsonify({"ok": cache_db.delete_song_row(row_id)})
 
+    @app.route("/api/tracks/<int:track_id>", methods=["DELETE"])
+    @login_required
+    def delete_track(track_id):
+        return jsonify({"ok": cache_db.delete_track_row(track_id)})
+
+    @app.route("/api/sources/<int:source_id>", methods=["DELETE"])
+    @login_required
+    def delete_source(source_id):
+        return jsonify({"ok": cache_db.delete_source_row(source_id)})
+
+    @app.route("/api/queries/<int:query_id>", methods=["DELETE"])
+    @login_required
+    def delete_query(query_id):
+        return jsonify({"ok": cache_db.delete_alias(query_id)})
+
     @app.route("/api/aliases/<int:alias_id>", methods=["DELETE"])
     @login_required
     def delete_alias(alias_id):
