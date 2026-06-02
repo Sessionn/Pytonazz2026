@@ -81,6 +81,7 @@ class Config:
     SPOTIFY_CLIENT_ID:     str = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     SPOTIFY_HINT_WAIT_SECONDS: float = float(os.getenv("SPOTIFY_HINT_WAIT_SECONDS", "0.25"))
+    SPOTIFY_AMBIGUOUS_WAIT_SECONDS: float = float(os.getenv("SPOTIFY_AMBIGUOUS_WAIT_SECONDS", "0.75"))
     GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
     YTDLP_PATH:            str = os.getenv("YTDLP_PATH", "").strip()
     FFMPEG_PATH:           str = os.getenv("FFMPEG_PATH", "").strip()

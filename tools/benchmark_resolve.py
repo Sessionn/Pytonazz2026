@@ -35,6 +35,11 @@ def _print_runtime_diagnostics() -> None:
     print(f"spotify_client_id={_flag(Config.SPOTIFY_CLIENT_ID)}")
     print(f"spotify_client_secret={_flag(Config.SPOTIFY_CLIENT_SECRET)}")
     print(f"spotify_hint_wait={Config.SPOTIFY_HINT_WAIT_SECONDS}")
+    print(f"spotify_ambiguous_wait={Config.SPOTIFY_AMBIGUOUS_WAIT_SECONDS}")
+    print(f"cookies_enabled={Config.COOKIES_ENABLED}")
+    print(f"cookie_file={Config.EFFECTIVE_COOKIE_FILE or ''}")
+    print(f"cookie_exists={os.path.exists(Config.EFFECTIVE_COOKIE_FILE) if Config.EFFECTIVE_COOKIE_FILE else None}")
+    print(f"proxy_enabled={bool(Config.YDL_OPTIONS.get('proxy'))}")
     try:
         import spotipy  # noqa: F401
         print("spotipy=yes")
