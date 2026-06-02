@@ -644,16 +644,42 @@ function inferCoverSource(row) {
 
 function coverBadge(source, confidence) {
   const src = String(source || "none").toLowerCase();
-  const label = {
-    spotify: "SP",
-    youtube: "YT",
-    soundcloud: "SC",
-    other: "IMG",
-    none: "-",
-  }[src] || src.slice(0, 3).toUpperCase();
   const pct = confidence ? `${Math.round(Number(confidence) * 100)}%` : "";
   const title = src === "none" ? "Nessuna cover" : `Cover ${src}${pct ? `, confidence ${pct}` : ""}`;
-  return `<span class="cover-badge cover-${esc(src)}" title="${esc(title)}" aria-label="${esc(title)}">${esc(label)}</span>`;
+  const icon = {
+    spotify: `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M7.2 9.3c3.4-1 6.9-.8 10 1"></path>
+        <path d="M8 12.1c2.8-.7 5.7-.5 8 1"></path>
+        <path d="M8.8 14.8c2.1-.5 4.2-.3 5.9.7"></path>
+      </svg>
+    `,
+    youtube: `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M21 12c0 2.6-.3 4.3-.7 5.1-.4.8-1 1.4-1.8 1.8C17.7 19.3 16 19.6 12 19.6s-5.7-.3-6.5-.7c-.8-.4-1.4-1-1.8-1.8C3.3 16.3 3 14.6 3 12s.3-4.3.7-5.1c.4-.8 1-1.4 1.8-1.8C6.3 4.7 8 4.4 12 4.4s5.7.3 6.5.7c.8.4 1.4 1 1.8 1.8.4.8.7 2.5.7 5.1Z"></path>
+        <path class="cover-glyph-play" d="M10 8.7 16 12l-6 3.3Z"></path>
+      </svg>
+    `,
+    soundcloud: `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 18h10.8a3.2 3.2 0 0 0 .4-6.4A4.8 4.8 0 0 0 8 10.7V18Z"></path>
+        <path d="M4.2 17.9h1V11.7h-1Z"></path>
+        <path d="M2.6 17.9h1V13.2h-1Z"></path>
+      </svg>
+    `,
+    other: `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <rect x="4" y="5" width="16" height="14" rx="3"></rect>
+        <circle class="cover-glyph-cutout" cx="9" cy="10" r="1.6"></circle>
+        <path class="cover-glyph-cutout" d="M7 16.2 10.4 13l2.2 2.2 2.2-1.8 2.2 2.8H7Z"></path>
+      </svg>
+    `,
+    none: `<span class="cover-fallback-glyph" aria-hidden="true"></span>`,
+  }[src] || `
+    <span class="cover-fallback-text" aria-hidden="true">${esc(src.slice(0, 2).toUpperCase() || "?")}</span>
+  `;
+  return `<span class="cover-badge cover-${esc(src)}" title="${esc(title)}" aria-label="${esc(title)}">${icon}</span>`;
 }
 
 function fmtDuration(sec) {

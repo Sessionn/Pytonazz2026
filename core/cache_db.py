@@ -308,6 +308,45 @@ def _cleanup_orphans(cur: sqlite3.Cursor) -> None:
     )
 
 
+def _load_ids(conn: sqlite3.Connection, table: str) -> list[int]:
+    rows = conn.execute(f"SELECT id FROM {table} ORDER BY id ASC").fetchall()
+    return [int(row[0]) for row in rows]
+
+
+def _id_mapping(ids: list[int]) -> dict[int, int]:
+    return {old_id: new_id for new_id, old_id in enumerate(ids, start=1)}
+
+
+def _apply_id_map(
+    conn: sqlite3.Connection,
+    table: str,
+    id_map: dict[int, int],
+    fk_updates: list[tuple[str, str]],
+) -> None:
+    if not id_map:
+        return
+    for old_id, new_id in id_map.items():
+        if old_id == new_id:
+            continue
+        temp_id = -new_id
+        conn.execute(f"UPDATE {table} SET id = ? WHERE id = ?", (temp_id, old_id))
+        for fk_table, fk_col in fk_updates:
+            conn.execute(f"UPDATE {fk_table} SET {fk_col} = ? WHERE {fk_col} = ?", (temp_id, old_id))
+
+    conn.execute(f"UPDATE {table} SET id = -id WHERE id < 0")
+    for fk_table, fk_col in fk_updates:
+        conn.execute(f"UPDATE {fk_table} SET {fk_col} = -{fk_col} WHERE {fk_col} < 0")
+
+
+def _reset_sqlite_sequence(conn: sqlite3.Connection, table: str) -> None:
+    if not _table_exists(conn, "sqlite_sequence"):
+        return
+    max_id = int(conn.execute(f"SELECT COALESCE(MAX(id), 0) FROM {table}").fetchone()[0] or 0)
+    conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
+    if max_id > 0:
+        conn.execute("INSERT INTO sqlite_sequence(name, seq) VALUES(?, ?)", (table, max_id))
+
+
 def _source_row(cur: sqlite3.Cursor, source_id: int) -> Optional[sqlite3.Row]:
     cur.execute("SELECT * FROM song_cache WHERE id = ? LIMIT 1", (int(source_id),))
     return cur.fetchone()
@@ -1204,6 +1243,44 @@ def associate_spotify(spotify_url: str, title: str = "", artist: str = "") -> di
     return {"ok": True, "action": "associated", "cache_id": source_id}
 
 
+def compact_ids() -> dict:
+    conn = _get_conn()
+    with _lock:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+
+            track_map = _id_mapping(_load_ids(conn, "cache_tracks"))
+            source_map = _id_mapping(_load_ids(conn, "cache_sources"))
+            query_map = _id_mapping(_load_ids(conn, "cache_queries"))
+            result = {
+                "track_rows": len(track_map),
+                "track_changed": sum(1 for old_id, new_id in track_map.items() if old_id != new_id),
+                "source_rows": len(source_map),
+                "source_changed": sum(1 for old_id, new_id in source_map.items() if old_id != new_id),
+                "query_rows": len(query_map),
+                "query_changed": sum(1 for old_id, new_id in query_map.items() if old_id != new_id),
+                "applied": False,
+            }
+
+            _apply_id_map(conn, "cache_tracks", track_map, [("cache_sources", "track_id"), ("cache_queries", "track_id")])
+            _apply_id_map(conn, "cache_sources", source_map, [("cache_queries", "source_id")])
+            _apply_id_map(conn, "cache_queries", query_map, [])
+
+            _reset_sqlite_sequence(conn, "cache_tracks")
+            _reset_sqlite_sequence(conn, "cache_sources")
+            _reset_sqlite_sequence(conn, "cache_queries")
+            conn.commit()
+
+            result["applied"] = True
+            return result
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys=ON")
+
+
 def delete_song_row(row_id: int) -> bool:
     with _cursor() as cur:
         cur.execute("SELECT track_id FROM cache_sources WHERE id = ? LIMIT 1", (int(row_id),))
@@ -1212,13 +1289,17 @@ def delete_song_row(row_id: int) -> bool:
             return False
         cur.execute("DELETE FROM cache_sources WHERE id = ?", (int(row_id),))
         _cleanup_orphans(cur)
+    compact_ids()
     return True
 
 
 def delete_alias(alias_id: int) -> bool:
     with _cursor() as cur:
         cur.execute("DELETE FROM cache_queries WHERE id = ?", (int(alias_id),))
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+    if deleted:
+        compact_ids()
+    return deleted
 
 
 _last_trim = 0.0

@@ -36,6 +36,30 @@ cache_db.put(
         "spotify_url": "",
     },
 )
+cache_db.put(
+    "song two artist",
+    {
+        "title": "Song Two",
+        "artist": "Artist",
+        "webpage_url": "https://youtube.com/watch?v=2",
+        "source": "youtube",
+        "duration": 120,
+        "thumbnail": "https://i.ytimg.com/vi/2/hqdefault.jpg",
+        "spotify_url": "",
+    },
+)
+cache_db.put(
+    "song three artist",
+    {
+        "title": "Song Three",
+        "artist": "Artist",
+        "webpage_url": "https://youtube.com/watch?v=3",
+        "source": "youtube",
+        "duration": 140,
+        "thumbnail": "https://i.scdn.co/image/test-cover",
+        "spotify_url": "https://open.spotify.com/track/test-three",
+    },
+)
 
 app = create_app(db_path=tmp.name)
 client = app.test_client()
@@ -44,14 +68,16 @@ with client.session_transaction() as sess:
 
 stats = client.get("/api/stats")
 assert stats.status_code == 200, stats.data
-assert stats.get_json()["total"] == 1
+assert stats.get_json()["total"] == 3
 
 aliases = client.get("/api/aliases")
 assert aliases.status_code == 200, aliases.data
 
-tracks = client.get("/api/tracks")
+tracks = client.get("/api/tracks?sort=id&order=ASC")
 assert tracks.status_code == 200, tracks.data
-assert tracks.get_json()[0]["canonical_title"] == "Song"
+track_rows = tracks.get_json()
+assert [row["id"] for row in track_rows] == [3, 2, 1]
+assert {row["canonical_title"] for row in track_rows} == {"Song", "Song Two", "Song Three"}
 
 sources = client.get("/api/sources")
 assert sources.status_code == 200, sources.data
@@ -59,7 +85,8 @@ assert sources.get_json()[0]["source"] == "youtube"
 
 queries = client.get("/api/queries")
 assert queries.status_code == 200, queries.data
-assert queries.get_json()[0]["query_norm"] == "song artist"
+query_rows = queries.get_json()
+assert {row["query_norm"] for row in query_rows} >= {"song artist", "song two artist", "song three artist"}
 
 schema = client.get("/api/schema")
 assert schema.status_code == 200, schema.data
@@ -81,6 +108,48 @@ conn = sqlite3.connect(tmp.name)
 row = conn.execute("SELECT alias_type FROM cache_queries WHERE query_raw LIKE 'https://open.spotify.com/%' LIMIT 1").fetchone()
 conn.close()
 assert row and row[0] == "spotify"
+
+deleted = client.delete("/api/delete/2")
+assert deleted.status_code == 200, deleted.data
+assert deleted.get_json()["ok"] is True
+
+tracks_after_delete = client.get("/api/tracks?sort=id&order=ASC")
+assert tracks_after_delete.status_code == 200, tracks_after_delete.data
+track_rows = tracks_after_delete.get_json()
+assert [row["id"] for row in track_rows] == [2, 1], track_rows
+assert {row["canonical_title"] for row in track_rows} == {"Song", "Song Three"}, track_rows
+
+conn = sqlite3.connect(tmp.name)
+source_rows = conn.execute(
+    "SELECT id, track_id, webpage_url FROM cache_sources ORDER BY id ASC"
+).fetchall()
+query_rows = conn.execute(
+    "SELECT id, track_id, source_id, query_raw FROM cache_queries ORDER BY id ASC"
+).fetchall()
+conn.close()
+
+assert source_rows == [
+    (1, 1, "https://youtube.com/watch?v=1"),
+    (2, 2, "https://youtube.com/watch?v=3"),
+], source_rows
+assert all(track_id in (1, 2) for _, track_id, _, _ in query_rows), query_rows
+assert all(source_id in (1, 2) for _, _, source_id, _ in query_rows), query_rows
+
+cache_db.put(
+    "song four artist",
+    {
+        "title": "Song Four",
+        "artist": "Artist",
+        "webpage_url": "https://youtube.com/watch?v=4",
+        "source": "youtube",
+        "duration": 160,
+        "thumbnail": "",
+        "spotify_url": "",
+    },
+)
+tracks_after_insert = client.get("/api/tracks?sort=id&order=ASC")
+assert tracks_after_insert.status_code == 200, tracks_after_insert.data
+assert [row["id"] for row in tracks_after_insert.get_json()] == [3, 2, 1], tracks_after_insert.get_json()
 
 try:
     os.unlink(tmp.name)

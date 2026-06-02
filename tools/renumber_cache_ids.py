@@ -27,72 +27,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from config import Config
-
-
-def _load_ids(conn: sqlite3.Connection, table: str) -> list[int]:
-    rows = conn.execute(f"SELECT id FROM {table} ORDER BY id ASC").fetchall()
-    return [int(row[0]) for row in rows]
-
-
-def _mapping(ids: list[int]) -> dict[int, int]:
-    return {old_id: new_id for new_id, old_id in enumerate(ids, start=1)}
-
-
-def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
-        (table,),
-    ).fetchone()
-    return row is not None
-
-
-def _apply_map(conn: sqlite3.Connection, table: str, id_map: dict[int, int], fk_updates: list[tuple[str, str]]) -> None:
-    if not id_map:
-        return
-    conn.execute("PRAGMA foreign_keys=OFF")
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        for old_id, new_id in id_map.items():
-            if old_id == new_id:
-                continue
-            temp_id = -new_id
-            conn.execute(f"UPDATE {table} SET id = ? WHERE id = ?", (temp_id, old_id))
-            for fk_table, fk_col in fk_updates:
-                conn.execute(f"UPDATE {fk_table} SET {fk_col} = ? WHERE {fk_col} = ?", (temp_id, old_id))
-
-        conn.execute(f"UPDATE {table} SET id = -id WHERE id < 0")
-        for fk_table, fk_col in fk_updates:
-            conn.execute(f"UPDATE {fk_table} SET {fk_col} = -{fk_col} WHERE {fk_col} < 0")
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.execute("PRAGMA foreign_keys=ON")
-
-
-def _reset_sqlite_sequence(conn: sqlite3.Connection, table: str) -> None:
-    if not _table_exists(conn, "sqlite_sequence"):
-        return
-    max_id = conn.execute(f"SELECT COALESCE(MAX(id), 0) FROM {table}").fetchone()[0]
-    conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
-    if int(max_id) > 0:
-        conn.execute(
-            "INSERT INTO sqlite_sequence(name, seq) VALUES(?, ?)",
-            (table, int(max_id)),
-        )
+import core.cache_db as cache_db
 
 
 def renumber(db_path: str, apply: bool) -> dict:
     conn = sqlite3.connect(db_path)
     try:
-        track_ids = _load_ids(conn, "cache_tracks")
-        source_ids = _load_ids(conn, "cache_sources")
-        query_ids = _load_ids(conn, "cache_queries")
-
-        track_map = _mapping(track_ids)
-        source_map = _mapping(source_ids)
-        query_map = _mapping(query_ids)
+        track_ids = cache_db._load_ids(conn, "cache_tracks")
+        source_ids = cache_db._load_ids(conn, "cache_sources")
+        query_ids = cache_db._load_ids(conn, "cache_queries")
+        track_map = cache_db._id_mapping(track_ids)
+        source_map = cache_db._id_mapping(source_ids)
+        query_map = cache_db._id_mapping(query_ids)
 
         result = {
             "track_rows": len(track_ids),
@@ -107,21 +53,23 @@ def renumber(db_path: str, apply: bool) -> dict:
         if not apply:
             return result
 
-        _apply_map(conn, "cache_tracks", track_map, [("cache_sources", "track_id"), ("cache_queries", "track_id")])
-        _apply_map(conn, "cache_sources", source_map, [("cache_queries", "source_id")])
-        _apply_map(conn, "cache_queries", query_map, [])
-
-        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("PRAGMA foreign_keys=OFF")
         try:
-            _reset_sqlite_sequence(conn, "cache_tracks")
-            _reset_sqlite_sequence(conn, "cache_sources")
-            _reset_sqlite_sequence(conn, "cache_queries")
+            conn.execute("BEGIN IMMEDIATE")
+            cache_db._apply_id_map(conn, "cache_tracks", track_map, [("cache_sources", "track_id"), ("cache_queries", "track_id")])
+            cache_db._apply_id_map(conn, "cache_sources", source_map, [("cache_queries", "source_id")])
+            cache_db._apply_id_map(conn, "cache_queries", query_map, [])
+            cache_db._reset_sqlite_sequence(conn, "cache_tracks")
+            cache_db._reset_sqlite_sequence(conn, "cache_sources")
+            cache_db._reset_sqlite_sequence(conn, "cache_queries")
             conn.commit()
+            result["applied"] = True
+            return result
         except Exception:
             conn.rollback()
             raise
-        result["applied"] = True
-        return result
+        finally:
+            conn.execute("PRAGMA foreign_keys=ON")
     finally:
         conn.close()
 
