@@ -147,9 +147,9 @@ class Config:
         "skip_download": True,
         "extract_flat": False,
         "socket_timeout": 8,
-        "retries": 2,
-        "fragment_retries": 2,
-        "extractor_retries": 2,
+        "retries": 1,
+        "fragment_retries": 1,
+        "extractor_retries": 1,
         **({
             "proxy": _proxy} if _proxy else {}),
     }

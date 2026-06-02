@@ -89,7 +89,7 @@ async def main() -> None:
         SourceResolver._run_ytdlp = original_run_ytdlp
         SourceResolver._enrich_with_spotify = original_enrich
 
-    assert calls == ["ytsearch1:trust me", "ytsearch1:Trust Me Pandora"], calls
+    assert calls == ["ytsearch1:trust me", "ytsearch1:Trust Me Pandora audio"], calls
     assert len(tracks) == 1, tracks
     assert tracks[0].thumbnail == sp_meta["thumbnail"], tracks[0]
     assert tracks[0].thumbnail_source == "spotify", tracks[0]

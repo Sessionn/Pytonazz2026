@@ -312,6 +312,15 @@ def _is_short_or_ambiguous_query(query: str) -> bool:
     return len(q_norm) <= 14
 
 
+def _spotify_youtube_query(canonical: str, original_query: str) -> str:
+    query = (canonical or "").strip()
+    if not query:
+        return ""
+    if _is_short_or_ambiguous_query(original_query) and not _query_requests_variant(original_query):
+        return f"{query} audio"
+    return query
+
+
 # ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
@@ -775,7 +784,7 @@ class SourceResolver:
                 if sp_meta_hint:
                     canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                     if canonical:
-                        yt_query = canonical
+                        yt_query = _spotify_youtube_query(canonical, query)
 
             yt_t0 = time.perf_counter()
             results = await loop.run_in_executor(
@@ -811,17 +820,18 @@ class SourceResolver:
                     cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, score)
                 else:
                     canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
-                    if canonical and canonical != yt_query:
+                    canonical_yt_query = _spotify_youtube_query(canonical, query)
+                    if canonical_yt_query and canonical_yt_query != yt_query:
                         log.debug(tag(
                             "SPOTIFY",
                             f"raw hint debole  {b(query)}  score={int(score['confidence'] * 100)}%"
-                            f"  reason={dim(score['reason'])}  fallback={b(canonical)}",
+                            f"  reason={dim(score['reason'])}  fallback={b(canonical_yt_query)}",
                         ))
                         yt_t0 = time.perf_counter()
                         canonical_results = await loop.run_in_executor(
-                            None, cls._run_ytdlp, f"ytsearch{canonical_search_n}:{canonical}", requester, requester_id
+                            None, cls._run_ytdlp, f"ytsearch{canonical_search_n}:{canonical_yt_query}", requester, requester_id
                         )
-                        log.debug(tag("PERF", f"ytsearch{canonical_search_n} canonical  {b(canonical)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
+                        log.debug(tag("PERF", f"ytsearch{canonical_search_n} canonical  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
                         if canonical_results:
                             results = canonical_results
                             canonical_score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
@@ -833,12 +843,13 @@ class SourceResolver:
 
             if not results and sp_meta_hint:
                 canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
-                if canonical:
+                canonical_yt_query = _spotify_youtube_query(canonical, query)
+                if canonical_yt_query:
                     yt_t0 = time.perf_counter()
                     results = await loop.run_in_executor(
-                        None, cls._run_ytdlp, f"ytsearch{canonical_search_n}:{canonical}", requester, requester_id
+                        None, cls._run_ytdlp, f"ytsearch{canonical_search_n}:{canonical_yt_query}", requester, requester_id
                     )
-                    log.debug(tag("PERF", f"ytsearch{canonical_search_n} canonical  {b(canonical)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
+                    log.debug(tag("PERF", f"ytsearch{canonical_search_n} canonical  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
 
         if not results:
             yt_t0 = time.perf_counter()
