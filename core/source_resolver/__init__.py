@@ -345,6 +345,30 @@ def _spotify_youtube_query(canonical: str, original_query: str) -> str:
     return query
 
 
+def _raw_result_supports_spotify_artist(query: str, track, sp_artist: str) -> bool:
+    artist_sim, artist_hint_present = _query_artist_signal(query, sp_artist)
+    if not artist_hint_present or artist_sim <= 0.0:
+        return False
+    yt_blob = _normalize_for_sim(
+        f"{getattr(track, 'title', '') or ''} {getattr(track, 'artist', '') or ''}"
+    )
+    artist_tokens = [
+        tok for tok in _normalize_for_sim(sp_artist).split()
+        if len(tok) >= _ARTIST_TOKEN_MIN_LENGTH
+    ]
+    return any(_contains_token(yt_blob, tok) for tok in artist_tokens)
+
+
+def _should_retry_canonical_after_weak_hint(query: str, track, sp_meta: dict, score: dict) -> bool:
+    if _is_short_or_ambiguous_query(query):
+        return True
+    if score.get("yt_sim", 0.0) < 0.50:
+        return True
+    if not _raw_result_supports_spotify_artist(query, track, sp_meta.get("artist", "")):
+        return True
+    return False
+
+
 # â”€â”€ Query Cache singleton (lazy init) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
@@ -880,7 +904,11 @@ class SourceResolver:
                 else:
                     canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                     canonical_yt_query = _spotify_youtube_query(canonical, query)
-                    if canonical_yt_query and canonical_yt_query != yt_query:
+                    if (
+                        canonical_yt_query
+                        and canonical_yt_query != yt_query
+                        and _should_retry_canonical_after_weak_hint(query, results[0], sp_meta_hint, score)
+                    ):
                         log.debug(tag(
                             "SPOTIFY",
                             f"raw hint debole  {b(query)}  score={int(score['confidence'] * 100)}%"
@@ -899,6 +927,12 @@ class SourceResolver:
                                 yt_title_before = results[0].title
                                 cls._apply_spotify_meta(results[0], sp_meta_hint, canonical_score)
                                 cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, canonical_score)
+                    elif canonical_yt_query and canonical_yt_query != yt_query:
+                        log.debug(tag(
+                            "SPOTIFY",
+                            f"raw hint debole ma risultato gia coerente  {b(query)}"
+                            f"  score={int(score['confidence'] * 100)}%  keep={b(results[0].title)}",
+                        ))
 
             if not results and sp_meta_hint:
                 canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
