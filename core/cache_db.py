@@ -23,6 +23,7 @@ import re
 import sqlite3
 import threading
 import time
+from difflib import SequenceMatcher
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, Union
@@ -59,6 +60,36 @@ def _normalize_key(value: str) -> str:
     text = (value or "").strip().lower()
     text = re.sub(r"[^\w\s:/.-]+", " ", text, flags=re.UNICODE)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _music_norm(value: str) -> str:
+    text = _normalize_key(value)
+    text = re.sub(
+        r"\b(official|video|visualizer|prod|producer|feat|ft|audio|lyrics|hq|hd)\b",
+        " ",
+        text,
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _music_tokens(value: str) -> set[str]:
+    return {tok for tok in _music_norm(value).split() if len(tok) >= 3}
+
+
+def _token_overlap(a: str, b: str) -> float:
+    left = _music_tokens(a)
+    right = _music_tokens(b)
+    if not left or not right:
+        return 0.0
+    return len(left & right) / min(len(left), len(right))
+
+
+def _string_similarity(a: str, b: str) -> float:
+    left = _music_norm(a)
+    right = _music_norm(b)
+    if not left or not right:
+        return 0.0
+    return SequenceMatcher(None, left, right).ratio()
 
 
 def _hash(query: str) -> str:
@@ -415,6 +446,69 @@ def _find_track_by_norm(cur: sqlite3.Cursor, normalized_query: str) -> Optional[
     return cur.fetchone()
 
 
+def _duration_close(left: int, right: int) -> bool:
+    if left <= 0 or right <= 0:
+        return False
+    delta = abs(left - right)
+    if delta <= 3:
+        return True
+    return delta / max(left, right) <= 0.03
+
+
+def _same_recording_fingerprint(
+    title: str,
+    artist: str,
+    duration: int,
+    row: sqlite3.Row,
+) -> bool:
+    row_title = row["resolved_title"] or row["canonical_title"] or ""
+    row_artist = row["resolved_artist"] or row["canonical_artist"] or ""
+    row_duration = int(row["duration"] or 0)
+    if not _duration_close(int(duration or 0), row_duration):
+        return False
+
+    title_overlap = max(
+        _token_overlap(title, row_title),
+        _token_overlap(f"{title} {artist}", f"{row_title} {row_artist}"),
+    )
+    artist_overlap = _token_overlap(artist, row_artist)
+    title_similarity = _string_similarity(title, row_title)
+
+    if artist_overlap >= 1.0 and title_overlap >= 0.50:
+        return True
+    if title_overlap >= 0.80 and artist_overlap >= 0.34:
+        return True
+    return title_similarity >= 0.86 and artist_overlap >= 0.50
+
+
+def _find_source_by_fingerprint(
+    cur: sqlite3.Cursor,
+    title: str,
+    artist: str,
+    duration: int,
+) -> Optional[sqlite3.Row]:
+    if not title or not artist or int(duration or 0) <= 0:
+        return None
+    cur.execute(
+        """
+        SELECT
+            s.*,
+            t.canonical_title,
+            t.canonical_artist
+          FROM cache_sources s
+          JOIN cache_tracks t ON t.id = s.track_id
+         WHERE s.is_valid = 1
+           AND s.duration BETWEEN ? AND ?
+         ORDER BY s.hit_count DESC, s.last_used DESC, s.id ASC
+        """,
+        (max(1, int(duration) - 4), int(duration) + 4),
+    )
+    for row in cur.fetchall():
+        if _same_recording_fingerprint(title, artist, duration, row):
+            return row
+    return None
+
+
 def _upsert_query(
     cur: sqlite3.Cursor,
     query_raw: str,
@@ -647,6 +741,11 @@ def put(query: str, track) -> None:
             track_row = cur.fetchone()
         if track_row is None:
             track_row = _find_track_by_norm(cur, normalized_query)
+        if existing_source is None and track_row is None:
+            existing_source = _find_source_by_fingerprint(cur, title, artist, duration)
+            if existing_source:
+                cur.execute("SELECT * FROM cache_tracks WHERE id = ? LIMIT 1", (existing_source["track_id"],))
+                track_row = cur.fetchone()
 
         if track_row is None:
             cur.execute(
