@@ -35,7 +35,7 @@ function normalizeSortArrows() {
   document.querySelectorAll("th[data-col]").forEach(th => {
     const arrow = th.querySelector(".arrow");
     if (!arrow) return;
-    arrow.textContent = th.classList.contains("sorted") ? "â†“" : "â†•";
+    arrow.textContent = th.classList.contains("sorted") ? "↓" : "↕";
   });
 }
 
@@ -198,36 +198,117 @@ function debouncedFetch() {
   debounceTimer = setTimeout(() => fetchSongs(false), 280);
 }
 
-function makeActionLink(url, label, extraClass, title) {
-  const aria = esc(title || label);
+function normalizedSource(source, url = "") {
+  const raw = String(source || "").trim().toLowerCase();
+  const href = String(url || "").toLowerCase();
+  if (raw === "spotify" || href.includes("spotify.com")) return "spotify";
+  if (raw === "soundcloud" || href.includes("soundcloud.com")) return "soundcloud";
+  if (raw === "youtube" || href.includes("youtu.be") || href.includes("youtube.com")) return "youtube";
+  if (!raw && !href) return "none";
+  return raw || "other";
+}
+
+function platformSvg(source) {
+  const src = normalizedSource(source);
+  return {
+    spotify: `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path class="cover-glyph-cutout cover-glyph-stroke" d="M7.3 9.4c3.5-1 6.9-.7 9.8 1"></path>
+        <path class="cover-glyph-cutout cover-glyph-stroke" d="M8.1 12.2c2.6-.6 5.3-.3 7.5 1"></path>
+        <path class="cover-glyph-cutout cover-glyph-stroke" d="M8.9 14.9c1.9-.4 3.9-.2 5.5.6"></path>
+      </svg>
+    `,
+    youtube: `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M21 12c0 2.6-.3 4.3-.7 5.1-.4.8-1 1.4-1.8 1.8C17.7 19.3 16 19.6 12 19.6s-5.7-.3-6.5-.7c-.8-.4-1.4-1-1.8-1.8C3.3 16.3 3 14.6 3 12s.3-4.3.7-5.1c.4-.8 1-1.4 1.8-1.8C6.3 4.7 8 4.4 12 4.4s5.7.3 6.5.7c.8.4 1.4 1 1.8 1.8.4.8.7 2.5.7 5.1Z"></path>
+        <path class="cover-glyph-play" d="M10 8.7 16 12l-6 3.3Z"></path>
+      </svg>
+    `,
+    soundcloud: `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 18h10.8a3.2 3.2 0 0 0 .4-6.4A4.8 4.8 0 0 0 8 10.7V18Z"></path>
+        <path d="M4.2 17.9h1V11.7h-1Z"></path>
+        <path d="M2.6 17.9h1V13.2h-1Z"></path>
+      </svg>
+    `,
+    other: `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <rect x="4" y="5" width="16" height="14" rx="3"></rect>
+        <circle class="cover-glyph-cutout" cx="9" cy="10" r="1.6"></circle>
+        <path class="cover-glyph-cutout" d="M7 16.2 10.4 13l2.2 2.2 2.2-1.8 2.2 2.8H7Z"></path>
+      </svg>
+    `,
+    none: `<span class="cover-fallback-glyph" aria-hidden="true"></span>`,
+  }[src] || `<span class="cover-fallback-text" aria-hidden="true">${esc(src.slice(0, 2).toUpperCase() || "?")}</span>`;
+}
+
+function platformLabel(source) {
+  return {
+    youtube: "YouTube",
+    spotify: "Spotify",
+    soundcloud: "SoundCloud",
+    other: "Altro",
+    none: "-",
+  }[normalizedSource(source)] || "Altro";
+}
+
+function sourceBadge(source, url = "") {
+  const src = normalizedSource(source, url);
+  const label = platformLabel(src);
+  return `
+    <span class="source-cell source-${esc(src)}" title="${esc(label)}" aria-label="${esc(label)}">
+      <span class="platform-icon source-${esc(src)}">${platformSvg(src)}</span>
+      <span class="source-cell-label">${esc(label)}</span>
+    </span>
+  `;
+}
+
+function actionIcon(source) {
+  const src = normalizedSource(source);
+  return `<span class="platform-icon icon-${esc(src)}">${platformSvg(src)}</span>`;
+}
+
+function makeActionLink(url, source, title) {
+  const src = normalizedSource(source, url);
+  const aria = esc(title || src);
   if (url) {
-    return `<a class="icon-btn${extraClass ? " " + extraClass : ""}" href="${esc(url)}" target="_blank" title="${aria}" aria-label="${aria}">${label}</a>`;
+    return `<a class="icon-btn platform-btn icon-${esc(src)}" href="${esc(url)}" target="_blank" title="${aria}" aria-label="${aria}">${actionIcon(src)}</a>`;
   }
-  return `<span class="icon-btn${extraClass ? " " + extraClass : ""} disabled" title="${aria} (non disponibile)" aria-label="${aria} non disponibile" aria-disabled="true">${label}</span>`;
+  return `<span class="icon-btn platform-btn icon-${esc(src)} disabled" title="${aria} (non disponibile)" aria-label="${aria} non disponibile" aria-disabled="true">${actionIcon(src)}</span>`;
+}
+
+function actionLinks(row) {
+  const links = [];
+  const primarySource = normalizedSource(row.source, row.webpage_url);
+  if (row.webpage_url) {
+    const title = `Apri su ${platformLabel(primarySource)}`;
+    links.push(makeActionLink(row.webpage_url, primarySource, title));
+  }
+  if (row.spotify_url) {
+    links.push(makeActionLink(row.spotify_url, "spotify", "Apri su Spotify"));
+  }
+  if (!links.length) {
+    links.push(makeActionLink("", primarySource, "Sorgente non disponibile"));
+  }
+  return links.join("");
 }
 
 function patchRowActions(tr, song) {
   const actionsDiv = tr.querySelector(".row-actions");
   if (!actionsDiv) return;
-  const webLink = makeActionLink(song.webpage_url, "&#8599;", "", "Apri sorgente web");
-  const spLink = makeActionLink(song.spotify_url, "&#9835;", "sp", "Apri su Spotify");
   const delBtn = actionsDiv.querySelector(".del-btn");
-  actionsDiv.innerHTML = webLink + spLink;
+  actionsDiv.innerHTML = actionLinks(song);
   if (delBtn) actionsDiv.appendChild(delBtn);
 }
 
 function buildSongRow(song, index = 0) {
-  const src = song.source || "youtube";
-  const srcColor = src === "spotify" ? "#1DB954" : "#e5173f";
   const badge = song.is_valid ? `<span class="badge ok">valida</span>` : `<span class="badge err">invalida</span>`;
   const duration = song.duration ? fmtDuration(song.duration) : "-";
   const thumbHtml = song.thumbnail
     ? `<img class="thumb" src="${esc(song.thumbnail)}" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
     : `<div class="thumb-placeholder">ART</div>`;
-
-  const webLink = makeActionLink(song.webpage_url, "&#8599;", "", "Apri sorgente web");
-  const spLink = makeActionLink(song.spotify_url, "&#9835;", "sp", "Apri su Spotify");
-  const coverSource = song.thumbnail_source || inferCoverSource(song);
+  const coverSource = song.thumbnail_source || inferCoverSource(song) || normalizedSource(song.source, song.webpage_url);
 
   const tr = document.createElement("tr");
   tr.style.animationDelay = `${index * 28}ms`;
@@ -248,7 +329,7 @@ function buildSongRow(song, index = 0) {
         ${esc(song.query_raw || "")}
       </div>
     </td>
-    <td><span class="src-badge" style="background:${srcColor}">${src}</span></td>
+    <td>${sourceBadge(song.source, song.webpage_url)}</td>
     <td>${coverBadge(coverSource, song.thumbnail_confidence)}</td>
     <td class="dim" style="text-align:center">${duration}</td>
     <td class="hits-num" style="text-align:center">${song.hit_count ?? 0}</td>
@@ -257,7 +338,7 @@ function buildSongRow(song, index = 0) {
     <td>${badge}</td>
     <td>
       <div class="row-actions">
-        ${webLink}${spLink}
+        ${actionLinks(song)}
         <button class="icon-btn del-btn" title="Elimina" aria-label="Elimina" onclick="deleteSong(${song.id})">&times;</button>
       </div>
     </td>
@@ -347,13 +428,13 @@ function sortBy(column) {
   document.querySelectorAll("th[data-col]").forEach(th => {
     th.classList.remove("sorted");
     const arrow = th.querySelector(".arrow");
-    if (arrow) arrow.textContent = "â†•";
+    if (arrow) arrow.textContent = "↕";
   });
   const currentHeader = document.querySelector(`th[data-col="${column}"]`);
   if (currentHeader) {
     currentHeader.classList.add("sorted");
     const arrow = currentHeader.querySelector(".arrow");
-    if (arrow) arrow.textContent = currentOrder === "desc" ? "â†“" : "â†‘";
+    if (arrow) arrow.textContent = currentOrder === "desc" ? "↓" : "↑";
   }
   fetchSongs(false);
 }
@@ -505,8 +586,6 @@ function fetchAliases() {
         return;
       }
       tbody.innerHTML = data.map((alias, index) => {
-        const webLink = makeActionLink(alias.webpage_url, "&#8599;", "", "Apri sorgente web");
-        const spLink = makeActionLink(alias.spotify_url, "&#9835;", "sp", "Apri su Spotify");
         return `
           <tr style="animation-delay:${index * 25}ms" data-alias-id="${alias.id}">
             <td class="id-col">${alias.id}</td>
@@ -519,7 +598,7 @@ function fetchAliases() {
             <td class="id-col">${alias.cache_id}</td>
             <td>
               <div class="row-actions">
-                ${webLink}${spLink}
+                ${actionLinks(alias)}
                 <button class="icon-btn del-btn" title="Elimina alias" aria-label="Elimina alias" onclick="deleteAlias(${alias.id})">&times;</button>
               </div>
             </td>
@@ -559,17 +638,17 @@ function fetchSources() {
           <span class="title-text">${esc(row.canonical_title || "")}</span>
           <span class="artist-text">${esc(row.canonical_artist || "")}</span>
         </td>
-        <td><span class="src-badge" style="background:${row.source === "spotify" ? "#1DB954" : "#e5173f"}">${esc(row.source || "-")}</span></td>
+        <td>${sourceBadge(row.source, row.webpage_url)}</td>
         <td>
           <span class="title-text">${esc(row.resolved_title || "")}</span>
           <span class="artist-text">${esc(row.resolved_artist || "")}</span>
         </td>
-        <td>${coverBadge(row.thumbnail_source || inferCoverSource(row), row.thumbnail_confidence)}</td>
+        <td>${coverBadge(row.thumbnail_source || inferCoverSource(row) || normalizedSource(row.source, row.webpage_url), row.thumbnail_confidence)}</td>
         <td class="dim">${row.duration ? fmtDuration(row.duration) : "-"}</td>
         <td class="hits-num">${row.hit_count ?? 0}</td>
         <td>${row.is_valid ? `<span class="badge ok">valida</span>` : `<span class="badge err">invalida</span>`}</td>
         <td class="dim">${fmtTs(row.last_used)}</td>
-        <td><div class="row-actions"><button class="icon-btn del-btn" title="Elimina sorgente" aria-label="Elimina sorgente" onclick="deleteSource(${row.id})">&times;</button></div></td>
+        <td><div class="row-actions">${actionLinks(row)}<button class="icon-btn del-btn" title="Elimina sorgente" aria-label="Elimina sorgente" onclick="deleteSource(${row.id})">&times;</button></div></td>
       `, "Nessuna sorgente risolta registrata.");
       loadedSections.add("sources");
     });
@@ -591,7 +670,7 @@ function fetchQueries() {
         <td class="hits-num">${row.hit_count ?? 0}</td>
         <td>${row.is_active ? `<span class="badge ok">attiva</span>` : `<span class="badge err">disattiva</span>`}</td>
         <td class="dim">${fmtTs(row.last_seen)}</td>
-        <td><div class="row-actions"><button class="icon-btn del-btn" title="Elimina query" aria-label="Elimina query" onclick="deleteQuery(${row.id})">&times;</button></div></td>
+        <td><div class="row-actions">${actionLinks(row)}<button class="icon-btn del-btn" title="Elimina query" aria-label="Elimina query" onclick="deleteQuery(${row.id})">&times;</button></div></td>
       `, "Nessuna query osservata registrata.");
       loadedSections.add("queries");
     });
@@ -676,47 +755,15 @@ function inferCoverSource(row) {
   if (!thumb) return "none";
   if (thumb.includes("i.scdn.co")) return "spotify";
   if (thumb.includes("ytimg.com") || thumb.includes("googleusercontent.com")) return "youtube";
+  if (thumb.includes("sndcdn.com") || thumb.includes("soundcloud.com")) return "soundcloud";
   return "other";
 }
 
 function coverBadge(source, confidence) {
-  const src = String(source || "none").toLowerCase();
+  const src = normalizedSource(source);
   const pct = confidence ? `${Math.round(Number(confidence) * 100)}%` : "";
   const title = src === "none" ? "Nessuna cover" : `Cover ${src}${pct ? `, confidence ${pct}` : ""}`;
-  const icon = {
-    spotify: `
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <circle cx="12" cy="12" r="10"></circle>
-        <path class="cover-glyph-cutout cover-glyph-stroke" d="M7.3 9.4c3.5-1 6.9-.7 9.8 1"></path>
-        <path class="cover-glyph-cutout cover-glyph-stroke" d="M8.1 12.2c2.6-.6 5.3-.3 7.5 1"></path>
-        <path class="cover-glyph-cutout cover-glyph-stroke" d="M8.9 14.9c1.9-.4 3.9-.2 5.5.6"></path>
-      </svg>
-    `,
-    youtube: `
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="M21 12c0 2.6-.3 4.3-.7 5.1-.4.8-1 1.4-1.8 1.8C17.7 19.3 16 19.6 12 19.6s-5.7-.3-6.5-.7c-.8-.4-1.4-1-1.8-1.8C3.3 16.3 3 14.6 3 12s.3-4.3.7-5.1c.4-.8 1-1.4 1.8-1.8C6.3 4.7 8 4.4 12 4.4s5.7.3 6.5.7c.8.4 1.4 1 1.8 1.8.4.8.7 2.5.7 5.1Z"></path>
-        <path class="cover-glyph-play" d="M10 8.7 16 12l-6 3.3Z"></path>
-      </svg>
-    `,
-    soundcloud: `
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="M6 18h10.8a3.2 3.2 0 0 0 .4-6.4A4.8 4.8 0 0 0 8 10.7V18Z"></path>
-        <path d="M4.2 17.9h1V11.7h-1Z"></path>
-        <path d="M2.6 17.9h1V13.2h-1Z"></path>
-      </svg>
-    `,
-    other: `
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <rect x="4" y="5" width="16" height="14" rx="3"></rect>
-        <circle class="cover-glyph-cutout" cx="9" cy="10" r="1.6"></circle>
-        <path class="cover-glyph-cutout" d="M7 16.2 10.4 13l2.2 2.2 2.2-1.8 2.2 2.8H7Z"></path>
-      </svg>
-    `,
-    none: `<span class="cover-fallback-glyph" aria-hidden="true"></span>`,
-  }[src] || `
-    <span class="cover-fallback-text" aria-hidden="true">${esc(src.slice(0, 2).toUpperCase() || "?")}</span>
-  `;
-  return `<span class="cover-badge cover-${esc(src)}" title="${esc(title)}" aria-label="${esc(title)}">${icon}</span>`;
+  return `<span class="cover-badge cover-${esc(src)}" title="${esc(title)}" aria-label="${esc(title)}">${platformSvg(src)}</span>`;
 }
 
 function fmtDuration(sec) {

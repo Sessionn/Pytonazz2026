@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap");
+﻿@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap");
 
 :root {
   --bg: #09101d;
@@ -680,7 +680,7 @@ main {
 }
 
 .custom-select-wrap::after {
-  content: "↓";
+  content: "▾";
   position: absolute;
   right: 14px;
   top: 50%;
@@ -704,7 +704,7 @@ main {
 }
 
 .custom-select-wrap::after {
-  content: "↓";
+  content: "▾";
 }
 
 .btn,
@@ -787,13 +787,11 @@ thead th.sorted {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  min-height: 24px;
-  margin-left: 6px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.06);
-  color: #dbeafe;
-  font-size: 0.85rem;
+  min-width: 18px;
+  min-height: 18px;
+  margin-left: 4px;
+  color: #c9daf8;
+  font-size: 0.95rem;
   line-height: 1;
 }
 
@@ -970,19 +968,25 @@ tbody tr:hover .thumb-placeholder {
   color: #ffffff;
 }
 
+.source-cell,
 .src-badge,
 .badge {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  padding: 6px 10px;
-  border-radius: 999px;
+}
+
+.source-cell {
+  gap: 10px;
+  min-height: 32px;
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text);
+}
+
+.source-cell-label {
+  white-space: nowrap;
 }
 
 .src-badge {
@@ -991,15 +995,21 @@ tbody tr:hover .thumb-placeholder {
 }
 
 .badge.ok {
-  color: #dffceb;
-  background: rgba(74,222,128,0.14);
-  border-color: rgba(74,222,128,0.2);
+  color: #f4fff8;
+  background: linear-gradient(135deg, rgba(34,197,94,0.92), rgba(22,163,74,0.88));
+  border-color: rgba(134,239,172,0.36);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 8px 18px rgba(22,163,74,0.22);
 }
 
 .badge.err {
-  color: #ffdbe2;
-  background: rgba(251,113,133,0.14);
-  border-color: rgba(251,113,133,0.2);
+  color: #fff6f8;
+  background: linear-gradient(135deg, rgba(244,63,94,0.94), rgba(225,29,72,0.9));
+  border-color: rgba(253,164,175,0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 8px 18px rgba(225,29,72,0.2);
 }
 
 .badge.text {
@@ -1015,19 +1025,20 @@ tbody tr:hover .thumb-placeholder {
 }
 
 .icon-btn {
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
   padding: 0;
   text-decoration: none;
   font-size: 1rem;
   font-weight: 700;
-  border-radius: 10px;
+  border-radius: 12px;
 }
 
-.icon-btn.sp {
-  color: #dffceb;
-  background: rgba(74,222,128,0.08);
+.icon-btn.platform-btn {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .del-btn {
@@ -1039,39 +1050,57 @@ tbody tr:hover .thumb-placeholder {
   pointer-events: none;
 }
 
+.platform-icon,
 .cover-badge {
   display: inline-flex;
-  place-items: center;
   align-items: center;
   justify-content: center;
-  min-width: 38px;
-  height: 28px;
-  padding: 0 7px;
-  border-radius: 999px;
-  color: var(--text);
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.06);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
-.cover-badge svg {
-  width: 18px;
-  height: 18px;
+.platform-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+}
+
+.cover-badge {
+  width: 34px;
+  height: 34px;
+  color: var(--text);
+}
+
+.platform-icon svg,
+.cover-badge svg,
+.icon-btn svg {
+  width: 100%;
+  height: 100%;
   display: block;
 }
 
+.platform-icon svg circle,
+.platform-icon svg rect,
+.platform-icon svg path,
 .cover-badge svg circle,
 .cover-badge svg rect,
-.cover-badge svg path {
+.cover-badge svg path,
+.icon-btn svg circle,
+.icon-btn svg rect,
+.icon-btn svg path {
   fill: currentColor;
 }
 
+.platform-icon svg .cover-glyph-play,
+.platform-icon svg .cover-glyph-cutout,
 .cover-badge svg .cover-glyph-play,
-.cover-badge svg .cover-glyph-cutout {
+.cover-badge svg .cover-glyph-cutout,
+.icon-btn svg .cover-glyph-play,
+.icon-btn svg .cover-glyph-cutout {
   fill: rgba(8, 10, 18, 0.96);
 }
 
-.cover-badge svg .cover-glyph-stroke {
+.platform-icon svg .cover-glyph-stroke,
+.cover-badge svg .cover-glyph-stroke,
+.icon-btn svg .cover-glyph-stroke {
   fill: none;
   stroke: rgba(8, 10, 18, 0.96);
   stroke-width: 1.75;
@@ -1092,27 +1121,38 @@ tbody tr:hover .thumb-placeholder {
   letter-spacing: 0.08em;
 }
 
-.cover-spotify {
-  color: #dffceb;
-  background: radial-gradient(circle at 30% 30%, rgba(29,185,84,0.22), rgba(29,185,84,0.08));
-  border-color: rgba(29,185,84,0.34);
+.source-spotify,
+.cover-spotify,
+.icon-spotify {
+  color: #1db954;
 }
 
-.cover-youtube {
-  color: #ffe0e5;
-  background: radial-gradient(circle at 30% 30%, rgba(229,23,63,0.2), rgba(229,23,63,0.08));
-  border-color: rgba(229,23,63,0.28);
+.source-youtube,
+.cover-youtube,
+.icon-youtube {
+  color: #ff0033;
 }
 
-.cover-soundcloud {
-  color: #ffedd5;
-  background: radial-gradient(circle at 30% 30%, rgba(249,115,22,0.22), rgba(249,115,22,0.08));
-  border-color: rgba(249,115,22,0.3);
+.source-soundcloud,
+.cover-soundcloud,
+.icon-soundcloud {
+  color: #ff6a00;
 }
 
+.source-other,
+.source-none,
+.icon-other,
+.icon-none,
 .cover-other,
 .cover-none {
   color: rgba(230, 236, 255, 0.78);
+}
+
+.icon-btn.platform-btn:hover {
+  transform: translateY(-1px) scale(1.06);
+  border-color: rgba(96,165,250,0.16);
+  background: rgba(255,255,255,0.04);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.12);
 }
 
 .hits-num.flash {
@@ -1335,3 +1375,4 @@ tbody tr:hover .thumb-placeholder {
     grid-template-columns: 1fr;
   }
 }
+

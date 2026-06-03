@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import logging
 import random
 import re
@@ -13,7 +13,7 @@ from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
 from core.source_resolver.models import TrackInfo, clone_track as _clone_track
 
-# ── Sub-module imports ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€ Sub-module imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from core.source_resolver.scoring import (
     _MV_KEYWORDS,
     _VARIANT_KEYWORDS,
@@ -321,7 +321,7 @@ def _spotify_youtube_query(canonical: str, original_query: str) -> str:
     return query
 
 
-# ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
+# â”€â”€ Query Cache singleton (lazy init) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
 
@@ -392,7 +392,7 @@ def _cache_hit_to_track(
 class SourceResolver:
     _sp = None
     _cache_lock = threading.Lock()
-    _ytdlp_query_cache: dict[tuple[int, str], tuple[float, list["TrackInfo"]]] = {}
+    _ytdlp_query_cache: dict[str, tuple[float, list["TrackInfo"]]] = {}
     _stream_url_cache: dict[str, tuple[float, str]] = {}
 
     @staticmethod
@@ -416,7 +416,6 @@ class SourceResolver:
                 track.title = meta["title"]
             if meta.get("artist"):
                 track.artist = meta["artist"]
-
     @staticmethod
     def _log_spotify_enrich(idx: int, original_query: str, yt_title_before: str, meta: dict, score: dict) -> None:
         decision = score["decision"]
@@ -428,15 +427,21 @@ class SourceResolver:
         _yt_label = dim(yt_title_before) if decision == "full" else b(yt_title_before)
         enrich_log.info(tag(
             "SPOTIFY",
-            f"enrich[{idx}]  {b(original_query)}  →  {_sp_label}"
-            f"  |  yt: {_yt_label}"
-            f"  |  {hi(decision, _dc)}  {hi(f'{conf_pct}%', _dc)}",
+            f"enrich[{idx}]  q={b(original_query)}"
+            f"  match={_sp_label}"
+            f"  yt={_yt_label}"
+            f"  decision={hi(decision, _dc)}"
+            f"  conf={hi(f'{conf_pct}%', _dc)}",
         ))
         enrich_log.debug(tag(
             "SPOTIFY",
-            f"  scores  q={int(score['query_sim'] * 100)}%  yt={int(score['yt_sim'] * 100)}%"
-            f"  art={int(score['artist_sim'] * 100)}%  dur={int(score['duration_sim'] * 100)}%"
-            f"  junk={int(score['variant_penalty'] * 100)}%  nm={int(score['non_music_penalty'] * 100)}%"
+            f"enrich[{idx}]  scores"
+            f"  q={int(score['query_sim'] * 100)}%"
+            f"  yt={int(score['yt_sim'] * 100)}%"
+            f"  art={int(score['artist_sim'] * 100)}%"
+            f"  dur={int(score['duration_sim'] * 100)}%"
+            f"  junk={int(score['variant_penalty'] * 100)}%"
+            f"  nm={int(score['non_music_penalty'] * 100)}%"
             f"  reason={dim(score['reason'])}",
         ))
 
@@ -450,7 +455,9 @@ class SourceResolver:
             cache.pop(next(iter(cache)), None)
 
     @classmethod
-    def _get_cached_ytdlp_results(cls, key: tuple[int, str]) -> Optional[list["TrackInfo"]]:
+    def _get_cached_ytdlp_results(
+        cls, key: str, requester: str, requester_id: int
+    ) -> Optional[list["TrackInfo"]]:
         now = time.monotonic()
         with cls._cache_lock:
             cached = cls._ytdlp_query_cache.get(key)
@@ -462,10 +469,16 @@ class SourceResolver:
                 return None
             cls._ytdlp_query_cache.pop(key, None)
             cls._ytdlp_query_cache[key] = (exp, tracks)
-            return [_clone_track(t) for t in tracks]
+            hydrated = []
+            for track in tracks:
+                clone = _clone_track(track)
+                clone.requester = requester
+                clone.requester_id = requester_id
+                hydrated.append(clone)
+            return hydrated
 
     @classmethod
-    def _set_cached_ytdlp_results(cls, key: tuple[int, str], tracks: list["TrackInfo"]) -> None:
+    def _set_cached_ytdlp_results(cls, key: str, tracks: list["TrackInfo"]) -> None:
         with cls._cache_lock:
             cls._ytdlp_query_cache.pop(key, None)
             cls._ytdlp_query_cache[key] = (
@@ -636,43 +649,58 @@ class SourceResolver:
                     track.title = sp_title
                 if sp_artist:
                     track.artist = sp_artist
-
-            _dc = _BGRN if decision == "full" else (_BYEL if decision == "cover_only" else _BRED)
-
-            conf_pct = int(score["confidence"]       * 100)
-            q_pct    = int(score["query_sim"]         * 100)
-            yt_pct   = int(score["yt_sim"]            * 100)
-            art_pct  = int(score["artist_sim"]        * 100)
-            dur_pct  = int(score["duration_sim"]      * 100)
-            junk_pct = int(score["variant_penalty"]   * 100)
-            nm_pct   = int(score["non_music_penalty"] * 100)
-
-            _sp_label = b(sp_title) + (f"  {sp_artist}" if sp_artist else "")
-            _yt_label = dim(yt_title_before) if decision == "full" else b(yt_title_before)
-            enrich_log.info(tag(
-                "SPOTIFY",
-                f"enrich[{idx}]  {b(original_query)}  →  {_sp_label}"
-                f"  |  yt: {_yt_label}"
-                f"  |  {hi(decision, _dc)}  {hi(f'{conf_pct}%', _dc)}",
-            ))
-            enrich_log.debug(tag(
-                "SPOTIFY",
-                f"  scores  q={q_pct}%  yt={yt_pct}%  art={art_pct}%"
-                f"  dur={dur_pct}%  junk={junk_pct}%  nm={nm_pct}%"
-                f"  reason={dim(score['reason'])}",
-            ))
+            cls._log_spotify_enrich(idx, original_query, yt_title_before, meta, score)
         return tracks
+
+    @classmethod
+    async def _resolve_cached_track(
+        cls, query: str, requester: str, requester_id: int
+    ) -> Optional["TrackInfo"]:
+        qc = _get_query_cache()
+        if qc is None:
+            return None
+        hit = qc.lookup(query)
+        if not hit or not hit.get("webpage_url"):
+            return None
+
+        now_ts = int(time.time())
+        cached_stream = (hit.get("stream_url") or "").strip()
+        stream_expires_at = int(hit.get("stream_expires_at") or 0)
+        if cached_stream and stream_expires_at > now_ts + 60:
+            log.debug(tag("STREAM", f"db stream hit  {b(hit['webpage_url'])}"))
+            return _cache_hit_to_track(hit, requester, requester_id, cached_stream)
+
+        stream_url = await asyncio.get_running_loop().run_in_executor(
+            None, cls._fetch_stream_url, hit["webpage_url"]
+        )
+        if stream_url:
+            if hasattr(qc, "update_stream_url"):
+                qc.update_stream_url(hit["webpage_url"], stream_url)
+            return _cache_hit_to_track(hit, requester, requester_id, stream_url)
+
+        if hasattr(qc, "invalidate_url"):
+            qc.invalidate_url(hit["webpage_url"])
+        return None
 
     @classmethod
     async def resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
         loop = asyncio.get_running_loop()
 
-        # ── Spotify track singola ──────────────────────────────────────────────
+        if _is_url_like_query(query):
+            try:
+                cached_track = await cls._resolve_cached_track(query, requester, requester_id)
+                if cached_track is not None:
+                    log.info(tag("CACHE", f"{b(query)}  ->  cache hit direct-url"))
+                    return [cached_track]
+            except Exception as _ce:
+                log.debug(tag("CACHE", f"direct-url read path error (ignorato): {_ce}"))
+
+        # â”€â”€ Spotify track singola â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if track_id := extract_spotify_track_id(query):
             results = await loop.run_in_executor(
                 None, cls._sp_track, track_id, requester, requester_id
             )
-            # 6.2 — cache per link Spotify diretto
+            # 6.2 â€” cache per link Spotify diretto
             if results and results[0].title:
                 try:
                     qc = _get_query_cache()
@@ -682,7 +710,7 @@ class SourceResolver:
                     log.debug(tag("CACHE", f"write path spotify-direct (ignorato): {_we}"))
             return results
 
-        # ── Spotify playlist / album / artista → no cache (multi-traccia) ────
+        # â”€â”€ Spotify playlist / album / artista â†’ no cache (multi-traccia) â”€â”€â”€â”€
         if playlist_id := extract_spotify_playlist_id(query):
             return await loop.run_in_executor(
                 None, cls._sp_playlist, playlist_id, requester, requester_id
@@ -699,11 +727,11 @@ class SourceResolver:
                 tracks.append(t)
             return tracks
 
-        # ── URL YouTube / SoundCloud diretto ──────────────────────────────────
+        # â”€â”€ URL YouTube / SoundCloud diretto â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         results = await loop.run_in_executor(
             None, cls._search_or_url, query, requester, requester_id
         )
-        # 6.2 — cache per URL diretto (YT/SC): salva solo se è effettivamente un URL
+        # 6.2 â€” cache per URL diretto (YT/SC): salva solo se Ã¨ effettivamente un URL
         if results and results[0].title and _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
@@ -720,37 +748,19 @@ class SourceResolver:
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
 
-        # ── READ PATH: cache-first lookup (solo per n==1, query testuale) ─────────────────────
+        # â”€â”€ READ PATH: cache-first lookup (solo per n==1, query testuale) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if n == 1 and not _is_url_like_query(query):
             try:
-                qc = _get_query_cache()
-                if qc is not None:
-                    hit = qc.lookup(query)
-                    if hit and hit.get("webpage_url"):
-                        now_ts = int(time.time())
-                        stream_url = ""
-                        cached_stream = (hit.get("stream_url") or "").strip()
-                        stream_expires_at = int(hit.get("stream_expires_at") or 0)
-                        if cached_stream and stream_expires_at > now_ts + 60:
-                            stream_url = cached_stream
-                            log.debug(tag("STREAM", f"db stream hit  {b(hit['webpage_url'])}"))
-                        else:
-                            stream_url = await loop.run_in_executor(
-                                None, cls._fetch_stream_url, hit["webpage_url"]
-                            )
-                            if stream_url and hasattr(qc, "update_stream_url"):
-                                qc.update_stream_url(hit["webpage_url"], stream_url)
-                        if stream_url:
-                            track = _cache_hit_to_track(hit, requester, requester_id, stream_url)
-                            elapsed = (time.perf_counter() - t0) * 1000
-                            log.info(tag("CACHE", f"{b(query)}  \u2192  cache hit  {ms(elapsed)}"))
-                            return [track]
-                        if hasattr(qc, "invalidate_url"):
-                            qc.invalidate_url(hit["webpage_url"])
-                        log.info(tag("CACHE", f"{b(query)}  \u2192  stale url, ricerca fresca"))
+                cached_track = await cls._resolve_cached_track(query, requester, requester_id)
+                if cached_track is not None:
+                    elapsed = (time.perf_counter() - t0) * 1000
+                    log.info(tag("CACHE", f"{b(query)}  \u2192  cache hit  {ms(elapsed)}"))
+                    return [cached_track]
+                if _get_query_cache() is not None:
+                    log.info(tag("CACHE", f"{b(query)}  \u2192  stale url, ricerca fresca"))
             except Exception as _ce:
                 log.debug(tag("CACHE", f"read path error (ignorato): {_ce}"))
-        # ─────────────────────────────────────────────────────────────────────────────
+        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         search_n = max(n, _YT_CANDIDATES)
         canonical_search_n = 1 if n == 1 else search_n
@@ -906,7 +916,7 @@ class SourceResolver:
                         None, cls._enrich_with_spotify, results, query
                     )
 
-        # ── WRITE PATH: salva il risultato in cache ─────────────────────────────────────────────
+        # â”€â”€ WRITE PATH: salva il risultato in cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if n == 1 and results and not _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
@@ -914,7 +924,7 @@ class SourceResolver:
                     qc.store(query, results[0])
             except Exception as _we:
                 log.debug(tag("CACHE", f"write path error (ignorato): {_we}"))
-        # ─────────────────────────────────────────────────────────────────────────────
+        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         elapsed = (time.perf_counter() - t0) * 1000
         log.info(tag("RESOLVE", f"{b(query)}  \u2192  {b(str(len(results)))} risultati  {ms(elapsed)}"))
@@ -1129,7 +1139,7 @@ class SourceResolver:
 
         log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  \u2192  {hi(chosen.webpage_url, _BBLU)}"))
 
-        # ── WRITE PATH Spotify: salva in cache DB ────────────────────────────────────────────
+        # â”€â”€ WRITE PATH Spotify: salva in cache DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if sp_url:
             try:
                 qc = _get_query_cache()
@@ -1137,7 +1147,7 @@ class SourceResolver:
                     qc.link_spotify(sp_url, query_with_artist, "")
             except Exception:
                 pass
-        # ─────────────────────────────────────────────────────────────────────────────
+        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         return chosen
 
@@ -1272,8 +1282,8 @@ class SourceResolver:
 
     @classmethod
     def _run_ytdlp(cls, query: str, requester: str, requester_id: int) -> list:
-        cache_key = (int(requester_id or 0), query.strip())
-        cached = cls._get_cached_ytdlp_results(cache_key)
+        cache_key = query.strip()
+        cached = cls._get_cached_ytdlp_results(cache_key, requester, requester_id)
         if cached is not None:
             log.debug(tag("RESOLVE", f"cache hit ytdlp  {b(query)}"))
             return cached
@@ -1291,7 +1301,7 @@ class SourceResolver:
                 log.warning(tag("WARN", f"video non disponibile, fallback search: {b(query)}"))
                 # Se era un URL diretto, proviamo una ricerca testuale con il titolo
                 if query.startswith("http"):
-                    return []  # per URL diretti non c'è fallback sicuro
+                    return []  # per URL diretti non c'Ã¨ fallback sicuro
                 # Per query ytsearch, logghiamo e restituiamo vuoto
                 return []
             log.error(tag("ERR", f"yt-dlp ExtractorError: {e}"))
@@ -1450,3 +1460,5 @@ class SourceResolver:
             if t.get("id"):
                 out.extend(cls._sp_track(t["id"], requester, requester_id))
         return out
+
+

@@ -25,34 +25,34 @@
 
     <div class="nav-section-label">Workspace</div>
     <a href="#" class="active" onclick="showSection('cache', this); return false;">
-      <span class="nav-icon" aria-hidden="true">⌁</span>
+      <span class="nav-icon" aria-hidden="true">&#x2301;</span>
       <span>Vista operativa</span>
     </a>
     <a href="#" onclick="showSection('aliases', this); return false;">
-      <span class="nav-icon" aria-hidden="true">⛓</span>
+      <span class="nav-icon" aria-hidden="true">&#x26D3;</span>
       <span>Vista alias</span>
     </a>
     <a href="#" onclick="showSection('tracks', this); return false;">
-      <span class="nav-icon" aria-hidden="true">♪</span>
+      <span class="nav-icon" aria-hidden="true">&#x266A;</span>
       <span>Tracce canoniche</span>
     </a>
     <a href="#" onclick="showSection('sources', this); return false;">
-      <span class="nav-icon" aria-hidden="true">↯</span>
+      <span class="nav-icon" aria-hidden="true">&#x21AF;</span>
       <span>Sorgenti risolte</span>
     </a>
     <a href="#" onclick="showSection('queries', this); return false;">
-      <span class="nav-icon" aria-hidden="true">⌕</span>
+      <span class="nav-icon" aria-hidden="true">&#x2315;</span>
       <span>Query e alias</span>
     </a>
     <a href="#" onclick="showSection('schema', this); return false;">
-      <span class="nav-icon" aria-hidden="true">▦</span>
+      <span class="nav-icon" aria-hidden="true">&#x25A6;</span>
       <span>Struttura DB</span>
     </a>
 
     <div class="nav-divider"></div>
     <div class="nav-section-label">Runtime</div>
     <a class="nav-static">
-      <span class="nav-icon" aria-hidden="true">◫</span>
+      <span class="nav-icon" aria-hidden="true">&#x25EB;</span>
       <span>{{ db_name }}</span>
     </a>
 
@@ -158,6 +158,7 @@
               <option value="">Tutte le sorgenti</option>
               <option value="youtube">YouTube</option>
               <option value="spotify">Spotify</option>
+              <option value="soundcloud">SoundCloud</option>
             </select>
           </div>
           <div class="custom-select-wrap">
@@ -177,15 +178,15 @@
         <table id="songs-table">
           <thead>
             <tr>
-              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">↕</span></th>
+              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">&#8597;</span></th>
               <th>Titolo / Artista</th>
-              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">↕</span></th>
+              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">&#8597;</span></th>
               <th>Sorgente</th>
               <th>Cover</th>
               <th>Dur.</th>
-              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">↓</span></th>
-              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">↕</span></th>
-              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">↕</span></th>
+              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">&#8595;</span></th>
+              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">&#8597;</span></th>
+              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">&#8597;</span></th>
               <th>Stato</th>
               <th>Azioni</th>
             </tr>
