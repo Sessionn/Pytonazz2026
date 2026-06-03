@@ -1150,6 +1150,44 @@ class SourceResolver:
         query_with_artist = f"{query_title} {query_artist}" if query_artist else query_title
         normalized_with_artist = _normalize_for_sim(query_with_artist)
         normalized_title = _normalize_for_sim(query_title)
+        sp_meta = {
+            "title": sp_title,
+            "artist": artists_str,
+            "duration": sp_dur,
+            "thumbnail": sp_thumb,
+            "spotify_url": sp_url,
+        }
+
+        fast_query = f"ytsearch1:{query_with_artist}" if query_with_artist else ""
+        if fast_query:
+            fast_candidates = cls._run_ytdlp(fast_query, requester, requester_id)
+            if fast_candidates:
+                fast_score = _compute_enrich_confidence(query_with_artist, fast_candidates[0], sp_meta)
+                if fast_score["decision"] in ("full", "cover_only"):
+                    candidates = fast_candidates
+                    for c in candidates:
+                        c.source = "spotify"
+                    chosen = _prefer_studio(candidates, sp_dur, user_query=sp_title)
+                    chosen.title = sp_title
+                    chosen.popularity = sp_pop
+                    if sp_thumb:
+                        chosen.thumbnail = sp_thumb
+                        chosen.thumbnail_source = "spotify"
+                        chosen.thumbnail_confidence = 0.95
+                    chosen.artist = artists_str
+                    chosen.origin_query = query_with_artist
+                    chosen.spotify_url = sp_url
+
+                    log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  →  {hi(chosen.webpage_url, _BBLU)}"))
+                    if sp_url:
+                        try:
+                            qc = _get_query_cache()
+                            if qc is not None:
+                                qc.link_spotify(sp_url, query_with_artist, "")
+                        except Exception:
+                            pass
+                    return chosen
+
         yt_queries = [
             f"ytsearch{_YT_CANDIDATES}:{query_with_artist} audio",
             f"ytsearch{_YT_CANDIDATES}:{query_with_artist}",
