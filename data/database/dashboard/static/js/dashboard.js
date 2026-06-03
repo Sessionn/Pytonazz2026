@@ -279,19 +279,14 @@ function makeActionLink(url, source, title) {
 }
 
 function actionLinks(row) {
-  const links = [];
-  const primarySource = normalizedSource(row.source, row.webpage_url);
-  if (row.webpage_url) {
-    const title = `Apri su ${platformLabel(primarySource)}`;
-    links.push(makeActionLink(row.webpage_url, primarySource, title));
-  }
-  if (row.spotify_url) {
-    links.push(makeActionLink(row.spotify_url, "spotify", "Apri su Spotify"));
-  }
-  if (!links.length) {
-    links.push(makeActionLink("", primarySource, "Sorgente non disponibile"));
-  }
-  return links.join("");
+  const youtubeUrl = normalizedSource(row.source, row.webpage_url) === "youtube" ? row.webpage_url : "";
+  const spotifyUrl = row.spotify_url || "";
+  const soundcloudUrl = normalizedSource(row.source, row.webpage_url) === "soundcloud" ? row.webpage_url : "";
+  return [
+    makeActionLink(youtubeUrl, "youtube", "Apri su YouTube"),
+    makeActionLink(spotifyUrl, "spotify", "Apri su Spotify"),
+    makeActionLink(soundcloudUrl, "soundcloud", "Apri su SoundCloud"),
+  ].join("");
 }
 
 function patchRowActions(tr, song) {

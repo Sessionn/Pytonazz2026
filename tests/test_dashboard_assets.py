@@ -31,5 +31,12 @@ assert '<option value="soundcloud">SoundCloud</option>' in index_html, (
 assert "function sourceBadge(" in dashboard_js, "FAIL: manca sourceBadge() per sorgente SVG coerente"
 assert "function actionIcon(" in dashboard_js, "FAIL: manca actionIcon() per azioni SVG coerenti"
 assert "function actionLinks(" in dashboard_js, "FAIL: manca actionLinks() per azioni riproduzione uniformi"
+assert "return [" in dashboard_js and "makeActionLink(youtubeUrl, \"youtube\"" in dashboard_js, (
+    "FAIL: actionLinks non costruisce sempre i tre pulsanti piattaforma"
+)
+assert ".badge.ok" in style_css and ".badge.err" in style_css, (
+    "FAIL: manca la stilizzazione dedicata per stati valida/invalida"
+)
+assert ".del-btn" in style_css, "FAIL: manca la stilizzazione della X di cancellazione"
 
 print("OK: dashboard assets soundcloud/arrows/svg")
