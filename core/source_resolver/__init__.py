@@ -312,6 +312,30 @@ def _is_short_or_ambiguous_query(query: str) -> bool:
     return len(q_norm) <= 14
 
 
+def _is_title_only_candidate(query: str) -> bool:
+    q_norm = _normalize_for_sim(query)
+    if not q_norm or _query_requests_variant(query):
+        return False
+    parts = q_norm.split()
+    if len(parts) < 3 or len(parts) > 6:
+        return False
+    return not any(sep in q_norm for sep in (" - ", " feat ", " ft ", " by "))
+
+
+def _should_use_spotify_canonical_early(query: str, sp_meta: dict) -> bool:
+    if not sp_meta:
+        return False
+    title_norm = _normalize_for_sim(sp_meta.get("title", ""))
+    artist = sp_meta.get("artist", "")
+    artist_sim, artist_hint_present = _query_artist_signal(query, artist)
+    q_norm = _normalize_for_sim(query)
+    if not q_norm or not title_norm:
+        return False
+    if artist_hint_present and artist_sim > 0:
+        return False
+    return q_norm == title_norm
+
+
 def _spotify_youtube_query(canonical: str, original_query: str) -> str:
     query = (canonical or "").strip()
     if not query:
@@ -427,22 +451,26 @@ class SourceResolver:
         _yt_label = dim(yt_title_before) if decision == "full" else b(yt_title_before)
         enrich_log.info(tag(
             "SPOTIFY",
-            f"enrich[{idx}]  q={b(original_query)}"
-            f"  match={_sp_label}"
-            f"  yt={_yt_label}"
-            f"  decision={hi(decision, _dc)}"
-            f"  conf={hi(f'{conf_pct}%', _dc)}",
+            "\n".join([
+                f"enrich[{idx}]",
+                f"  query={b(original_query)}",
+                f"  spotify={_sp_label}",
+                f"  youtube={_yt_label}",
+                f"  decision={hi(decision, _dc)}  conf={hi(f'{conf_pct}%', _dc)}",
+            ]),
         ))
         enrich_log.debug(tag(
             "SPOTIFY",
-            f"enrich[{idx}]  scores"
-            f"  q={int(score['query_sim'] * 100)}%"
-            f"  yt={int(score['yt_sim'] * 100)}%"
-            f"  art={int(score['artist_sim'] * 100)}%"
-            f"  dur={int(score['duration_sim'] * 100)}%"
-            f"  junk={int(score['variant_penalty'] * 100)}%"
-            f"  nm={int(score['non_music_penalty'] * 100)}%"
-            f"  reason={dim(score['reason'])}",
+            "\n".join([
+                f"enrich[{idx}]  scores:",
+                f"    query={int(score['query_sim'] * 100)}%",
+                f"    youtube={int(score['yt_sim'] * 100)}%",
+                f"    artist={int(score['artist_sim'] * 100)}%",
+                f"    duration={int(score['duration_sim'] * 100)}%",
+                f"    junk={int(score['variant_penalty'] * 100)}%",
+                f"    non_music={int(score['non_music_penalty'] * 100)}%",
+                f"    reason={dim(score['reason'])}",
+            ]),
         ))
 
     @classmethod
@@ -792,6 +820,27 @@ class SourceResolver:
                         sp_meta_hint = None
                     log.debug(tag("PERF", f"spotify ambiguous hint  {b(query)}  {ms((time.perf_counter() - sp_t0) * 1000)}"))
                 if sp_meta_hint:
+                    canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
+                    if canonical:
+                        yt_query = _spotify_youtube_query(canonical, query)
+            elif sp_future is not None and _is_title_only_candidate(query):
+                sp_t0 = time.perf_counter()
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(sp_future),
+                        timeout=max(0.55, float(Config.SPOTIFY_HINT_WAIT_SECONDS)),
+                    )
+                except asyncio.TimeoutError:
+                    log.debug(tag("PERF", f"spotify title-only hint timeout  {b(query)}"))
+                except Exception:
+                    pass
+                if sp_future.done():
+                    try:
+                        sp_meta_hint = sp_future.result()
+                    except Exception:
+                        sp_meta_hint = None
+                    log.debug(tag("PERF", f"spotify title-only hint  {b(query)}  {ms((time.perf_counter() - sp_t0) * 1000)}"))
+                if sp_meta_hint and _should_use_spotify_canonical_early(query, sp_meta_hint):
                     canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                     if canonical:
                         yt_query = _spotify_youtube_query(canonical, query)
