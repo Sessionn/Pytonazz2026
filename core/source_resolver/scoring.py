@@ -264,7 +264,11 @@ def _compute_enrich_confidence(
     variant_penalty = _dynamic_variant_penalty(original_query, yt_title, sp_title, sp_artist)
     if _RISKY_ENRICH_VARIANTS.search(f"{original_query} {yt_title}"):
         variant_penalty += _RISKY_VARIANT_PENALTY
-    non_music_penalty = _NON_MUSIC_QUERY_PENALTY if _is_probably_non_music_query(original_query) else 0.0
+    non_music_penalty = (
+        _NON_MUSIC_QUERY_PENALTY
+        if _is_probably_non_music_query(original_query) and query_sim < 0.88
+        else 0.0
+    )
 
     confidence = (
         (query_sim * _ENRICH_WEIGHT_QUERY)

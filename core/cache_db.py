@@ -458,6 +458,77 @@ def _find_track_by_norm(cur: sqlite3.Cursor, normalized_query: str) -> Optional[
     return cur.fetchone()
 
 
+def _find_unique_canonical_query_match(
+    cur: sqlite3.Cursor,
+    query_raw: str,
+    cutoff: int,
+) -> tuple[Optional[sqlite3.Row], str, float]:
+    query_music = _music_norm(query_raw)
+    query_tokens = _music_tokens(query_raw)
+    if len(query_tokens) < 2 or len(query_music) < 8:
+        return None, "", 0.0
+
+    cur.execute(
+        """
+        SELECT
+            t.id AS track_id,
+            t.canonical_title,
+            t.canonical_artist,
+            s.id AS source_id,
+            sc.*
+          FROM cache_tracks t
+          JOIN cache_sources s ON s.track_id = t.id
+          JOIN song_cache sc ON sc.id = s.id
+         WHERE t.is_active = 1
+           AND s.is_valid = 1
+           AND s.last_used >= ?
+         ORDER BY s.hit_count DESC, s.last_used DESC, s.id ASC
+        """,
+        (cutoff,),
+    )
+
+    best_by_track: dict[int, tuple[float, str, sqlite3.Row]] = {}
+    for row in cur.fetchall():
+        title = row["canonical_title"] or row["title"] or ""
+        artist = row["canonical_artist"] or row["artist"] or ""
+        title_music = _music_norm(title)
+        full_music = _music_norm(f"{title} {artist}".strip())
+
+        method = ""
+        confidence = 0.0
+        if query_music == title_music:
+            method = "canonical_title"
+            confidence = 1.0
+        elif query_music == full_music:
+            method = "canonical_metadata"
+            confidence = 1.0
+        else:
+            title_similarity = _string_similarity(query_raw, title)
+            title_overlap = _token_overlap(query_raw, title)
+            full_similarity = _string_similarity(query_raw, f"{title} {artist}".strip())
+            full_overlap = _token_overlap(query_raw, f"{title} {artist}".strip())
+            similarity = max(title_similarity, full_similarity)
+            overlap = max(title_overlap, full_overlap)
+            if similarity >= 0.94 and overlap >= 0.80:
+                method = "canonical_typo"
+                confidence = min(similarity, 0.99)
+
+        if not method:
+            continue
+        track_id = int(row["track_id"])
+        current = best_by_track.get(track_id)
+        if current is None or confidence > current[0]:
+            best_by_track[track_id] = (confidence, method, row)
+
+    ranked = sorted(best_by_track.values(), key=lambda item: item[0], reverse=True)
+    if not ranked:
+        return None, "", 0.0
+    if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.04:
+        return None, "", 0.0
+    confidence, method, row = ranked[0]
+    return row, method, confidence
+
+
 def _duration_close(left: int, right: int) -> bool:
     if left <= 0 or right <= 0:
         return False
@@ -896,6 +967,28 @@ def get(query: str) -> Optional[dict]:
                 track_id = int(cur.fetchone()["track_id"])
                 _upsert_query(cur, spotify_url, track_id, row["source_id"], "spotify", "spotify_url", 1.0)
                 query_hash = _hash(spotify_url)
+
+        if row is None and not _is_spotify_url(query_raw):
+            row, match_method, match_confidence = _find_unique_canonical_query_match(
+                cur, query_raw, cutoff
+            )
+            if row:
+                _upsert_query(
+                    cur,
+                    query_raw,
+                    int(row["track_id"]),
+                    int(row["source_id"]),
+                    "text",
+                    match_method,
+                    match_confidence,
+                )
+                query_hash = _hash(query_raw)
+                log.info(tag(
+                    "CACHE_DB",
+                    f"\U0001f517 {hi('ALIAS', _TEAL)}  "
+                    f"{b(query_raw)}  \u2192  {b(row['title'])}  "
+                    f"{dim(match_method)} {int(match_confidence * 100)}%",
+                ))
 
         if row is None:
             log.info(tag("CACHE_DB", f"\U0001f50d {hi('MISS', _GRY)}  {b(query_raw)}"))
