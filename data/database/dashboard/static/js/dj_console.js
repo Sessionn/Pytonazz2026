@@ -20,11 +20,6 @@ const els = {
   volumeHandle: document.getElementById("volume-slider-handle"),
   volumeValue: document.getElementById("volume-value"),
   resetMixerButton: document.getElementById("reset-mixer-button"),
-  filterSelect: document.getElementById("filter-select"),
-  filterSelectShell: document.getElementById("filter-select-shell"),
-  filterSelectTrigger: document.getElementById("filter-select-trigger"),
-  filterSelectLabel: document.getElementById("filter-select-label"),
-  filterSelectMenu: document.getElementById("filter-select-menu"),
   queue: document.getElementById("queue-list"),
   eqLow: document.getElementById("eq-low"),
   eqLowHandle: document.getElementById("eq-low-handle"),
@@ -70,15 +65,6 @@ const EQ_SCENES = {
   air: { low: -1, mid: 0.5, high: 5.5 },
   "kill-low": { low: -12, mid: 0, high: 0 },
   "kill-high": { low: 0, mid: 0, high: -12 },
-};
-
-const QUICK_FX = {
-  off: { filter_name: "off", eq: EQ_SCENES.flat },
-  nightcore: { filter_name: "nightcore", eq: { low: -0.5, mid: 1.5, high: 6 } },
-  vaporwave: { filter_name: "vaporwave", eq: { low: 3, mid: -0.5, high: -3.5 } },
-  "8d": { filter_name: "8d", eq: { low: 0, mid: 0.5, high: 1.5 } },
-  bassboost: { filter_name: "bassboost", eq: { low: 7, mid: -1, high: 1 } },
-  radio: { filter_name: "radio", eq: { low: -6, mid: 2, high: -2.5 } },
 };
 
 const FILTER_LABELS = {
@@ -134,7 +120,9 @@ function makeContinuousSender(action, buildPayload, minIntervalMs = 28) {
 
 function setActiveButton(selector, predicate) {
   document.querySelectorAll(selector).forEach((button) => {
-    button.classList.toggle("is-active", predicate(button));
+    const active = predicate(button);
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   });
 }
 
@@ -172,23 +160,9 @@ function setPlaybackVisual(stateName) {
   els.playbackIndicator.classList.add("is-offline");
 }
 
-function setFilterMenuOpen(open) {
-  if (!els.filterSelectShell || !els.filterSelectTrigger) return;
-  els.filterSelectShell.classList.toggle("is-open", open);
-  els.filterSelectTrigger.setAttribute("aria-expanded", open ? "true" : "false");
-}
-
 function syncFilterSelect(value) {
   const nextValue = String(value || "off");
-  if (els.filterSelect) {
-    els.filterSelect.value = nextValue;
-  }
-  if (els.filterSelectLabel) {
-    els.filterSelectLabel.textContent = FILTER_LABELS[nextValue] || nextValue;
-  }
-  document.querySelectorAll("[data-filter-option]").forEach((option) => {
-    option.classList.toggle("is-selected", option.dataset.filterOption === nextValue);
-  });
+  setActiveButton("[data-base-filter]", (button) => button.dataset.baseFilter === nextValue);
 }
 
 function renderQueue(items) {
@@ -845,19 +819,6 @@ document.querySelectorAll("[data-filter-fx]").forEach((button) => {
   });
 });
 
-els.filterSelectTrigger?.addEventListener("click", () => {
-  setFilterMenuOpen(!els.filterSelectShell.classList.contains("is-open"));
-});
-
-document.querySelectorAll("[data-filter-option]").forEach((option) => {
-  option.addEventListener("click", async () => {
-    const nextValue = option.dataset.filterOption || "off";
-    syncFilterSelect(nextValue);
-    setFilterMenuOpen(false);
-    await postAction("set_base_filter", { filter_name: nextValue });
-  });
-});
-
 els.resetMixerButton?.addEventListener("click", async () => {
   syncFilterSelect("off");
   document.querySelectorAll("[data-filter-fx]").forEach((button) => {
@@ -875,18 +836,6 @@ els.resetMixerButton?.addEventListener("click", async () => {
     postAction("toggle_filter_fx", { fx_name: "radio", enabled: false }),
     postAction("set_tone_filters", { tone_filters: { highpass_hz: 0, lowpass_hz: 20000 } }),
   ]);
-});
-
-document.addEventListener("click", (event) => {
-  if (!els.filterSelectShell) return;
-  if (els.filterSelectShell.contains(event.target)) return;
-  setFilterMenuOpen(false);
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
-    setFilterMenuOpen(false);
-  }
 });
 
 setupVerticalDrag(els.volumeHandle, els.volume, {

@@ -1338,3 +1338,282 @@ button:disabled {
     scroll-behavior: auto !important;
   }
 }
+
+/* 2026 console refresh: dense full-screen control surface, no decorative emoji/aura. */
+:root {
+  --bg-1: #06090c;
+  --bg-2: #10161d;
+  --panel: rgba(12, 17, 23, 0.94);
+  --panel-2: rgba(17, 24, 32, 0.98);
+  --line: rgba(148, 163, 184, 0.18);
+  --text: #eef4ff;
+  --muted: #91a1b7;
+  --accent: #ffb020;
+  --accent-2: #39d98a;
+  --ok: #3dff9b;
+  --ok-glow: rgba(61, 255, 155, 0.46);
+  --shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+  --cyan: #4cc9f0;
+  --red: #ff4d6d;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    linear-gradient(90deg, rgba(255, 176, 32, 0.06) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, rgba(76, 201, 240, 0.045) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, #070a0e 0%, #0b1118 42%, #111820 100%);
+  background-size: 56px 56px, 56px 56px, auto;
+}
+
+body::before {
+  opacity: 0.16;
+  mix-blend-mode: normal;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05), transparent 18%),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 12px);
+}
+
+.console-aura {
+  display: none;
+}
+
+.console-shell {
+  width: calc(100vw - 16px);
+  max-width: none;
+  min-height: calc(100vh - 16px);
+  margin: 8px auto;
+  gap: 10px;
+}
+
+.hero-panel,
+.deck-panel,
+.error-card {
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.015)),
+    linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.06);
+  backdrop-filter: none;
+}
+
+.hero-panel::after,
+.deck-panel::after {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.025), transparent);
+}
+
+.hero-panel {
+  grid-template-columns: minmax(260px, 0.62fr) minmax(720px, 1.38fr);
+  gap: 10px;
+  padding: 12px;
+  align-items: stretch;
+}
+
+.brand-block {
+  min-height: 118px;
+  padding: 8px 10px;
+  align-content: center;
+  border-left: 3px solid var(--accent);
+}
+
+.brand-block h1,
+.error-card h1 {
+  font-size: clamp(2rem, 2.5vw, 3.2rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: none;
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 0.68rem;
+}
+
+.console-chip {
+  border-radius: 6px;
+  background: rgba(255,255,255,0.035);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.status-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.status-card {
+  min-height: 118px;
+  padding: 14px;
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.015)),
+    rgba(8, 13, 18, 0.78);
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: inset 0 -22px 34px rgba(0,0,0,0.18);
+  backdrop-filter: none;
+}
+
+.status-card::before,
+.status-card::after,
+.status-flare {
+  display: none;
+}
+
+.deck-grid {
+  grid-template-columns: minmax(330px, 0.78fr) minmax(780px, 1.65fr) minmax(300px, 0.72fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.deck-panel {
+  padding: 14px;
+}
+
+.platter-panel,
+.queue-panel,
+.mixer-panel {
+  min-height: calc(100vh - 166px);
+}
+
+.platter-wrap {
+  margin-inline: auto;
+}
+
+.mixer-layout {
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.mixer-main {
+  gap: 12px;
+}
+
+.mixer-grid,
+.tone-grid {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.control-stack {
+  border-radius: 10px;
+  padding: 12px;
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
+    rgba(5, 9, 13, 0.52);
+}
+
+.control-stack label {
+  display: block;
+  margin-bottom: 6px;
+  color: #dbe7f7;
+  text-transform: uppercase;
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+}
+
+.control-help {
+  margin: -2px 0 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.filter-button-grid,
+.fx-pad-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.filter-button-grid button,
+.fx-pad-grid button {
+  min-height: 42px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.015)),
+    #0b1117;
+  color: #d8e3f2;
+  font-family: "Fira Code", monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.filter-button-grid button:hover,
+.fx-pad-grid button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 176, 32, 0.5);
+  color: #fff8ea;
+}
+
+.filter-button-grid button.is-active,
+.fx-pad-grid button.is-active,
+.filter-button-grid button[aria-pressed="true"],
+.fx-pad-grid button[aria-pressed="true"] {
+  color: #08110c;
+  border-color: rgba(61, 255, 155, 0.72);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.44), rgba(255,255,255,0.08)),
+    linear-gradient(135deg, #3dff9b, #ffb020);
+  box-shadow: 0 0 0 1px rgba(61,255,155,0.18), 0 10px 24px rgba(61,255,155,0.12);
+}
+
+.fx-pad-grid button.is-disabled,
+.fx-pad-grid button:disabled {
+  color: rgba(216, 227, 242, 0.42);
+  border-color: rgba(148, 163, 184, 0.08);
+  background: rgba(255,255,255,0.025);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.eq-grid {
+  gap: 10px;
+}
+
+.eq-band,
+.channel-strip {
+  border-radius: 10px;
+}
+
+.queue-item {
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.queue-art {
+  border-radius: 8px;
+}
+
+@media (max-width: 1480px) {
+  .hero-panel,
+  .deck-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .platter-panel,
+  .queue-panel,
+  .mixer-panel {
+    min-height: auto;
+  }
+
+  .status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .console-shell {
+    width: calc(100vw - 8px);
+    margin: 4px auto;
+  }
+
+  .status-grid,
+  .filter-button-grid,
+  .fx-pad-grid {
+    grid-template-columns: 1fr;
+  }
+}

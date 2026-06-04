@@ -7,17 +7,15 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dj_console.css') }}">
 </head>
 <body data-guild-id="{{ guild_id }}">
-  <div class="console-aura console-aura-left" aria-hidden="true"></div>
-  <div class="console-aura console-aura-right" aria-hidden="true"></div>
   <main class="console-shell">
     <section class="hero-panel">
       <div class="brand-block">
-        <p class="eyebrow">Pitonazz Remote Deck</p>
-        <h1><span aria-hidden="true">🎚️</span> DJ Console</h1>
+        <p class="eyebrow">Pytonazz Remote Deck</p>
+        <h1>DJ Console</h1>
         <div class="console-signal-row">
           <span class="console-chip console-chip-live">Realtime</span>
-          <span class="console-chip console-chip-fx">Mixer FX</span>
-          <span class="console-chip console-chip-queue">Queue control</span>
+          <span class="console-chip console-chip-fx">Live mixer</span>
+          <span class="console-chip console-chip-queue">Queue</span>
         </div>
       </div>
       <div class="status-grid">
@@ -41,20 +39,20 @@
           <span class="status-meta">Playback transport</span>
         </div>
         <div class="status-card status-card-effect">
-          <span class="status-label">Effect</span>
+          <span class="status-label">Filter / FX</span>
           <span class="status-flare" aria-hidden="true"></span>
           <div class="status-value-shell">
             <strong id="effect-summary" class="status-value">off</strong>
           </div>
-          <span class="status-meta">Live color shaping</span>
+          <span class="status-meta">Active audio chain</span>
         </div>
         <div class="status-card status-card-energy">
-          <span class="status-label">Energy</span>
+          <span class="status-label">EQ</span>
           <span class="status-flare" aria-hidden="true"></span>
           <div class="status-value-shell">
             <strong id="tone-summary" class="status-value">flat</strong>
           </div>
-          <span class="status-meta">EQ scene contour</span>
+          <span class="status-meta">Low / mid / high shape</span>
         </div>
       </div>
     </section>
@@ -104,43 +102,25 @@
           <div class="mixer-main">
             <div class="mixer-grid">
               <div class="control-stack">
-                <label for="filter-select">Filtro</label>
-                <div class="filter-select-shell" id="filter-select-shell">
-                  <button id="filter-select-trigger" class="filter-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-                    <span class="filter-select-copy">
-                      <span class="filter-select-kicker">Base Filter</span>
-                      <strong id="filter-select-label">Off</strong>
-                    </span>
-                    <span class="filter-select-chevron" aria-hidden="true">↓</span>
-                  </button>
-                  <div id="filter-select-menu" class="filter-select-menu" role="listbox" aria-label="Filtro console">
-                    <button type="button" class="filter-option is-selected" data-filter-option="off">Off</button>
-                    <button type="button" class="filter-option" data-filter-option="nightcore">Nightcore</button>
-                    <button type="button" class="filter-option" data-filter-option="vaporwave">Vaporwave</button>
-                    <button type="button" class="filter-option" data-filter-option="8d">8D Audio</button>
-                    <button type="button" class="filter-option" data-filter-option="bassboost">Bass Boost</button>
-                    <button type="button" class="filter-option" data-filter-option="trebleboost">Treble Boost</button>
-                    <button type="button" class="filter-option" data-filter-option="vocalboost">Vocal Boost</button>
-                    <button type="button" class="filter-option" data-filter-option="radio">Radio / Phone</button>
-                    <button type="button" class="filter-option" data-filter-option="night">Night Mode</button>
-                  </div>
-                  <select id="filter-select" class="filter-select-native" tabindex="-1" aria-hidden="true">
-                    <option value="off">Off</option>
-                    <option value="nightcore">Nightcore</option>
-                    <option value="vaporwave">Vaporwave</option>
-                    <option value="8d">8D Audio</option>
-                    <option value="bassboost">Bass Boost</option>
-                    <option value="trebleboost">Treble Boost</option>
-                    <option value="vocalboost">Vocal Boost</option>
-                    <option value="radio">Radio / Phone</option>
-                    <option value="night">Night Mode</option>
-                  </select>
+                <label>Base Filter</label>
+                <p class="control-help">Uno solo alla volta. Non abilita FX in automatico.</p>
+                <div class="filter-button-grid" id="base-filter-grid">
+                  <button type="button" data-base-filter="off">Off</button>
+                  <button type="button" data-base-filter="nightcore">Nightcore</button>
+                  <button type="button" data-base-filter="vaporwave">Vaporwave</button>
+                  <button type="button" data-base-filter="8d">8D Audio</button>
+                  <button type="button" data-base-filter="bassboost">Bass Boost</button>
+                  <button type="button" data-base-filter="trebleboost">Treble Boost</button>
+                  <button type="button" data-base-filter="vocalboost">Vocal Boost</button>
+                  <button type="button" data-base-filter="radio">Radio / Phone</button>
+                  <button type="button" data-base-filter="night">Night Mode</button>
                 </div>
               </div>
             </div>
             <div class="tone-grid">
               <div class="control-stack">
-                <label>FX Toggles</label>
+                <label>FX EQ</label>
+                <p class="control-help">Cumulabili quando compatibili con il filtro base.</p>
                 <div class="fx-pad-grid" id="fx-toggle-grid">
                   <button data-filter-fx="bassboost">Bass</button>
                   <button data-filter-fx="trebleboost">Treble</button>
@@ -152,6 +132,7 @@
             <div class="tone-grid">
               <div class="control-stack">
                 <label>Tone Scenes</label>
+                <p class="control-help">Preset rapidi: muovono solo Low, Mid e High.</p>
                 <div class="fx-pad-grid">
                   <button data-eq-scene="flat">Flat</button>
                   <button data-eq-scene="club">Club</button>

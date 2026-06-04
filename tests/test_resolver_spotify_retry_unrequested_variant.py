@@ -40,7 +40,7 @@ async def main() -> None:
 
     def fake_ytdlp(cls, query, requester, requester_id):
         calls.append(query)
-        if query == "ytsearch1:Donne ricche":
+        if query == "ytsearch1:DONNE RICCHE TonyPitony audio":
             return [
                 TrackInfo(
                     title="DONNE RICCHE - TonyPitony | ACOUSTIC VERSION",
@@ -54,7 +54,7 @@ async def main() -> None:
                     artist="TonyPitony",
                 )
             ]
-        if query == "ytsearch1:DONNE RICCHE TonyPitony":
+        if query == "ytsearch3:DONNE RICCHE TonyPitony audio":
             return [
                 TrackInfo(
                     title="DONNE RICCHE - TonyPitony",
@@ -91,8 +91,8 @@ async def main() -> None:
         SourceResolver._enrich_with_spotify = original_enrich
 
     assert calls == [
-        "ytsearch1:Donne ricche",
-        "ytsearch1:DONNE RICCHE TonyPitony",
+        "ytsearch1:DONNE RICCHE TonyPitony audio",
+        "ytsearch3:DONNE RICCHE TonyPitony audio",
     ], calls
     assert len(tracks) == 1, tracks
     assert tracks[0].webpage_url == "https://www.youtube.com/watch?v=studio", tracks[0]

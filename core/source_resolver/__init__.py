@@ -154,6 +154,33 @@ def _shuffle_pairs(pairs: list[tuple]) -> list[tuple]:
     return _bucket_shuffle(pairs, lambda p: p[1])
 
 
+def _drop_unrequested_variants(
+    query: str,
+    results: list["TrackInfo"],
+    *,
+    context: str = "",
+) -> list["TrackInfo"]:
+    """Reject explicit version variants unless the user asked for that variant.
+
+    This is intentionally stricter than a scoring penalty: for a plain query like
+    "donne ricche" an "acoustic version" result must not be cached as the answer.
+    """
+    if not results or _query_requests_variant(query):
+        return results
+
+    clean_results = [track for track in results if not _is_variant(getattr(track, "title", "") or "")]
+    if clean_results or len(clean_results) == len(results):
+        return clean_results
+
+    variant_titles = ", ".join((getattr(track, "title", "") or "-") for track in results[:3])
+    log.debug(tag(
+        "RESOLVE",
+        f"scarto variante non richiesta  {b(query)}"
+        f"{f'  via={b(context)}' if context else ''}  reject={b(variant_titles)}",
+    ))
+    return []
+
+
 def _is_yt_channel_url(url: str) -> bool:
     return bool(_YT_CHANNEL.match(url))
 
@@ -977,6 +1004,8 @@ class SourceResolver:
                         sp_meta_hint = None
                     log.debug(tag("PERF", f"spotify hint  {b(query)}  {ms((time.perf_counter() - sp_t0) * 1000)}"))
 
+            results = _drop_unrequested_variants(query, results, context="ytsearch1")
+
             if sp_meta_hint and results:
                 score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
                 if _spotify_enrich_mode(score) != "skip":
@@ -1015,13 +1044,14 @@ class SourceResolver:
                         )
                         log.debug(tag("PERF", f"ytsearch{retry_n} canonical  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
                         if canonical_results:
-                            results = canonical_results
-                            canonical_score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
-                            if _spotify_enrich_mode(canonical_score) != "skip":
-                                used_spotify_hint = True
-                                yt_title_before = results[0].title
-                                cls._apply_spotify_meta(results[0], sp_meta_hint, canonical_score)
-                                cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, canonical_score)
+                            results = _drop_unrequested_variants(query, canonical_results, context="canonical")
+                            if results:
+                                canonical_score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
+                                if _spotify_enrich_mode(canonical_score) != "skip":
+                                    used_spotify_hint = True
+                                    yt_title_before = results[0].title
+                                    cls._apply_spotify_meta(results[0], sp_meta_hint, canonical_score)
+                                    cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, canonical_score)
                     elif canonical_yt_query and canonical_yt_query != yt_query:
                         log.debug(tag(
                             "SPOTIFY",
@@ -1033,17 +1063,20 @@ class SourceResolver:
                 canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                 canonical_yt_query = _spotify_youtube_query(canonical, query)
                 if canonical_yt_query:
+                    retry_n = search_n if fast_path else canonical_search_n
                     yt_t0 = time.perf_counter()
                     results = await loop.run_in_executor(
-                        None, cls._run_ytdlp, f"ytsearch{canonical_search_n}:{canonical_yt_query}", requester, requester_id
+                        None, cls._run_ytdlp, f"ytsearch{retry_n}:{canonical_yt_query}", requester, requester_id
                     )
-                    log.debug(tag("PERF", f"ytsearch{canonical_search_n} canonical  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
+                    results = _drop_unrequested_variants(query, results, context="canonical-empty")
+                    log.debug(tag("PERF", f"ytsearch{retry_n} canonical  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
 
         if not results:
             yt_t0 = time.perf_counter()
             results  = await loop.run_in_executor(
                 None, cls._run_ytdlp, f"ytsearch{search_n}:{query}", requester, requester_id
             )
+            results = _drop_unrequested_variants(query, results, context="fallback")
             log.debug(tag("PERF", f"ytsearch{search_n} fallback  {b(query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
 
         if results:
