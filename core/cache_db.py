@@ -509,6 +509,169 @@ def _find_source_by_fingerprint(
     return None
 
 
+def _merge_thumbnail_fields(
+    keep_thumb: str,
+    keep_source: str,
+    keep_conf: float,
+    drop_thumb: str,
+    drop_source: str,
+    drop_conf: float,
+) -> tuple[str, str, float]:
+    if not (drop_thumb or "").strip():
+        return keep_thumb, keep_source, float(keep_conf or 0.0)
+    if not (keep_thumb or "").strip():
+        return drop_thumb, drop_source, float(drop_conf or 0.0)
+
+    keep_priority = _thumbnail_priority(keep_source)
+    drop_priority = _thumbnail_priority(drop_source)
+    keep_conf = float(keep_conf or 0.0)
+    drop_conf = float(drop_conf or 0.0)
+
+    if drop_conf > keep_conf or (drop_conf >= keep_conf and drop_priority >= keep_priority):
+        return drop_thumb, drop_source, drop_conf
+    return keep_thumb, keep_source, keep_conf
+
+
+def _source_merge_rank(row: sqlite3.Row) -> tuple:
+    return (
+        int(row["hit_count"] or 0),
+        int(bool((row["webpage_url"] or "").strip())),
+        int(bool((row["stream_url"] or "").strip())),
+        int(bool((row["spotify_url"] or "").strip())),
+        _thumbnail_priority(row["thumbnail_source"] or row["source"] or ""),
+        float(row["thumbnail_confidence"] or 0.0),
+        -int(row["created_at"] or 0),
+        -int(row["id"] or 0),
+    )
+
+
+def _choose_merge_keeper(left: sqlite3.Row, right: sqlite3.Row) -> tuple[sqlite3.Row, sqlite3.Row]:
+    if _source_merge_rank(left) >= _source_merge_rank(right):
+        return left, right
+    return right, left
+
+
+def _merge_duplicate_source_rows(cur: sqlite3.Cursor, keep: sqlite3.Row, drop: sqlite3.Row) -> bool:
+    keep_id = int(keep["id"])
+    drop_id = int(drop["id"])
+    if keep_id == drop_id:
+        return False
+
+    keep_track_id = int(keep["track_id"])
+    drop_track_id = int(drop["track_id"])
+
+    thumb, thumb_source, thumb_conf = _merge_thumbnail_fields(
+        keep["thumbnail"] or "",
+        keep["thumbnail_source"] or "",
+        float(keep["thumbnail_confidence"] or 0.0),
+        drop["thumbnail"] or "",
+        drop["thumbnail_source"] or "",
+        float(drop["thumbnail_confidence"] or 0.0),
+    )
+
+    keep_stream_url = (keep["stream_url"] or "").strip()
+    drop_stream_url = (drop["stream_url"] or "").strip()
+    merged_stream_url = keep_stream_url or drop_stream_url
+    merged_stream_expires_at = int(keep["stream_expires_at"] or 0) if keep_stream_url else int(drop["stream_expires_at"] or 0)
+    merged_last_stream_check = int(keep["last_stream_check"] or 0) if keep_stream_url else int(drop["last_stream_check"] or 0)
+
+    cur.execute(
+        """
+        UPDATE cache_sources
+           SET webpage_url = CASE
+                   WHEN COALESCE(NULLIF(webpage_url, ''), '') != '' THEN webpage_url
+                   ELSE ?
+               END,
+               stream_url = ?,
+               stream_expires_at = ?,
+               last_stream_check = ?,
+               source = CASE
+                   WHEN COALESCE(NULLIF(source, ''), '') != '' THEN source
+                   ELSE ?
+               END,
+               resolved_title = CASE
+                   WHEN COALESCE(NULLIF(resolved_title, ''), '') != '' THEN resolved_title
+                   ELSE ?
+               END,
+               resolved_artist = CASE
+                   WHEN COALESCE(NULLIF(resolved_artist, ''), '') != '' THEN resolved_artist
+                   ELSE ?
+               END,
+               duration = CASE
+                   WHEN COALESCE(duration, 0) > 0 THEN duration
+                   ELSE ?
+               END,
+               thumbnail = ?,
+               thumbnail_source = ?,
+               thumbnail_confidence = ?,
+               spotify_url = CASE
+                   WHEN COALESCE(NULLIF(spotify_url, ''), '') != '' THEN spotify_url
+                   ELSE ?
+               END,
+               source_confidence = MAX(COALESCE(source_confidence, 0), ?),
+               created_at = MIN(COALESCE(created_at, ?), ?),
+               last_used = MAX(COALESCE(last_used, 0), ?),
+               hit_count = COALESCE(hit_count, 0) + ?,
+               is_valid = CASE WHEN is_valid = 1 OR ? = 1 THEN 1 ELSE 0 END
+         WHERE id = ?
+        """,
+        (
+            drop["webpage_url"] or "",
+            merged_stream_url,
+            merged_stream_expires_at,
+            merged_last_stream_check,
+            drop["source"] or "",
+            drop["resolved_title"] or "",
+            drop["resolved_artist"] or "",
+            int(drop["duration"] or 0),
+            thumb,
+            thumb_source,
+            thumb_conf,
+            drop["spotify_url"] or "",
+            float(drop["source_confidence"] or 0.0),
+            int(drop["created_at"] or 0),
+            int(drop["created_at"] or 0),
+            int(drop["last_used"] or 0),
+            int(drop["hit_count"] or 0),
+            int(drop["is_valid"] or 0),
+            keep_id,
+        ),
+    )
+
+    cur.execute(
+        "UPDATE cache_queries SET track_id = ?, source_id = ? WHERE source_id = ?",
+        (keep_track_id, keep_id, drop_id),
+    )
+    cur.execute("DELETE FROM cache_sources WHERE id = ?", (drop_id,))
+
+    if drop_track_id != keep_track_id:
+        cur.execute(
+            """
+            UPDATE cache_tracks
+               SET canonical_title = CASE
+                       WHEN COALESCE(NULLIF(canonical_title, ''), '') != '' THEN canonical_title
+                       ELSE ?
+                   END,
+                   canonical_artist = CASE
+                       WHEN COALESCE(NULLIF(canonical_artist, ''), '') != '' THEN canonical_artist
+                       ELSE ?
+                   END,
+                   updated_at = ?
+             WHERE id = ?
+            """,
+            (
+                drop["canonical_title"] or "",
+                drop["canonical_artist"] or "",
+                _now_ts(),
+                keep_track_id,
+            ),
+        )
+        cur.execute("DELETE FROM cache_tracks WHERE id = ?", (drop_track_id,))
+
+    _cleanup_orphans(cur)
+    return True
+
+
 def _upsert_query(
     cur: sqlite3.Cursor,
     query_raw: str,
@@ -1340,6 +1503,78 @@ def associate_spotify(spotify_url: str, title: str = "", artist: str = "") -> di
         _upsert_query(cur, normalized_spotify, track_id, source_id, "spotify", "manual_spotify", 1.0)
 
     return {"ok": True, "action": "associated", "cache_id": source_id}
+
+
+def reconcile_duplicate_sources(dry_run: bool = False) -> dict:
+    if not _enabled:
+        return {"merged_sources": 0, "merged_tracks": 0, "applied": False}
+
+    with _cursor() as cur:
+        rows = cur.execute(
+            """
+            SELECT
+                s.*,
+                t.canonical_title,
+                t.canonical_artist
+            FROM cache_sources s
+            JOIN cache_tracks t ON t.id = s.track_id
+            WHERE s.is_valid = 1
+            ORDER BY s.duration ASC, s.hit_count DESC, s.last_used DESC, s.id ASC
+            """
+        ).fetchall()
+
+        merged_sources = 0
+        merged_tracks = 0
+        seen_ids: set[int] = set()
+
+        for idx, row in enumerate(rows):
+            row_id = int(row["id"])
+            if row_id in seen_ids:
+                continue
+
+            for candidate in rows[idx + 1:]:
+                candidate_id = int(candidate["id"])
+                if candidate_id in seen_ids:
+                    continue
+
+                left_duration = int(row["duration"] or 0)
+                right_duration = int(candidate["duration"] or 0)
+                if left_duration > 0 and right_duration > left_duration + 4:
+                    break
+                if int(row["track_id"]) == int(candidate["track_id"]):
+                    continue
+                if not _same_recording_fingerprint(
+                    row["resolved_title"] or row["canonical_title"] or "",
+                    row["resolved_artist"] or row["canonical_artist"] or "",
+                    left_duration,
+                    candidate,
+                ):
+                    continue
+
+                merged_sources += 1
+                if int(row["track_id"]) != int(candidate["track_id"]):
+                    merged_tracks += 1
+
+                if dry_run:
+                    seen_ids.add(candidate_id)
+                    continue
+
+                keep, drop = _choose_merge_keeper(row, candidate)
+                if _merge_duplicate_source_rows(cur, keep, drop):
+                    seen_ids.add(int(drop["id"]))
+                    row = keep
+
+        if not dry_run and merged_sources:
+            _cleanup_orphans(cur)
+
+    result = {
+        "merged_sources": merged_sources,
+        "merged_tracks": merged_tracks,
+        "applied": not dry_run,
+    }
+    if not dry_run and merged_sources:
+        compact_ids()
+    return result
 
 
 def compact_ids() -> dict:
