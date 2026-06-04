@@ -37,6 +37,24 @@ dirty = _compute_enrich_confidence(
     Track("Katy Perry - Dark Horse Pizza Music", "Katy Perry", 215),
     sp_meta,
 )
+unexpected_variant = _compute_enrich_confidence(
+    "tony pitony donne ricche",
+    Track("DONNE RICCHE - TonyPitony | ACOUSTIC VERSION", "", 215),
+    {
+        "title": "DONNE RICCHE",
+        "artist": "TonyPitony",
+        "duration": 215,
+    },
+)
+requested_variant = _compute_enrich_confidence(
+    "tony pitony donne ricche acoustic",
+    Track("DONNE RICCHE - TonyPitony | ACOUSTIC VERSION", "", 215),
+    {
+        "title": "DONNE RICCHE acoustic",
+        "artist": "TonyPitony",
+        "duration": 215,
+    },
+)
 
 notte_blu = _compute_enrich_confidence(
     "Notte blu dj shokka",
@@ -51,6 +69,8 @@ notte_blu = _compute_enrich_confidence(
 assert clean["decision"] in {"full", "cover_only"}, clean
 assert dirty["decision"] == "skip", dirty
 assert dirty["variant_penalty"] >= clean["variant_penalty"] + 0.20, (clean, dirty)
+assert unexpected_variant["variant_penalty"] >= 0.28, unexpected_variant
+assert requested_variant["variant_penalty"] < unexpected_variant["variant_penalty"], (requested_variant, unexpected_variant)
 assert notte_blu["decision"] == "cover_only", notte_blu
 assert notte_blu["reason"] == "strong_yt_title_cover", notte_blu
 

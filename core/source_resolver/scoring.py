@@ -41,6 +41,26 @@ _RISKY_ENRICH_VARIANTS = re.compile(
     re.IGNORECASE,
 )
 
+_VARIANT_TAG_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("acoustic", re.compile(r"\bacoustic\b", re.IGNORECASE)),
+    ("live", re.compile(r"\blive\b", re.IGNORECASE)),
+    ("unplugged", re.compile(r"\bunplugged\b", re.IGNORECASE)),
+    ("remix", re.compile(r"\bremix\b", re.IGNORECASE)),
+    ("cover", re.compile(r"\bcover\b", re.IGNORECASE)),
+    ("instrumental", re.compile(r"\binstrumental\b", re.IGNORECASE)),
+    ("karaoke", re.compile(r"\bkaraoke\b", re.IGNORECASE)),
+    ("demo", re.compile(r"\bdemo\b", re.IGNORECASE)),
+    ("stripped", re.compile(r"\bstripped\b", re.IGNORECASE)),
+    ("session", re.compile(r"\bsession\b", re.IGNORECASE)),
+    ("orchestral", re.compile(r"\borchestral\b", re.IGNORECASE)),
+    ("nightcore", re.compile(r"\bnightcore\b", re.IGNORECASE)),
+    ("slowed", re.compile(r"\bslowed\b", re.IGNORECASE)),
+    ("reverb", re.compile(r"\breverb\b", re.IGNORECASE)),
+    ("spedup", re.compile(r"\b(sped\s+up|speed\s+up)\b", re.IGNORECASE)),
+    ("bassboost", re.compile(r"\bbass\s+boost(?:ed)?\b", re.IGNORECASE)),
+    ("8d", re.compile(r"\b8d\b", re.IGNORECASE)),
+)
+
 
 class _TrackLike(Protocol):
     title: str
@@ -67,6 +87,7 @@ _SPOTIFY_RETRY_BASE_DELAY_SECONDS = 0.4
 _ARTIST_TOKEN_MIN_LENGTH         = 3
 _NON_MUSIC_QUERY_PENALTY         = 0.35
 _RISKY_VARIANT_PENALTY           = 0.25
+_UNREQUESTED_VARIANT_PENALTY     = 0.28
 _JUNK_WORD_PENALTY               = 0.07   # penalty per junk extra-word in YT title
 _MAX_JUNK_PENALTY                = 0.30   # cap so a very noisy title never over-penalises
 
@@ -83,6 +104,15 @@ def _is_variant(title_str: str) -> bool:
 
 def _query_requests_variant(query: str) -> bool:
     return bool(_VARIANT_KEYWORDS.search(query))
+
+
+def _variant_tags(text: str) -> set[str]:
+    raw = text or ""
+    found: set[str] = set()
+    for tag, pattern in _VARIANT_TAG_PATTERNS:
+        if pattern.search(raw):
+            found.add(tag)
+    return found
 
 
 def _str_sim(a: str, b: str) -> float:
@@ -200,9 +230,17 @@ def _dynamic_variant_penalty(query: str, yt_title: str, sp_title: str, sp_artist
     # Junk: deviating words the user never asked for
     junk_words = extra_yt_words - q_words
     if not junk_words:
-        return 0.0
+        penalty = 0.0
+    else:
+        penalty = min(len(junk_words) * _JUNK_WORD_PENALTY, _MAX_JUNK_PENALTY)
 
-    return min(len(junk_words) * _JUNK_WORD_PENALTY, _MAX_JUNK_PENALTY)
+    query_tags = _variant_tags(query)
+    yt_tags = _variant_tags(yt_title)
+    spotify_tags = _variant_tags(f"{sp_title} {sp_artist}".strip())
+    unexpected_tags = yt_tags - spotify_tags - query_tags
+    if unexpected_tags:
+        penalty += _UNREQUESTED_VARIANT_PENALTY
+    return penalty
 
 
 def _query_artist_signal(query: str, sp_artist: str) -> tuple[float, bool]:

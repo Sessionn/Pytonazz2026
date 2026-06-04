@@ -132,6 +132,12 @@ class DJAccessController:
                 "shuffle_mode": False,
                 "autoplay_enabled": False,
                 "filter_name": "off",
+                "base_filter_name": "off",
+                "active_fx_names": [],
+                "filter_catalog": {
+                    "base_filters": [],
+                    "fx_filters": [],
+                },
                 "eq": {"low": 0.0, "mid": 0.0, "high": 0.0},
                 "tone_filters": {"highpass_hz": 0.0, "lowpass_hz": 20000.0},
                 "current_track": None,
@@ -277,6 +283,13 @@ class DJAccessController:
             player.set_autoplay(bool(payload.get("enabled", False)))
         elif action == "set_filter":
             await player.set_filter(str(payload.get("filter_name", "off")))
+        elif action == "set_base_filter":
+            await player.set_base_filter(str(payload.get("filter_name", "off")))
+        elif action == "toggle_filter_fx":
+            await player.toggle_filter_fx(
+                str(payload.get("fx_name", "")),
+                bool(payload.get("enabled", False)),
+            )
         elif action == "set_eq":
             await player.set_eq(payload.get("eq") or {})
         elif action == "set_tone_filters":

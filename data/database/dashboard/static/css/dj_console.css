@@ -652,6 +652,14 @@ button.is-active {
   border-color: rgba(249,115,22,0.42);
 }
 
+button.is-disabled,
+button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
 .mixer-layout {
   display: grid;
   grid-template-columns: 148px minmax(0, 1fr);

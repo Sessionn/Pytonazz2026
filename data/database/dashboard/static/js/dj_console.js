@@ -19,6 +19,7 @@ const els = {
   volume: document.getElementById("volume-slider"),
   volumeHandle: document.getElementById("volume-slider-handle"),
   volumeValue: document.getElementById("volume-value"),
+  resetMixerButton: document.getElementById("reset-mixer-button"),
   filterSelect: document.getElementById("filter-select"),
   filterSelectShell: document.getElementById("filter-select-shell"),
   filterSelectTrigger: document.getElementById("filter-select-trigger"),
@@ -91,6 +92,10 @@ const FILTER_LABELS = {
   radio: "Radio / Phone",
   night: "Night Mode",
 };
+
+function normalizeList(value) {
+  return Array.isArray(value) ? value.map((entry) => String(entry || "").trim().toLowerCase()).filter(Boolean) : [];
+}
 
 function formatTime(seconds) {
   const total = Math.max(0, Math.floor(Number(seconds || 0)));
@@ -498,17 +503,24 @@ function render(next) {
   els.voice.textContent = next.voice_channel_name || "-";
   els.playback.textContent = next.connected ? (next.is_paused ? "Paused" : "Live") : "Disconnected";
   setPlaybackVisual(next.connected ? (next.is_paused ? "paused" : "live") : "offline");
-  els.effectSummary.textContent = next.filter_name || "off";
+  const baseFilterName = String(next.base_filter_name || next.filter_name || "off");
+  const activeFxNames = normalizeList(next.active_fx_names);
+  els.effectSummary.textContent = [baseFilterName !== "off" ? FILTER_LABELS[baseFilterName] || baseFilterName : "clean", ...activeFxNames.map((name) => FILTER_LABELS[name] || name)].join(" + ");
   els.title.textContent = current ? current.title : "Nessuna traccia";
   els.artist.textContent = current ? (current.artist || "Artista sconosciuto") : "-";
   els.requester.textContent = current ? `Requested by ${current.requester || current.requester_id}` : "-";
   renderPlaybackClock();
-  syncFilterSelect(next.filter_name || "off");
-  setActiveButton("[data-filter-preset]", (button) => {
-    const preset = QUICK_FX[button.dataset.filterPreset];
-    return preset &&
-      preset.filter_name === (next.filter_name || "off") &&
-      eqMatches(preset.eq, next.eq || EQ_SCENES.flat);
+  syncFilterSelect(baseFilterName);
+  setActiveButton("[data-base-filter]", (button) => button.dataset.baseFilter === baseFilterName);
+  setActiveButton("[data-filter-fx]", (button) => activeFxNames.includes(String(button.dataset.filterFx || "").trim().toLowerCase()));
+  const fxCatalog = Array.isArray(next.filter_catalog?.fx_filters) ? next.filter_catalog.fx_filters : [];
+  document.querySelectorAll("[data-filter-fx]").forEach((button) => {
+    const fxName = String(button.dataset.filterFx || "").trim().toLowerCase();
+    const descriptor = fxCatalog.find((entry) => String(entry.name || "").trim().toLowerCase() === fxName);
+    const compatible = descriptor ? Boolean(descriptor.compatible) : true;
+    button.disabled = !compatible;
+    button.classList.toggle("is-disabled", !compatible);
+    button.title = compatible ? "" : "FX non compatibile con il filtro base attivo";
   });
   renderQueue(next.queue || []);
 
@@ -815,12 +827,21 @@ els.platterWrap.addEventListener("pointercancel", stopScratch);
 els.platterWrap.addEventListener("lostpointercapture", stopScratch);
 window.addEventListener("blur", () => stopScratch());
 
-document.querySelectorAll("[data-filter-preset]").forEach((button) => {
+document.querySelectorAll("[data-base-filter]").forEach((button) => {
   button.addEventListener("click", async () => {
-    const preset = QUICK_FX[button.dataset.filterPreset];
-    if (!preset) return;
-    animateEqTo(preset.eq, 360);
-    await postAction("set_filter", { filter_name: preset.filter_name });
+    const nextValue = button.dataset.baseFilter || "off";
+    syncFilterSelect(nextValue);
+    await postAction("set_base_filter", { filter_name: nextValue });
+  });
+});
+
+document.querySelectorAll("[data-filter-fx]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (button.disabled) return;
+    const fxName = button.dataset.filterFx || "";
+    const enabled = !button.classList.contains("is-active");
+    button.classList.toggle("is-active", enabled);
+    await postAction("toggle_filter_fx", { fx_name: fxName, enabled });
   });
 });
 
@@ -833,8 +854,27 @@ document.querySelectorAll("[data-filter-option]").forEach((option) => {
     const nextValue = option.dataset.filterOption || "off";
     syncFilterSelect(nextValue);
     setFilterMenuOpen(false);
-    await postAction("set_filter", { filter_name: nextValue });
+    await postAction("set_base_filter", { filter_name: nextValue });
   });
+});
+
+els.resetMixerButton?.addEventListener("click", async () => {
+  syncFilterSelect("off");
+  document.querySelectorAll("[data-filter-fx]").forEach((button) => {
+    button.classList.remove("is-active");
+  });
+  setControlValue(els.fxHighpass, 0);
+  setControlValue(els.fxLowpass, 20000);
+  updateToneValueLabels();
+  animateEqTo(EQ_SCENES.flat, 240);
+  await postAction("set_base_filter", { filter_name: "off" });
+  await Promise.all([
+    postAction("toggle_filter_fx", { fx_name: "bassboost", enabled: false }),
+    postAction("toggle_filter_fx", { fx_name: "trebleboost", enabled: false }),
+    postAction("toggle_filter_fx", { fx_name: "vocalboost", enabled: false }),
+    postAction("toggle_filter_fx", { fx_name: "radio", enabled: false }),
+    postAction("set_tone_filters", { tone_filters: { highpass_hz: 0, lowpass_hz: 20000 } }),
+  ]);
 });
 
 document.addEventListener("click", (event) => {

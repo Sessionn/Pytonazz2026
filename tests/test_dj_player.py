@@ -30,12 +30,25 @@ assert player.tone_filters["lowpass_hz"] == 14500.0
 
 asyncio.run(player.set_filter("bassboost"))
 assert player.filter_name == "bassboost"
+assert player.base_filter_name == "off"
+assert player.active_fx_names == ["bassboost"]
+
+asyncio.run(player.set_base_filter("nightcore"))
+asyncio.run(player.toggle_filter_fx("bassboost", True))
+asyncio.run(player.toggle_filter_fx("radio", True))
+assert player.base_filter_name == "nightcore"
+assert player.active_fx_names == ["bassboost", "radio"]
+assert player.filter_name == "nightcore + bassboost + radio"
 
 state = player.to_public_state()
 assert state["volume"] == 1.0
 assert state["eq"]["low"] == 12.0
 assert state["tone_filters"]["highpass_hz"] == 85.0
-assert state["filter_name"] == "bassboost"
+assert state["filter_name"] == "nightcore + bassboost + radio"
+assert state["base_filter_name"] == "nightcore"
+assert state["active_fx_names"] == ["bassboost", "radio"]
+assert any(entry["name"] == "nightcore" for entry in state["filter_catalog"]["base_filters"])
+assert any(entry["name"] == "bassboost" for entry in state["filter_catalog"]["fx_filters"])
 
 
 class DummySource:

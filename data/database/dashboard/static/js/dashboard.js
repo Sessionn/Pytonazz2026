@@ -279,9 +279,9 @@ function makeActionLink(url, source, title) {
 }
 
 function actionLinks(row) {
-  const youtubeUrl = normalizedSource(row.source, row.webpage_url) === "youtube" ? row.webpage_url : "";
+  const youtubeUrl = normalizedSource("", row.webpage_url) === "youtube" ? row.webpage_url : "";
   const spotifyUrl = row.spotify_url || "";
-  const soundcloudUrl = normalizedSource(row.source, row.webpage_url) === "soundcloud" ? row.webpage_url : "";
+  const soundcloudUrl = normalizedSource("", row.webpage_url) === "soundcloud" ? row.webpage_url : "";
   return [
     makeActionLink(youtubeUrl, "youtube", "Apri su YouTube"),
     makeActionLink(spotifyUrl, "spotify", "Apri su Spotify"),

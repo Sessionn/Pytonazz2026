@@ -117,8 +117,52 @@ LIVE_FILTER_PRESETS: dict[str, dict[str, float]] = {
     },
 }
 
+BASE_FILTER_NAMES = ("off", "nightcore", "vaporwave", "8d", "night")
+FX_FILTER_NAMES = ("bassboost", "trebleboost", "vocalboost", "radio")
+
+FILTER_COMPATIBILITY: dict[str, set[str]] = {
+    "off": set(FX_FILTER_NAMES),
+    "nightcore": set(FX_FILTER_NAMES),
+    "vaporwave": set(FX_FILTER_NAMES),
+    "8d": {"bassboost", "trebleboost", "vocalboost"},
+    "night": set(FX_FILTER_NAMES),
+}
+
 EQ_DEFAULT = {"low": 0.0, "mid": 0.0, "high": 0.0}
 TONE_FILTER_DEFAULT = {"highpass_hz": 0.0, "lowpass_hz": 20000.0}
+
+
+def is_base_filter(name: str) -> bool:
+    return (name or "off").strip().lower() in BASE_FILTER_NAMES
+
+
+def is_fx_filter(name: str) -> bool:
+    return (name or "").strip().lower() in FX_FILTER_NAMES
+
+
+def is_filter_combo_compatible(base_filter_name: str, fx_name: str) -> bool:
+    base = (base_filter_name or "off").strip().lower()
+    fx = (fx_name or "").strip().lower()
+    if not is_fx_filter(fx):
+        return False
+    if not is_base_filter(base):
+        base = "off"
+    return fx in FILTER_COMPATIBILITY.get(base, set())
+
+
+def list_base_filters() -> list[dict[str, str]]:
+    return [{"name": name, "label": FILTER_PRESETS.get(name, (None, name))[1]} for name in BASE_FILTER_NAMES]
+
+
+def list_fx_filters(base_filter_name: str = "off") -> list[dict[str, object]]:
+    return [
+        {
+            "name": name,
+            "label": FILTER_PRESETS.get(name, (None, name))[1],
+            "compatible": is_filter_combo_compatible(base_filter_name, name),
+        }
+        for name in FX_FILTER_NAMES
+    ]
 def get_filter_preset(name: str) -> tuple[str | None, str]:
     return FILTER_PRESETS.get(name, FILTER_PRESETS["off"])
 
@@ -129,6 +173,28 @@ def is_live_filter_preset(name: str) -> bool:
 
 def get_live_filter_preset(name: str) -> dict[str, float]:
     return dict(LIVE_FILTER_PRESETS.get(name, LIVE_FILTER_PRESETS["off"]))
+
+
+def combine_live_filter_preset(base_filter_name: str, fx_names: list[str] | tuple[str, ...] | set[str]) -> dict[str, float]:
+    combined = get_live_filter_preset(base_filter_name)
+    fx_list = sorted({(name or "").strip().lower() for name in (fx_names or []) if is_fx_filter(name)})
+    for fx_name in fx_list:
+        if not is_filter_combo_compatible(base_filter_name, fx_name):
+            continue
+        fx_preset = get_live_filter_preset(fx_name)
+        combined["low_gain"] = max(-12.0, min(12.0, float(combined.get("low_gain", 0.0)) + float(fx_preset.get("low_gain", 0.0))))
+        combined["mid_gain"] = max(-12.0, min(12.0, float(combined.get("mid_gain", 0.0)) + float(fx_preset.get("mid_gain", 0.0))))
+        combined["high_gain"] = max(-12.0, min(12.0, float(combined.get("high_gain", 0.0)) + float(fx_preset.get("high_gain", 0.0))))
+        combined["presence_gain"] = max(-12.0, min(12.0, float(combined.get("presence_gain", 0.0)) + float(fx_preset.get("presence_gain", 0.0))))
+        combined["highpass_hz"] = max(float(combined.get("highpass_hz", 0.0)), float(fx_preset.get("highpass_hz", 0.0)))
+        lowpass = float(combined.get("lowpass_hz", 20000.0))
+        fx_lowpass = float(fx_preset.get("lowpass_hz", 20000.0))
+        combined["lowpass_hz"] = min(lowpass, fx_lowpass)
+        combined["pan_rate_hz"] = float(combined.get("pan_rate_hz", 0.0)) or float(fx_preset.get("pan_rate_hz", 0.0))
+        combined["pan_depth"] = max(float(combined.get("pan_depth", 0.0)), float(fx_preset.get("pan_depth", 0.0)))
+        combined["playback_rate"] = float(combined.get("playback_rate", 1.0)) * float(fx_preset.get("playback_rate", 1.0))
+    combined["playback_rate"] = max(0.5, min(1.5, float(combined.get("playback_rate", 1.0))))
+    return combined
 
 
 def normalize_eq(values: dict | None) -> dict[str, float]:

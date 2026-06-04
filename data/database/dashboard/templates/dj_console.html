@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DJ Console</title>
+  <title>Pytonazz DJ Console</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dj_console.css') }}">
 </head>
 <body data-guild-id="{{ guild_id }}">
@@ -13,7 +13,7 @@
     <section class="hero-panel">
       <div class="brand-block">
         <p class="eyebrow">Pitonazz Remote Deck</p>
-        <h1>DJ Console</h1>
+        <h1><span aria-hidden="true">🎚️</span> DJ Console</h1>
         <div class="console-signal-row">
           <span class="console-chip console-chip-live">Realtime</span>
           <span class="console-chip console-chip-fx">Mixer FX</span>
@@ -104,14 +104,13 @@
           <div class="mixer-main">
             <div class="mixer-grid">
               <div class="control-stack">
-                <label>Quick FX</label>
-                <div class="fx-pad-grid">
-                  <button data-filter-preset="off">Clean</button>
-                  <button data-filter-preset="nightcore">Rush</button>
-                  <button data-filter-preset="vaporwave">Drift</button>
-                  <button data-filter-preset="8d">Orbit</button>
-                  <button data-filter-preset="bassboost">Punch</button>
-                  <button data-filter-preset="radio">Radio</button>
+                <label>Base Filter</label>
+                <div class="fx-pad-grid" id="base-filter-grid">
+                  <button data-base-filter="off">Clean</button>
+                  <button data-base-filter="nightcore">Rush</button>
+                  <button data-base-filter="vaporwave">Drift</button>
+                  <button data-base-filter="8d">Orbit</button>
+                  <button data-base-filter="night">Night</button>
                 </div>
               </div>
               <div class="control-stack">
@@ -119,7 +118,7 @@
                 <div class="filter-select-shell" id="filter-select-shell">
                   <button id="filter-select-trigger" class="filter-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
                     <span class="filter-select-copy">
-                      <span class="filter-select-kicker">Live Filter</span>
+                      <span class="filter-select-kicker">Base Filter</span>
                       <strong id="filter-select-label">Off</strong>
                     </span>
                     <span class="filter-select-chevron" aria-hidden="true">↓</span>
@@ -129,10 +128,6 @@
                     <button type="button" class="filter-option" data-filter-option="nightcore">Nightcore</button>
                     <button type="button" class="filter-option" data-filter-option="vaporwave">Vaporwave</button>
                     <button type="button" class="filter-option" data-filter-option="8d">8D Audio</button>
-                    <button type="button" class="filter-option" data-filter-option="bassboost">Bass Boost</button>
-                    <button type="button" class="filter-option" data-filter-option="trebleboost">Treble Boost</button>
-                    <button type="button" class="filter-option" data-filter-option="vocalboost">Vocal Boost</button>
-                    <button type="button" class="filter-option" data-filter-option="radio">Radio / Phone</button>
                     <button type="button" class="filter-option" data-filter-option="night">Night Mode</button>
                   </div>
                   <select id="filter-select" class="filter-select-native" tabindex="-1" aria-hidden="true">
@@ -140,12 +135,19 @@
                     <option value="nightcore">Nightcore</option>
                     <option value="vaporwave">Vaporwave</option>
                     <option value="8d">8D Audio</option>
-                    <option value="bassboost">Bass Boost</option>
-                    <option value="trebleboost">Treble Boost</option>
-                    <option value="vocalboost">Vocal Boost</option>
-                    <option value="radio">Radio / Phone</option>
                     <option value="night">Night Mode</option>
                   </select>
+                </div>
+              </div>
+            </div>
+            <div class="tone-grid">
+              <div class="control-stack">
+                <label>FX Toggles</label>
+                <div class="fx-pad-grid" id="fx-toggle-grid">
+                  <button data-filter-fx="bassboost">Bass</button>
+                  <button data-filter-fx="trebleboost">Treble</button>
+                  <button data-filter-fx="vocalboost">Vocal</button>
+                  <button data-filter-fx="radio">Radio</button>
                 </div>
               </div>
             </div>
@@ -160,6 +162,12 @@
                   <button data-eq-scene="kill-low">Kill Low</button>
                   <button data-eq-scene="kill-high">Kill High</button>
                 </div>
+              </div>
+            </div>
+            <div class="control-stack mixer-reset-stack">
+              <label>Mixer Reset</label>
+              <div class="fx-pad-grid">
+                <button id="reset-mixer-button" type="button">Reset Mixer</button>
               </div>
             </div>
             <div class="control-stack contour-stack">
