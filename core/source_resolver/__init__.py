@@ -401,6 +401,45 @@ def _should_accept_spotify_direct_fast_match(sp_title: str, track, score: dict) 
     return True
 
 
+def _spotify_enrich_mode(score: dict) -> str:
+    decision = score.get("decision", "skip")
+    if decision in ("full", "cover_only"):
+        return decision
+
+    confidence = float(score.get("confidence", 0.0) or 0.0)
+    query_sim = float(score.get("query_sim", 0.0) or 0.0)
+    yt_sim = float(score.get("yt_sim", 0.0) or 0.0)
+    duration_sim = float(score.get("duration_sim", 0.0) or 0.0)
+    variant_penalty = float(score.get("variant_penalty", 0.0) or 0.0)
+    non_music_penalty = float(score.get("non_music_penalty", 0.0) or 0.0)
+    artist_hint_present = bool(score.get("artist_hint_present"))
+    artist_sim = float(score.get("artist_sim", 0.0) or 0.0)
+    artist_mismatch = artist_hint_present and artist_sim < _ARTIST_MISMATCH_THRESHOLD
+
+    if artist_mismatch:
+        return "skip"
+
+    if (
+        confidence >= 0.42
+        and query_sim >= 0.94
+        and yt_sim >= 0.88
+        and duration_sim >= 0.82
+        and variant_penalty <= 0.07
+        and non_music_penalty <= 0.0
+    ):
+        return "cover_link"
+
+    if (
+        confidence >= 0.38
+        and max(query_sim, yt_sim) >= 0.84
+        and duration_sim >= 0.68
+        and variant_penalty <= 0.14
+    ):
+        return "link_only"
+
+    return "skip"
+
+
 # â”€â”€ Query Cache singleton (lazy init) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
@@ -478,9 +517,11 @@ class SourceResolver:
     @staticmethod
     def _apply_spotify_meta(track: "TrackInfo", meta: dict, score: dict) -> None:
         decision = score["decision"]
-        apply_cover_and_spotify = decision in ("full", "cover_only")
+        enrich_mode = _spotify_enrich_mode(score)
+        apply_spotify_link = enrich_mode in ("full", "cover_only", "cover_link", "link_only")
+        apply_cover_and_spotify = enrich_mode in ("full", "cover_only", "cover_link")
 
-        if apply_cover_and_spotify and meta.get("spotify_url"):
+        if apply_spotify_link and meta.get("spotify_url"):
             track.spotify_url = meta["spotify_url"]
 
         if apply_cover_and_spotify and meta.get("thumbnail"):
@@ -491,15 +532,15 @@ class SourceResolver:
                 float(score.get("confidence") or 0.0),
             )
 
-        if decision == "full":
+        if enrich_mode == "full":
             if meta.get("title"):
                 track.title = meta["title"]
             if meta.get("artist"):
                 track.artist = meta["artist"]
     @staticmethod
     def _log_spotify_enrich(idx: int, original_query: str, yt_title_before: str, meta: dict, score: dict) -> None:
-        decision = score["decision"]
-        _dc = _BGRN if decision == "full" else (_BYEL if decision == "cover_only" else _BRED)
+        decision = _spotify_enrich_mode(score)
+        _dc = _BGRN if decision == "full" else (_BYEL if decision in ("cover_only", "cover_link") else (_TEAL if decision == "link_only" else _BRED))
         sp_title = meta.get("title", "")
         sp_artist = meta.get("artist", "")
         conf_pct = int(score["confidence"] * 100)
@@ -713,12 +754,13 @@ class SourceResolver:
                 continue
 
             yt_title_before = track.title
-            decision = score["decision"]
+            decision = _spotify_enrich_mode(score)
             sp_title = meta.get("title", "")
             sp_artist = meta.get("artist", "")
-            apply_cover_and_spotify = decision in ("full", "cover_only")
+            apply_spotify_link = decision in ("full", "cover_only", "cover_link", "link_only")
+            apply_cover_and_spotify = decision in ("full", "cover_only", "cover_link")
 
-            if apply_cover_and_spotify and meta.get("spotify_url"):
+            if apply_spotify_link and meta.get("spotify_url"):
                 track.spotify_url = meta["spotify_url"]
 
             if apply_cover_and_spotify and meta.get("thumbnail"):
@@ -928,7 +970,7 @@ class SourceResolver:
 
             if sp_meta_hint and results:
                 score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
-                if score["decision"] in ("full", "cover_only"):
+                if _spotify_enrich_mode(score) != "skip":
                     used_spotify_hint = True
                     yt_title_before = results[0].title
                     cls._apply_spotify_meta(results[0], sp_meta_hint, score)
@@ -966,7 +1008,7 @@ class SourceResolver:
                         if canonical_results:
                             results = canonical_results
                             canonical_score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
-                            if canonical_score["decision"] in ("full", "cover_only"):
+                            if _spotify_enrich_mode(canonical_score) != "skip":
                                 used_spotify_hint = True
                                 yt_title_before = results[0].title
                                 cls._apply_spotify_meta(results[0], sp_meta_hint, canonical_score)
