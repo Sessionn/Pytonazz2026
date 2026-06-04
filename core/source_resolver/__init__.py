@@ -11,6 +11,7 @@ from typing import Optional, Callable, TypeVar
 import yt_dlp
 from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
+from core.stream_expiry import stream_ttl_seconds
 from core.source_resolver.models import TrackInfo, clone_track as _clone_track
 
 # â”€â”€ Sub-module imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -631,10 +632,11 @@ class SourceResolver:
     def _set_cached_stream_url(cls, webpage_url: str, stream_url: str) -> None:
         if not stream_url:
             return
+        ttl = stream_ttl_seconds(stream_url, fallback_ttl=int(_STREAM_URL_CACHE_TTL))
         with cls._cache_lock:
             cls._stream_url_cache.pop(webpage_url, None)
             cls._stream_url_cache[webpage_url] = (
-                time.monotonic() + _STREAM_URL_CACHE_TTL,
+                time.monotonic() + ttl,
                 stream_url,
             )
             cls._cache_prune_locked(cls._stream_url_cache, _STREAM_URL_CACHE_MAX)
@@ -793,15 +795,18 @@ class SourceResolver:
         cached_stream = (hit.get("stream_url") or "").strip()
         stream_expires_at = int(hit.get("stream_expires_at") or 0)
         if cached_stream and stream_expires_at > now_ts + 60:
-            log.debug(tag("STREAM", f"db stream hit  {b(hit['webpage_url'])}"))
+            log.info(tag("STREAM", f"DB hit  {b(hit['webpage_url'])}"))
             return _cache_hit_to_track(hit, requester, requester_id, cached_stream)
 
+        refresh_t0 = time.perf_counter()
         stream_url = await asyncio.get_running_loop().run_in_executor(
             None, cls._fetch_stream_url, hit["webpage_url"]
         )
+        refresh_elapsed = (time.perf_counter() - refresh_t0) * 1000
         if stream_url:
             if hasattr(qc, "update_stream_url"):
                 qc.update_stream_url(hit["webpage_url"], stream_url)
+            log.info(tag("STREAM", f"DB refresh  {b(hit['webpage_url'])}  {ms(refresh_elapsed)}"))
             return _cache_hit_to_track(hit, requester, requester_id, stream_url)
 
         if hasattr(qc, "invalidate_url"):

@@ -54,6 +54,15 @@ hit = db.get("song artist")
 assert hit is not None
 assert hit["stream_url"] == "https://stream.example/fresh"
 
+signed_expiry = int(time.time()) + 7200
+signed_stream = f"https://stream.example/signed?expire={signed_expiry}&sig=test"
+updated = db.update_stream_url("https://youtube.com/watch?v=1", signed_stream, ttl_seconds=120)
+assert updated is True
+hit = db.get("song artist")
+assert hit is not None
+assert hit["stream_url"] == signed_stream
+assert signed_expiry - 190 <= int(hit["stream_expires_at"]) <= signed_expiry - 170
+
 db._close()
 try:
     os.unlink(tmp.name)

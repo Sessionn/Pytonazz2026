@@ -459,15 +459,16 @@ class Music(commands.Cog):
             )
             return
 
-        vc = await self._ensure_voice_client(inter, vc_ch)
-
         player = self._player(inter.guild_id, inter.channel)
 
         if is_text_search(query):
             t0 = time.perf_counter()
             try:
-                results = await SourceResolver.resolve_choices(
-                    query, inter.user.display_name, inter.user.id, n=1
+                vc, results = await asyncio.gather(
+                    self._ensure_voice_client(inter, vc_ch),
+                    SourceResolver.resolve_choices(
+                        query, inter.user.display_name, inter.user.id, n=1
+                    ),
                 )
             except Exception as e:
                 log.exception("resolve_choices error")
@@ -503,8 +504,11 @@ class Music(commands.Cog):
         else:
             t0 = time.perf_counter()
             try:
-                tracks = await SourceResolver.resolve(
-                    query, inter.user.display_name, inter.user.id
+                vc, tracks = await asyncio.gather(
+                    self._ensure_voice_client(inter, vc_ch),
+                    SourceResolver.resolve(
+                        query, inter.user.display_name, inter.user.id
+                    ),
                 )
             except Exception as e:
                 log.exception("Resolve error")

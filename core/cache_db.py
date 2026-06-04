@@ -30,6 +30,7 @@ from typing import Optional, Union
 
 from config import Config
 from core.log_colors import tag, b, hi, dim, _BGRN, _BYEL, _BRED, _CYN, _TEAL, _GRY
+from core.stream_expiry import stream_expiry_epoch
 
 log = logging.getLogger("pitonazz.cache_db")
 
@@ -1037,7 +1038,11 @@ def put(query: str, track) -> None:
     thumbnail_confidence = float(_g("thumbnail_confidence", 0.0) or 0.0)
     if thumbnail and thumbnail_confidence <= 0:
         thumbnail_confidence = thumbnail_priority
-    stream_expires_at = now + _STREAM_URL_DB_TTL_SECONDS if stream_url else 0
+    stream_expires_at = (
+        stream_expiry_epoch(stream_url, now=now, fallback_ttl=_STREAM_URL_DB_TTL_SECONDS)
+        if stream_url
+        else 0
+    )
 
     canonical_query = (_canonical_for_track(track) or query_raw).strip()
     canonical_hash = _hash(canonical_query)
@@ -1264,6 +1269,7 @@ def update_stream_url(webpage_url: str, stream_url: str, ttl_seconds: int = _STR
     if not url or not stream or not _enabled:
         return False
     now = _now_ts()
+    expires_at = stream_expiry_epoch(stream, now=now, fallback_ttl=ttl_seconds)
     with _cursor() as cur:
         cur.execute(
             """
@@ -1273,7 +1279,7 @@ def update_stream_url(webpage_url: str, stream_url: str, ttl_seconds: int = _STR
                    last_stream_check = ?
              WHERE webpage_url = ? AND is_valid = 1
             """,
-            (stream, now + int(ttl_seconds), now, url),
+            (stream, expires_at, now, url),
         )
         return cur.rowcount > 0
 
