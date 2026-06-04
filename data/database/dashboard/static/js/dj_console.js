@@ -878,6 +878,7 @@ els.resetMixerButton?.addEventListener("click", async () => {
     postAction("toggle_filter_fx", { fx_name: "vocalboost", enabled: false }),
     postAction("toggle_filter_fx", { fx_name: "radio", enabled: false }),
     postAction("toggle_filter_fx", { fx_name: "reverb", enabled: false }),
+    postAction("toggle_filter_fx", { fx_name: "8d", enabled: false }),
     postAction("set_tone_filters", { tone_filters: { highpass_hz: 0, lowpass_hz: 20000 } }),
   ]);
 });
