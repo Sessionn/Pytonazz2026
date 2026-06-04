@@ -574,6 +574,19 @@ def _merge_duplicate_source_rows(cur: sqlite3.Cursor, keep: sqlite3.Row, drop: s
     merged_stream_url = keep_stream_url or drop_stream_url
     merged_stream_expires_at = int(keep["stream_expires_at"] or 0) if keep_stream_url else int(drop["stream_expires_at"] or 0)
     merged_last_stream_check = int(keep["last_stream_check"] or 0) if keep_stream_url else int(drop["last_stream_check"] or 0)
+    transfer_webpage_url = not (keep["webpage_url"] or "").strip() and (drop["webpage_url"] or "").strip()
+    transfer_spotify_url = not (keep["spotify_url"] or "").strip() and (drop["spotify_url"] or "").strip()
+
+    if transfer_webpage_url or transfer_spotify_url:
+        cur.execute(
+            """
+            UPDATE cache_sources
+               SET webpage_url = CASE WHEN ? THEN '' ELSE webpage_url END,
+                   spotify_url = CASE WHEN ? THEN '' ELSE spotify_url END
+             WHERE id = ?
+            """,
+            (1 if transfer_webpage_url else 0, 1 if transfer_spotify_url else 0, drop_id),
+        )
 
     cur.execute(
         """

@@ -39,6 +39,7 @@ youtube_track = {
 }
 
 db.put('G.Mineiro - "Splinter Cell"', youtube_track)
+assert db.get('G.Mineiro - "Splinter Cell"') is not None
 
 conn = sqlite3.connect(tmp.name)
 now = int(time.time())
