@@ -98,8 +98,9 @@ body::before {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 248px 1fr;
+  grid-template-columns: 236px minmax(0, 1fr);
   min-height: 100vh;
+  width: 100%;
 }
 
 nav {
@@ -262,7 +263,7 @@ nav a.active {
 }
 
 main {
-  padding: 30px 34px 40px;
+  padding: 22px 22px 28px;
 }
 
 .page-header {
@@ -274,7 +275,7 @@ main {
   justify-content: space-between;
   gap: 18px;
   align-items: flex-start;
-  padding: 22px 24px;
+  padding: 22px 22px;
   border-radius: 26px;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.06), transparent 22%),
@@ -411,8 +412,8 @@ main {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 18px;
 }
 
 .stat-card {

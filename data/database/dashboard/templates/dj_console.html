@@ -104,16 +104,6 @@
           <div class="mixer-main">
             <div class="mixer-grid">
               <div class="control-stack">
-                <label>Base Filter</label>
-                <div class="fx-pad-grid" id="base-filter-grid">
-                  <button data-base-filter="off">Clean</button>
-                  <button data-base-filter="nightcore">Rush</button>
-                  <button data-base-filter="vaporwave">Drift</button>
-                  <button data-base-filter="8d">Orbit</button>
-                  <button data-base-filter="night">Night</button>
-                </div>
-              </div>
-              <div class="control-stack">
                 <label for="filter-select">Filtro</label>
                 <div class="filter-select-shell" id="filter-select-shell">
                   <button id="filter-select-trigger" class="filter-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
@@ -128,6 +118,10 @@
                     <button type="button" class="filter-option" data-filter-option="nightcore">Nightcore</button>
                     <button type="button" class="filter-option" data-filter-option="vaporwave">Vaporwave</button>
                     <button type="button" class="filter-option" data-filter-option="8d">8D Audio</button>
+                    <button type="button" class="filter-option" data-filter-option="bassboost">Bass Boost</button>
+                    <button type="button" class="filter-option" data-filter-option="trebleboost">Treble Boost</button>
+                    <button type="button" class="filter-option" data-filter-option="vocalboost">Vocal Boost</button>
+                    <button type="button" class="filter-option" data-filter-option="radio">Radio / Phone</button>
                     <button type="button" class="filter-option" data-filter-option="night">Night Mode</button>
                   </div>
                   <select id="filter-select" class="filter-select-native" tabindex="-1" aria-hidden="true">
@@ -135,6 +129,10 @@
                     <option value="nightcore">Nightcore</option>
                     <option value="vaporwave">Vaporwave</option>
                     <option value="8d">8D Audio</option>
+                    <option value="bassboost">Bass Boost</option>
+                    <option value="trebleboost">Treble Boost</option>
+                    <option value="vocalboost">Vocal Boost</option>
+                    <option value="radio">Radio / Phone</option>
                     <option value="night">Night Mode</option>
                   </select>
                 </div>

@@ -151,6 +151,26 @@ class MusicPlayer:
         parts.extend(self.active_fx_names)
         self.filter_name = " + ".join(parts) if parts else "off"
 
+    def reset_live_mixer(self, notify: bool = True) -> None:
+        self.base_filter_name = "off"
+        self.active_fx_names = []
+        self.filter = None
+        self.eq = dict(EQ_DEFAULT)
+        self.tone_filters = dict(TONE_FILTER_DEFAULT)
+        self._refresh_filter_summary()
+        if self.vc and self.vc.source:
+            if hasattr(self.vc.source, "set_filter_preset"):
+                self.vc.source.set_filter_preset(combine_live_filter_preset(self.base_filter_name, self.active_fx_names))
+            if hasattr(self.vc.source, "set_eq"):
+                self.vc.source.set_eq(self.eq["low"], self.eq["mid"], self.eq["high"])
+            if hasattr(self.vc.source, "set_tone_filters"):
+                self.vc.source.set_tone_filters(
+                    self.tone_filters["highpass_hz"],
+                    self.tone_filters["lowpass_hz"],
+                )
+        if notify:
+            self._notify_state_change()
+
     def _apply_live_filter_state(self) -> bool:
         if not (self.vc and self.vc.source and hasattr(self.vc.source, "set_filter_preset")):
             return False
@@ -495,6 +515,7 @@ class MusicPlayer:
             self._seek_offset = 0.0
 
         if not nxt:
+            self.reset_live_mixer(notify=False)
             if await self._try_autoplay_refill():
                 await self.play_next(_depth=0)
                 return
@@ -504,6 +525,8 @@ class MusicPlayer:
             return
 
         self.current = nxt
+        if not is_filter_ch:
+            self.reset_live_mixer(notify=False)
         # Resetta il flag di stop prima di avviare FFmpeg: garantisce che
         # l'_after callback del prossimo play non venga soppressa per errore.
         self._stopping.clear()

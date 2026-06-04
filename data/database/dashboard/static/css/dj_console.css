@@ -68,8 +68,9 @@ body::before {
 .console-shell {
   position: relative;
   z-index: 1;
-  width: min(1520px, calc(100vw - 24px));
-  margin: 14px auto 22px;
+  width: calc(100vw - 20px);
+  max-width: 1880px;
+  margin: 10px auto 18px;
   display: grid;
   gap: 18px;
 }
@@ -98,9 +99,9 @@ body::before {
 }
 
 .hero-panel {
-  padding: 24px 26px;
+  padding: 24px 28px;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(520px, 0.9fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(560px, 0.85fr);
   gap: 20px;
   align-items: stretch;
 }
@@ -427,7 +428,7 @@ body::before {
 }
 
 .deck-grid {
-  grid-template-columns: minmax(310px, 0.82fr) minmax(640px, 1.36fr) minmax(220px, 0.52fr);
+  grid-template-columns: minmax(320px, 0.8fr) minmax(760px, 1.5fr) minmax(280px, 0.7fr);
 }
 
 .deck-panel {
@@ -724,7 +725,7 @@ button:disabled {
 }
 
 .mixer-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 

@@ -117,7 +117,7 @@ LIVE_FILTER_PRESETS: dict[str, dict[str, float]] = {
     },
 }
 
-BASE_FILTER_NAMES = ("off", "nightcore", "vaporwave", "8d", "night")
+BASE_FILTER_NAMES = ("off", "nightcore", "vaporwave", "8d", "bassboost", "trebleboost", "vocalboost", "radio", "night")
 FX_FILTER_NAMES = ("bassboost", "trebleboost", "vocalboost", "radio")
 
 FILTER_COMPATIBILITY: dict[str, set[str]] = {
@@ -125,6 +125,10 @@ FILTER_COMPATIBILITY: dict[str, set[str]] = {
     "nightcore": set(FX_FILTER_NAMES),
     "vaporwave": set(FX_FILTER_NAMES),
     "8d": {"bassboost", "trebleboost", "vocalboost"},
+    "bassboost": {"trebleboost", "vocalboost", "radio"},
+    "trebleboost": {"bassboost", "vocalboost", "radio"},
+    "vocalboost": {"bassboost", "trebleboost", "radio"},
+    "radio": {"bassboost", "trebleboost", "vocalboost"},
     "night": set(FX_FILTER_NAMES),
 }
 

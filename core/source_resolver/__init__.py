@@ -363,6 +363,10 @@ def _raw_result_supports_spotify_artist(query: str, track, sp_artist: str) -> bo
 def _should_retry_canonical_after_weak_hint(query: str, track, sp_meta: dict, score: dict) -> bool:
     if _is_short_or_ambiguous_query(query):
         return True
+    if not _query_requests_variant(query) and float(score.get("variant_penalty", 0.0) or 0.0) >= 0.20:
+        return True
+    if _is_variant(getattr(track, "title", "") or "") and not _query_requests_variant(query):
+        return True
     if score.get("yt_sim", 0.0) < 0.50:
         return True
     if not _raw_result_supports_spotify_artist(query, track, sp_meta.get("artist", "")):
