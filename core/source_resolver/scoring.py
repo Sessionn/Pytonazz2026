@@ -194,6 +194,34 @@ def _contains_token(haystack: str, needle: str) -> bool:
     return f" {needle} " in f" {haystack} "
 
 
+def _compact_tokens(text: str) -> str:
+    return "".join(_normalize_for_sim(text).split())
+
+
+def _title_artist_equivalent(yt_title: str, yt_artist: str, sp_title: str, sp_artist: str) -> bool:
+    """True when YouTube is effectively "artist - title" for the Spotify track."""
+    title_norm = _normalize_for_sim(sp_title)
+    artist_norm = _normalize_for_sim(sp_artist)
+    yt_norm = _normalize_for_sim(f"{yt_title} {yt_artist}".strip())
+    if not title_norm or not artist_norm or not yt_norm:
+        return False
+
+    title_tokens = set(title_norm.split())
+    yt_tokens = set(yt_norm.split())
+    if not title_tokens or not title_tokens.issubset(yt_tokens):
+        return False
+
+    artist_compact = _compact_tokens(sp_artist)
+    yt_compact = _compact_tokens(yt_norm)
+    if not artist_compact or artist_compact not in yt_compact:
+        return False
+
+    allowed = title_tokens | set(artist_norm.split())
+    compact_allowed = _compact_tokens(" ".join(allowed))
+    extra_tokens = yt_tokens - allowed
+    return not extra_tokens or _compact_tokens(" ".join(extra_tokens)) in compact_allowed
+
+
 def _dynamic_variant_penalty(query: str, yt_title: str, sp_title: str, sp_artist: str) -> float:
     """Dynamic penalty via set-difference triangulation: query ↔ yt_title ↔ Spotify metadata.
 
@@ -252,8 +280,12 @@ def _query_artist_signal(query: str, sp_artist: str) -> tuple[float, bool]:
     if not artist_tokens:
         return 0.0, False
     hinted = any(_contains_token(q_norm, tok) for tok in artist_tokens)
+    compact_hint = _compact_tokens(sp_artist) in _compact_tokens(query)
+    hinted = hinted or compact_hint
     if not hinted:
         return 0.0, False
+    if compact_hint:
+        return 1.0, True
     return _jaccard_tokens(q_norm, a_norm), True
 
 
@@ -296,6 +328,9 @@ def _compute_enrich_confidence(
         _normalize_for_sim(f"{sp_title} {sp_artist}".strip()),
     )
     yt_sim = max(yt_title_sim, yt_full_sim)
+    title_artist_equivalent = _title_artist_equivalent(yt_title, yt_artist, sp_title, sp_artist)
+    if title_artist_equivalent:
+        yt_sim = max(yt_sim, 0.92)
 
     artist_sim, artist_hint_present = _query_artist_signal(original_query, sp_artist)
     duration_sim    = _duration_similarity(yt_duration, sp_duration)
@@ -330,6 +365,17 @@ def _compute_enrich_confidence(
     if confidence >= _ENRICH_CONFIDENCE_HIGH and not artist_mismatch:
         decision = "full"
         reason   = "high_confidence"
+    elif (
+        title_artist_equivalent
+        and query_sim >= 0.30
+        and artist_hint_present
+        and not artist_mismatch
+        and duration_good
+        and variant_penalty <= 0.0
+        and non_music_penalty <= 0.0
+    ):
+        decision = "full"
+        reason   = "title_artist_equivalent"
     elif confidence >= _ENRICH_CONFIDENCE_MEDIUM and not artist_mismatch and duration_good:
         decision = "cover_only"
         reason   = "medium_confidence"
@@ -364,6 +410,7 @@ def _compute_enrich_confidence(
         "artist_mismatch":   artist_mismatch,
         "duration_good":     duration_good,
         "extreme_low":       extreme_low,
+        "title_artist_equivalent": title_artist_equivalent,
         "decision":          decision,
         "reason":            reason,
     }

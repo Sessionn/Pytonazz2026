@@ -9,6 +9,7 @@ FILTER_PRESETS: dict[str, tuple[str | None, str]] = {
     "trebleboost": ("treble=g=6:f=4500:w=0.8", "Treble Boost"),
     "vocalboost": ("equalizer=f=2500:t=q:w=1.2:g=5", "Vocal Boost"),
     "radio": ("highpass=f=300,lowpass=f=3200", "Radio / Phone"),
+    "reverb": ("aecho=0.8:0.88:60|120:0.22|0.12", "Reverb"),
     "night": (
         "acompressor=threshold=0.22:ratio=2.5:attack=5:release=120,alimiter=limit=0.93",
         "Night Mode",
@@ -115,20 +116,29 @@ LIVE_FILTER_PRESETS: dict[str, dict[str, float]] = {
         "pan_depth": 0.0,
         "playback_rate": 1.0,
     },
+    "reverb": {
+        "low_gain": 0.0,
+        "mid_gain": 0.0,
+        "high_gain": 0.0,
+        "presence_gain": 0.5,
+        "highpass_hz": 0.0,
+        "lowpass_hz": 18000.0,
+        "pan_rate_hz": 0.0,
+        "pan_depth": 0.0,
+        "playback_rate": 1.0,
+        "reverb_mix": 0.22,
+        "reverb_decay": 0.42,
+    },
 }
 
-BASE_FILTER_NAMES = ("off", "nightcore", "vaporwave", "8d", "bassboost", "trebleboost", "vocalboost", "radio", "night")
-FX_FILTER_NAMES = ("bassboost", "trebleboost", "vocalboost", "radio")
+BASE_FILTER_NAMES = ("off", "nightcore", "vaporwave", "8d", "night")
+FX_FILTER_NAMES = ("bassboost", "trebleboost", "vocalboost", "radio", "reverb")
 
 FILTER_COMPATIBILITY: dict[str, set[str]] = {
     "off": set(FX_FILTER_NAMES),
     "nightcore": set(FX_FILTER_NAMES),
     "vaporwave": set(FX_FILTER_NAMES),
-    "8d": {"bassboost", "trebleboost", "vocalboost"},
-    "bassboost": {"trebleboost", "vocalboost", "radio"},
-    "trebleboost": {"bassboost", "vocalboost", "radio"},
-    "vocalboost": {"bassboost", "trebleboost", "radio"},
-    "radio": {"bassboost", "trebleboost", "vocalboost"},
+    "8d": {"bassboost", "trebleboost", "vocalboost", "reverb"},
     "night": set(FX_FILTER_NAMES),
 }
 
@@ -197,7 +207,11 @@ def combine_live_filter_preset(base_filter_name: str, fx_names: list[str] | tupl
         combined["pan_rate_hz"] = float(combined.get("pan_rate_hz", 0.0)) or float(fx_preset.get("pan_rate_hz", 0.0))
         combined["pan_depth"] = max(float(combined.get("pan_depth", 0.0)), float(fx_preset.get("pan_depth", 0.0)))
         combined["playback_rate"] = float(combined.get("playback_rate", 1.0)) * float(fx_preset.get("playback_rate", 1.0))
+        combined["reverb_mix"] = max(float(combined.get("reverb_mix", 0.0)), float(fx_preset.get("reverb_mix", 0.0)))
+        combined["reverb_decay"] = max(float(combined.get("reverb_decay", 0.0)), float(fx_preset.get("reverb_decay", 0.0)))
     combined["playback_rate"] = max(0.5, min(1.5, float(combined.get("playback_rate", 1.0))))
+    combined["reverb_mix"] = max(0.0, min(0.55, float(combined.get("reverb_mix", 0.0))))
+    combined["reverb_decay"] = max(0.0, min(0.75, float(combined.get("reverb_decay", 0.0))))
     return combined
 
 

@@ -69,13 +69,14 @@ const EQ_SCENES = {
 
 const FILTER_LABELS = {
   off: "Off",
-  nightcore: "Nightcore",
-  vaporwave: "Vaporwave",
+  nightcore: "Sped Up",
+  vaporwave: "Slowed",
   "8d": "8D Audio",
   bassboost: "Bass Boost",
   trebleboost: "Treble Boost",
   vocalboost: "Vocal Boost",
   radio: "Radio / Phone",
+  reverb: "Reverb",
   night: "Night Mode",
 };
 
@@ -278,9 +279,9 @@ function getControlValue(input) {
   return Number(input.value || 0);
 }
 
-function getDefaultValue(input) {
+function readDefaultValue(input) {
   const fallback = input.dataset.default ?? input.defaultValue ?? input.min ?? "0";
-  return setControlValue(input, Number(fallback));
+  return Number(fallback);
 }
 
 function getControlRatio(input) {
@@ -604,23 +605,65 @@ function sendEqNow() {
   });
 }
 
+function animateControlTo(input, targetValue, { onFrame, onDone, durationMs = 260 } = {}) {
+  const start = performance.now();
+  const startValue = getControlValue(input);
+  const endValue = Number(targetValue);
+
+  function step(now) {
+    const t = Math.min(1, (now - start) / durationMs);
+    const eased = easeOutQuart(t);
+    setControlValue(input, startValue + ((endValue - startValue) * eased));
+    onFrame?.();
+    if (t < 1) {
+      window.requestAnimationFrame(step);
+      return;
+    }
+    onDone?.();
+  }
+
+  window.requestAnimationFrame(step);
+}
+
 function resetEqBand(input) {
-  setControlValue(input, getDefaultValue(input));
-  updateEqValueLabels();
   cancelEqAnimation();
-  liveEqSender();
+  const targetEq = {
+    low: getControlValue(els.eqLow),
+    mid: getControlValue(els.eqMid),
+    high: getControlValue(els.eqHigh),
+  };
+  if (input === els.eqLow) targetEq.low = readDefaultValue(input);
+  if (input === els.eqMid) targetEq.mid = readDefaultValue(input);
+  if (input === els.eqHigh) targetEq.high = readDefaultValue(input);
+  animateEqTo(targetEq, 300);
 }
 
 function resetToneBand(input) {
-  setControlValue(input, getDefaultValue(input));
-  updateToneValueLabels();
-  liveToneSender();
+  animateControlTo(input, readDefaultValue(input), {
+    durationMs: 300,
+    onFrame: () => {
+      updateToneValueLabels();
+      liveToneSender();
+    },
+    onDone: () => {
+      updateToneValueLabels();
+      liveToneSender();
+    },
+  });
 }
 
 function resetVolume() {
-  setControlValue(els.volume, getDefaultValue(els.volume));
-  updateVolumeReadout();
-  liveVolumeSender();
+  animateControlTo(els.volume, readDefaultValue(els.volume), {
+    durationMs: 240,
+    onFrame: () => {
+      updateVolumeReadout();
+      liveVolumeSender();
+    },
+    onDone: () => {
+      updateVolumeReadout();
+      liveVolumeSender();
+    },
+  });
 }
 
 function easeOutQuart(t) {
@@ -834,6 +877,7 @@ els.resetMixerButton?.addEventListener("click", async () => {
     postAction("toggle_filter_fx", { fx_name: "trebleboost", enabled: false }),
     postAction("toggle_filter_fx", { fx_name: "vocalboost", enabled: false }),
     postAction("toggle_filter_fx", { fx_name: "radio", enabled: false }),
+    postAction("toggle_filter_fx", { fx_name: "reverb", enabled: false }),
     postAction("set_tone_filters", { tone_filters: { highpass_hz: 0, lowpass_hz: 20000 } }),
   ]);
 });

@@ -200,6 +200,14 @@ class LivePCMTransform(discord.AudioSource):
         self._pan_phase = 0.0
         self._target_playback_rate = 1.0
         self._current_playback_rate = 1.0
+        self._target_reverb_mix = 0.0
+        self._current_reverb_mix = 0.0
+        self._target_reverb_decay = 0.0
+        self._current_reverb_decay = 0.0
+        self._reverb_delay_l = [0.0] * int(_SAMPLE_RATE * 0.11)
+        self._reverb_delay_r = [0.0] * int(_SAMPLE_RATE * 0.17)
+        self._reverb_pos_l = 0
+        self._reverb_pos_r = 0
 
         self._highpass = _Biquad()
         self._lowpass = _Biquad()
@@ -322,6 +330,8 @@ class LivePCMTransform(discord.AudioSource):
             self._target_pan_rate_hz = max(0.0, min(4.0, float(data.get("pan_rate_hz", 0.0))))
             self._target_pan_depth = max(0.0, min(1.0, float(data.get("pan_depth", 0.0))))
             self._target_playback_rate = max(0.5, min(1.5, float(data.get("playback_rate", 1.0))))
+            self._target_reverb_mix = max(0.0, min(0.55, float(data.get("reverb_mix", 0.0))))
+            self._target_reverb_decay = max(0.0, min(0.75, float(data.get("reverb_decay", 0.0))))
 
     def read(self) -> bytes:
         frames_out = self._ensure_frames_for_rate(self._current_playback_rate)
@@ -349,6 +359,8 @@ class LivePCMTransform(discord.AudioSource):
             self._current_pan_rate_hz = self._slew(self._current_pan_rate_hz, self._target_pan_rate_hz, 0.2)
             self._current_pan_depth = self._slew(self._current_pan_depth, self._target_pan_depth, 0.2)
             self._current_playback_rate = self._slew(self._current_playback_rate, self._target_playback_rate, 0.14)
+            self._current_reverb_mix = self._slew(self._current_reverb_mix, self._target_reverb_mix, 0.12)
+            self._current_reverb_decay = self._slew(self._current_reverb_decay, self._target_reverb_decay, 0.12)
 
             self._highpass.configure("highpass", self._current_highpass_hz)
             self._lowpass.configure("lowpass", self._current_lowpass_hz)
@@ -437,6 +449,17 @@ class LivePCMTransform(discord.AudioSource):
                     self._pan_phase += (2.0 * math.pi * self._current_pan_rate_hz) / _SAMPLE_RATE
                     if self._pan_phase >= (2.0 * math.pi):
                         self._pan_phase -= (2.0 * math.pi)
+
+                if self._current_reverb_mix > 1e-4:
+                    wet_left = self._reverb_delay_l[self._reverb_pos_l]
+                    wet_right = self._reverb_delay_r[self._reverb_pos_r]
+                    self._reverb_delay_l[self._reverb_pos_l] = left + (wet_left * self._current_reverb_decay)
+                    self._reverb_delay_r[self._reverb_pos_r] = right + (wet_right * self._current_reverb_decay)
+                    self._reverb_pos_l = (self._reverb_pos_l + 1) % len(self._reverb_delay_l)
+                    self._reverb_pos_r = (self._reverb_pos_r + 1) % len(self._reverb_delay_r)
+                    dry_gain = 1.0 - (self._current_reverb_mix * 0.22)
+                    left = (left * dry_gain) + (wet_left * self._current_reverb_mix)
+                    right = (right * dry_gain) + (wet_right * self._current_reverb_mix)
 
                 if abs(volume - 1.0) > 1e-6:
                     left *= volume

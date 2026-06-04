@@ -1617,3 +1617,89 @@ body::before {
     grid-template-columns: 1fr;
   }
 }
+
+/* Restore the tactile deck after the full-screen refresh. */
+.platter-panel {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 14px;
+}
+
+.platter-wrap {
+  width: min(100%, 520px, 52vh);
+  min-width: min(100%, 300px);
+  margin: 0 auto;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255, 176, 32, 0.11), transparent 18%),
+    radial-gradient(circle, #343b48 0%, #151a23 54%, #070a0f 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -40px 80px rgba(0,0,0,0.34),
+    0 18px 38px rgba(0,0,0,0.28);
+}
+
+.platter-disc {
+  inset: 7%;
+  background:
+    radial-gradient(circle, transparent 0 16%, rgba(255,255,255,0.035) 16.4% 17%, transparent 17.5%),
+    repeating-radial-gradient(circle, rgba(255,255,255,0.07) 0 1px, rgba(0,0,0,0.04) 1px 5px),
+    radial-gradient(circle, #1d2430 0%, #090c12 68%, #020304 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow:
+    inset 0 0 0 18px rgba(255,255,255,0.035),
+    inset 0 0 70px rgba(0,0,0,0.72),
+    0 24px 50px rgba(0,0,0,0.42);
+}
+
+.platter-ring {
+  border-color: rgba(255,255,255,0.08);
+}
+
+.platter-center {
+  width: 40%;
+  border-color: rgba(255, 176, 32, 0.32);
+  box-shadow: 0 0 0 1px rgba(255,176,32,0.18), 0 0 24px rgba(255,176,32,0.16);
+}
+
+.scratch-hint {
+  right: 14px;
+  bottom: 12px;
+  border-radius: 7px;
+  color: #dbe7f7;
+  background: rgba(7, 11, 16, 0.78);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.eq-grid {
+  align-items: stretch;
+}
+
+.eq-band {
+  min-height: 290px;
+  align-content: start;
+}
+
+.eq-slot {
+  min-height: 210px;
+}
+
+.eq-fader {
+  height: calc(100% - 28px);
+  min-height: 178px;
+}
+
+@media (min-height: 920px) {
+  .eq-band {
+    min-height: 350px;
+  }
+
+  .eq-slot {
+    min-height: 265px;
+  }
+
+  .eq-fader {
+    min-height: 230px;
+  }
+}
