@@ -43,6 +43,18 @@ _RE_SPOTIFY = re.compile(
     r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album|playlist)/([A-Za-z0-9]+)",
     re.IGNORECASE,
 )
+_RE_YT_TRANSFORMED = re.compile(
+    r"\b(slowed|speed\s*up|sped\s*up|nightcore|reverb|bass\s*boost(?:ed)?|8d|mashup)\b",
+    re.IGNORECASE,
+)
+_RE_YT_CANONICAL = re.compile(
+    r"\b(visualizer|lyrics?|official\s+audio|audio|topic|album|provided\s+to\s+youtube|hq)\b",
+    re.IGNORECASE,
+)
+_RE_YT_UNCERTAIN = re.compile(
+    r"\b(remix|edit|live|cover|version|performance)\b",
+    re.IGNORECASE,
+)
 
 
 def _is_spotify_url(query: str) -> bool:
@@ -532,6 +544,29 @@ def _merge_thumbnail_fields(
     return keep_thumb, keep_source, keep_conf
 
 
+def _youtube_variant_class(title: str, source: str) -> str:
+    if (source or "").strip().lower() != "youtube":
+        return "other"
+    label = (title or "").strip().lower()
+    if not label:
+        return "uncertain"
+    if _RE_YT_TRANSFORMED.search(label):
+        return "transformed"
+    if _RE_YT_CANONICAL.search(label):
+        return "canonical"
+    if _RE_YT_UNCERTAIN.search(label):
+        return "uncertain"
+    return "canonical"
+
+
+def _split_spotify_youtube_pair(left: sqlite3.Row, right: sqlite3.Row) -> tuple[Optional[sqlite3.Row], Optional[sqlite3.Row]]:
+    left_source = (left["source"] or "").strip().lower()
+    right_source = (right["source"] or "").strip().lower()
+    youtube_row = left if left_source == "youtube" else (right if right_source == "youtube" else None)
+    spotify_row = left if left_source == "spotify" else (right if right_source == "spotify" else None)
+    return youtube_row, spotify_row
+
+
 def _source_merge_rank(row: sqlite3.Row) -> tuple:
     return (
         int(row["hit_count"] or 0),
@@ -546,9 +581,25 @@ def _source_merge_rank(row: sqlite3.Row) -> tuple:
 
 
 def _choose_merge_keeper(left: sqlite3.Row, right: sqlite3.Row) -> tuple[sqlite3.Row, sqlite3.Row]:
+    youtube_row, spotify_row = _split_spotify_youtube_pair(left, right)
+    if youtube_row is not None and spotify_row is not None:
+        return youtube_row, spotify_row
     if _source_merge_rank(left) >= _source_merge_rank(right):
         return left, right
     return right, left
+
+
+def _preferred_metadata_row(keep: sqlite3.Row, drop: sqlite3.Row) -> sqlite3.Row:
+    youtube_row, spotify_row = _split_spotify_youtube_pair(keep, drop)
+    if youtube_row is None or spotify_row is None:
+        return keep
+    variant_class = _youtube_variant_class(
+        youtube_row["resolved_title"] or youtube_row["canonical_title"] or "",
+        youtube_row["source"] or "",
+    )
+    if variant_class == "transformed":
+        return spotify_row
+    return youtube_row
 
 
 def _merge_duplicate_source_rows(cur: sqlite3.Cursor, keep: sqlite3.Row, drop: sqlite3.Row) -> bool:
@@ -559,6 +610,9 @@ def _merge_duplicate_source_rows(cur: sqlite3.Cursor, keep: sqlite3.Row, drop: s
 
     keep_track_id = int(keep["track_id"])
     drop_track_id = int(drop["track_id"])
+    metadata_row = _preferred_metadata_row(keep, drop)
+    metadata_title = metadata_row["resolved_title"] or metadata_row["canonical_title"] or ""
+    metadata_artist = metadata_row["resolved_artist"] or metadata_row["canonical_artist"] or ""
 
     thumb, thumb_source, thumb_conf = _merge_thumbnail_fields(
         keep["thumbnail"] or "",
@@ -602,14 +656,8 @@ def _merge_duplicate_source_rows(cur: sqlite3.Cursor, keep: sqlite3.Row, drop: s
                    WHEN COALESCE(NULLIF(source, ''), '') != '' THEN source
                    ELSE ?
                END,
-               resolved_title = CASE
-                   WHEN COALESCE(NULLIF(resolved_title, ''), '') != '' THEN resolved_title
-                   ELSE ?
-               END,
-               resolved_artist = CASE
-                   WHEN COALESCE(NULLIF(resolved_artist, ''), '') != '' THEN resolved_artist
-                   ELSE ?
-               END,
+               resolved_title = ?,
+               resolved_artist = ?,
                duration = CASE
                    WHEN COALESCE(duration, 0) > 0 THEN duration
                    ELSE ?
@@ -634,8 +682,8 @@ def _merge_duplicate_source_rows(cur: sqlite3.Cursor, keep: sqlite3.Row, drop: s
             merged_stream_expires_at,
             merged_last_stream_check,
             drop["source"] or "",
-            drop["resolved_title"] or "",
-            drop["resolved_artist"] or "",
+            metadata_title,
+            metadata_artist,
             int(drop["duration"] or 0),
             thumb,
             thumb_source,
@@ -661,20 +709,14 @@ def _merge_duplicate_source_rows(cur: sqlite3.Cursor, keep: sqlite3.Row, drop: s
         cur.execute(
             """
             UPDATE cache_tracks
-               SET canonical_title = CASE
-                       WHEN COALESCE(NULLIF(canonical_title, ''), '') != '' THEN canonical_title
-                       ELSE ?
-                   END,
-                   canonical_artist = CASE
-                       WHEN COALESCE(NULLIF(canonical_artist, ''), '') != '' THEN canonical_artist
-                       ELSE ?
-                   END,
+               SET canonical_title = ?,
+                   canonical_artist = ?,
                    updated_at = ?
              WHERE id = ?
             """,
             (
-                drop["canonical_title"] or "",
-                drop["canonical_artist"] or "",
+                metadata_row["canonical_title"] or metadata_title,
+                metadata_row["canonical_artist"] or metadata_artist,
                 _now_ts(),
                 keep_track_id,
             ),
