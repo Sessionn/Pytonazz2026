@@ -381,6 +381,26 @@ def _should_force_multi_candidate_retry(query: str, score: dict) -> bool:
     return True
 
 
+def _should_accept_spotify_direct_fast_match(sp_title: str, track, score: dict) -> bool:
+    if score.get("decision") in ("full", "cover_only"):
+        return True
+    if _is_music_video(getattr(track, "title", "") or "", getattr(track, "artist", "") or ""):
+        return False
+    if _is_variant(getattr(track, "title", "") or "") and not _query_requests_variant(sp_title):
+        return False
+    if float(score.get("confidence", 0.0) or 0.0) < 0.43:
+        return False
+    if float(score.get("query_sim", 0.0) or 0.0) < 0.95:
+        return False
+    if float(score.get("yt_sim", 0.0) or 0.0) < 0.50:
+        return False
+    if float(score.get("duration_sim", 0.0) or 0.0) < 0.82:
+        return False
+    if float(score.get("variant_penalty", 0.0) or 0.0) > 0.0:
+        return False
+    return True
+
+
 # â”€â”€ Query Cache singleton (lazy init) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
@@ -1221,7 +1241,7 @@ class SourceResolver:
             fast_candidates = cls._run_ytdlp(fast_query, requester, requester_id)
             if fast_candidates:
                 fast_score = _compute_enrich_confidence(query_with_artist, fast_candidates[0], sp_meta)
-                if fast_score["decision"] in ("full", "cover_only"):
+                if _should_accept_spotify_direct_fast_match(sp_title, fast_candidates[0], fast_score):
                     candidates = fast_candidates
                     for c in candidates:
                         c.source = "spotify"
