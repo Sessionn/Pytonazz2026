@@ -159,9 +159,9 @@ Il resolver bilancia tempo e correttezza. Le scelte principali sono:
 
 ### Cosa significa retry
 
-`retry` non significa "quante ricerche YouTube fa il bot". Significa quante volte yt-dlp riprova una richiesta che e' gia' fallita. Esempio:
+`retry` non significa "quante ricerche YouTube fa il bot". Significa quante volte yt-dlp riprova una richiesta che e' gia' fallita. Esempio generico:
 
-- `ytsearch1:Trust Me Pandora` e' una ricerca.
+- `ytsearch1:titolo artista` e' una ricerca.
 - se YouTube risponde con timeout, errore temporaneo o anti-bot, `retries=1` concede un tentativo extra.
 - `retries=2` concede due tentativi extra, ma puo' far salire molto il tempo su VM.
 
@@ -200,8 +200,8 @@ Script:
 python tools/rebuild_cache_db.py --backup
 python tools/renumber_cache_ids.py --db data/database/cache.db --apply
 python tools/dedupe_cache_db.py --db data/database/cache.db --apply
-python tools/benchmark_resolve.py "trust me"
-python tools/benchmark_ytdlp.py "Trust Me Pandora"
+python tools/benchmark_resolve.py "titolo artista"
+python tools/benchmark_ytdlp.py "titolo artista"
 ```
 
 ## 7. Dashboard e console DJ
@@ -367,7 +367,7 @@ Dev audio:
 
 I test sono script Python, non una suite pytest classica.
 
-Esempi:
+Comandi di esempio generici:
 
 ```bash
 python tests/test_scoring_guardrails.py
@@ -452,8 +452,8 @@ Ubuntu 22.04 usa spesso FFmpeg 4.4.2. Il bot evita opzioni non portabili come `-
 Misura:
 
 ```bash
-python tools/benchmark_resolve.py "trust me"
-python tools/benchmark_ytdlp.py "Trust Me Pandora"
+python tools/benchmark_resolve.py "titolo artista"
+python tools/benchmark_ytdlp.py "titolo artista"
 ```
 
 Se `ytsearch1` costa 4-6 secondi, il limite e' YouTube/yt-dlp/rete VM. Soluzioni pragmatiche:
@@ -469,7 +469,7 @@ Se `ytsearch1` costa 4-6 secondi, il limite e' YouTube/yt-dlp/rete VM. Soluzioni
 Controlla benchmark:
 
 ```bash
-python tools/benchmark_resolve.py "trust me"
+python tools/benchmark_resolve.py "titolo artista"
 ```
 
 Se `spotify_probe_ms=... cover=True` ma finale `cover='youtube'`, e' un problema di scoring/fallback resolver. I test da rilanciare:

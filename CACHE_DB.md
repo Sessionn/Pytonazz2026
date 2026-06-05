@@ -157,11 +157,11 @@ La cache apprende senza rallentare il resolve:
 - hit count e last used aumentano a ogni lookup;
 - sorgenti invalide restano tracciabili ma non vengono usate.
 
-Esempio:
+Esempio generico:
 
 ```text
-"notte blu dj shokka" -> track_id 1, source_id 1
-"Notte Blu DJ Shocca, Frank Siciliano" -> track_id 1, source_id 1
+"titolo artista" -> track_id 1, source_id 1
+"titolo ufficiale artista principale" -> track_id 1, source_id 1
 "https://open.spotify.com/track/..." -> track_id 1, source_id 1
 ```
 
@@ -267,13 +267,13 @@ python tools/renumber_cache_ids.py --db data/database/cache.db --apply
 Benchmark resolver:
 
 ```bash
-python tools/benchmark_resolve.py "trust me"
+python tools/benchmark_resolve.py "titolo artista"
 ```
 
 Benchmark yt-dlp:
 
 ```bash
-python tools/benchmark_ytdlp.py "Trust Me Pandora"
+python tools/benchmark_ytdlp.py "titolo artista"
 ```
 
 ## 14. Troubleshooting cache

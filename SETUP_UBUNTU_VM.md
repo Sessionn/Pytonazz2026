@@ -182,8 +182,8 @@ Controlli minimi:
 
 ```bash
 curl -I http://127.0.0.1:5000
-python tools/benchmark_resolve.py "trust me"
-python tools/benchmark_ytdlp.py "Trust Me Pandora"
+python tools/benchmark_resolve.py "titolo artista"
+python tools/benchmark_ytdlp.py "titolo artista"
 ```
 
 Risultato desiderato:
@@ -353,8 +353,8 @@ curl -I http://127.0.0.1:5000
 Misura separatamente Spotify, yt-dlp e FFmpeg:
 
 ```bash
-python tools/benchmark_resolve.py "trust me"
-python tools/benchmark_ytdlp.py "Trust Me Pandora"
+python tools/benchmark_resolve.py "titolo artista"
+python tools/benchmark_ytdlp.py "titolo artista"
 ffmpeg -version | head -n 1
 ```
 
@@ -407,5 +407,5 @@ Segreti da ruotare se finiti in file o log:
 - [ ] Caddy attivo
 - [ ] HTTPS pubblico funzionante
 - [ ] servizio systemd o screen attivo
-- [ ] `python tools/benchmark_resolve.py "trust me"` eseguito
+- [ ] `python tools/benchmark_resolve.py "titolo artista"` eseguito
 - [ ] `/play` reale provato in Discord

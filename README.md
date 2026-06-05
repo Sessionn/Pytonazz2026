@@ -2,8 +2,6 @@
 
 ![Pytonazz Gif](assets/git/demo.gif)
 
-Pitonazz è un'applicazione bot modulare e multifunzionale di livello enterprise per Discord, sviluppata in Python sull'architettura asincrona di discord.py. Progettato per coniugare l'intrattenimento multimediale ad alta fedeltà con l'automazione di community e l'intelligenza artificiale, il bot si appoggia su un motore di caching persistente SQLite custom e su una dashboard locale pubblicata correttamente dietro reverse proxy HTTPS.
-
 Pytonazz2026 e' un bot Discord modulare scritto in Python, costruito su `discord.py` 2.x. Il progetto copre musica, AI, moderazione, welcome/goodbye, compleanni, TTS, console DJ remota e una dashboard web per ispezionare il cache database musicale.
 
 Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
@@ -11,8 +9,6 @@ Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
 - [DOCS.md](DOCS.md): manuale tecnico e operativo per sviluppatori.
 - [CACHE_DB.md](CACHE_DB.md): schema, algoritmo e manutenzione del cache DB musicale.
 - [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md): installazione e deploy su VM Ubuntu.
-- [QUERY_CACHE_SETUP.md](QUERY_CACHE_SETUP.md): note storiche e operative sulla query cache.
-- [CACHE_DB_REVIEW_2026-06.md](CACHE_DB_REVIEW_2026-06.md): review architetturale della cache.
 
 ## Funzioni principali
 
@@ -138,7 +134,7 @@ Vedi [.env.example](.env.example) e [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md) per
 
 ## Cache DB e reset
 
-Il cache DB non e' piu' una singola tabella legacy: usa schema normalizzato con:
+Il cache DB usa schema normalizzato con:
 
 - `cache_tracks`: identita' logica/canonica della traccia.
 - `cache_sources`: sorgenti riproducibili, stream URL temporaneo, cover e metadati.
@@ -173,13 +169,13 @@ Guida completa: [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
 Benchmark resolver:
 
 ```bash
-python tools/benchmark_resolve.py "trust me"
+python tools/benchmark_resolve.py "titolo artista"
 ```
 
 Benchmark yt-dlp diretto:
 
 ```bash
-python tools/benchmark_ytdlp.py "Trust Me Pandora"
+python tools/benchmark_ytdlp.py "titolo artista"
 ```
 
 Nota sui retry: in `config.py`, `retries`, `fragment_retries` e `extractor_retries` indicano quanti tentativi extra yt-dlp fa dopo un errore. Non sono "quante ricerche YouTube normali" fa il bot. Ridurli taglia tempo quando YouTube risponde male o con anti-bot, ma puo' rendere meno tolleranti alcuni errori temporanei.
