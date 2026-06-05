@@ -1960,3 +1960,129 @@ body::before {
     min-height: 282px;
   }
 }
+
+/* Compact blue night pass: no rainbow accents, no moving/dark halo behind vinyl. */
+:root {
+  --accent: #60a5fa;
+  --accent-2: #38bdf8;
+  --ok: #7dd3fc;
+  --ok-glow: rgba(96, 165, 250, 0.34);
+}
+
+.console-shell {
+  min-height: auto;
+  gap: 8px;
+}
+
+.hero-panel {
+  padding: 12px 16px;
+}
+
+.brand-block {
+  min-height: 64px;
+  border-left-color: var(--accent);
+}
+
+.brand-block h1 {
+  font-size: clamp(1.9rem, 2.1vw, 2.75rem);
+}
+
+.eyebrow {
+  color: #93c5fd;
+}
+
+.deck-grid {
+  grid-template-columns: minmax(320px, 0.84fr) minmax(700px, 1.72fr) minmax(300px, 0.72fr);
+}
+
+.platter-panel,
+.queue-panel,
+.mixer-panel {
+  min-height: calc(100vh - 118px);
+}
+
+.filter-button-grid button.is-active,
+.fx-pad-grid button.is-active,
+.filter-button-grid button[aria-pressed="true"],
+.fx-pad-grid button[aria-pressed="true"] {
+  color: #eaf6ff;
+  border-color: rgba(125, 211, 252, 0.68);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.025)),
+    linear-gradient(135deg, rgba(30, 64, 175, 0.9), rgba(14, 165, 233, 0.72));
+  box-shadow: 0 0 0 1px rgba(125,211,252,0.14), 0 12px 24px rgba(14,165,233,0.10);
+}
+
+#progress-fill {
+  background: linear-gradient(90deg, #1d4ed8, #38bdf8);
+  box-shadow: 0 0 14px rgba(56,189,248,0.18);
+}
+
+.platter-shadow {
+  display: none;
+}
+
+.platter-wrap {
+  width: min(100%, 460px, 46vh);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.07),
+    inset 0 -22px 44px rgba(0,0,0,0.20);
+}
+
+.platter-disc {
+  background:
+    repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06) 0 1px, rgba(0,0,0,0.025) 1px 5px),
+    #070a10;
+  box-shadow:
+    inset 0 0 0 14px rgba(255,255,255,0.026),
+    inset 0 0 44px rgba(0,0,0,0.58);
+}
+
+.platter-center {
+  border-color: rgba(96,165,250,0.28);
+  box-shadow: 0 0 0 1px rgba(96,165,250,0.14), 0 0 18px rgba(96,165,250,0.10);
+}
+
+.volume-well,
+.fader-slot {
+  width: 78px;
+}
+
+.fader-handle {
+  width: 80px;
+}
+
+.eq-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.eq-band {
+  min-height: 300px;
+}
+
+.eq-slot {
+  width: 72px;
+  min-height: 220px;
+}
+
+.eq-fader {
+  min-height: 186px;
+}
+
+.knob-bank {
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+}
+
+@media (min-height: 920px) {
+  .eq-band {
+    min-height: 335px;
+  }
+
+  .eq-slot {
+    min-height: 250px;
+  }
+
+  .eq-fader {
+    min-height: 214px;
+  }
+}

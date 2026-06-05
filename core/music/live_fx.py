@@ -171,20 +171,10 @@ class LivePCMTransform(discord.AudioSource):
 
         self._target_low_gain = 0.0
         self._current_low_gain = 0.0
-        self._target_sub_gain = 0.0
-        self._current_sub_gain = 0.0
         self._target_mid_gain = 0.0
         self._current_mid_gain = 0.0
         self._target_high_gain = 0.0
         self._current_high_gain = 0.0
-        self._target_air_gain = 0.0
-        self._current_air_gain = 0.0
-        self._target_tone_presence_gain = 0.0
-        self._current_tone_presence_gain = 0.0
-        self._target_stereo_width = 1.0
-        self._current_stereo_width = 1.0
-        self._target_preset_stereo_width = 1.0
-        self._current_preset_stereo_width = 1.0
         self._target_presence_gain = 0.0
         self._current_presence_gain = 0.0
 
@@ -223,12 +213,9 @@ class LivePCMTransform(discord.AudioSource):
         self._lowpass = _Biquad()
         self._preset_highpass = _Biquad()
         self._preset_lowpass = _Biquad()
-        self._sub_eq = _Biquad()
         self._low_eq = _Biquad()
         self._mid_eq = _Biquad()
         self._high_eq = _Biquad()
-        self._air_eq = _Biquad()
-        self._tone_presence_eq = _Biquad()
         self._presence_eq = _Biquad()
         self._preset_low_eq = _Biquad()
         self._preset_mid_eq = _Biquad()
@@ -315,8 +302,6 @@ class LivePCMTransform(discord.AudioSource):
         self,
         highpass_hz: float = 0.0,
         lowpass_hz: float = 0.0,
-        presence_gain: float = 0.0,
-        stereo_width: float = 1.0,
     ) -> None:
         with self._lock:
             highpass = max(0.0, float(highpass_hz))
@@ -325,23 +310,17 @@ class LivePCMTransform(discord.AudioSource):
             self._target_lowpass_hz = max(200.0, min(20_000.0, lowpass)) if lowpass > 0.0 else 20_000.0
             self._target_highpass_mix = 1.0 if highpass > 0.0 else 0.0
             self._target_lowpass_mix = 0.0 if lowpass >= 19_900.0 or lowpass <= 0.0 else 1.0
-            self._target_tone_presence_gain = max(-8.0, min(8.0, float(presence_gain)))
-            self._target_stereo_width = max(0.65, min(1.45, float(stereo_width)))
 
     def set_eq(
         self,
         low: float = 0.0,
         mid: float = 0.0,
         high: float = 0.0,
-        sub: float = 0.0,
-        air: float = 0.0,
     ) -> None:
         with self._lock:
-            self._target_sub_gain = max(-12.0, min(12.0, float(sub)))
             self._target_low_gain = max(-12.0, min(12.0, float(low)))
             self._target_mid_gain = max(-12.0, min(12.0, float(mid)))
             self._target_high_gain = max(-12.0, min(12.0, float(high)))
-            self._target_air_gain = max(-12.0, min(12.0, float(air)))
 
     def set_filter_preset(self, preset: dict[str, float] | None = None) -> None:
         data = preset or {}
@@ -362,7 +341,6 @@ class LivePCMTransform(discord.AudioSource):
             self._target_playback_rate = max(0.5, min(1.5, float(data.get("playback_rate", 1.0))))
             self._target_reverb_mix = max(0.0, min(0.55, float(data.get("reverb_mix", 0.0))))
             self._target_reverb_decay = max(0.0, min(0.75, float(data.get("reverb_decay", 0.0))))
-            self._target_preset_stereo_width = max(0.65, min(1.45, float(data.get("stereo_width", 1.0))))
 
     def read(self) -> bytes:
         frames_out = self._ensure_frames_for_rate(self._current_playback_rate)
@@ -376,14 +354,9 @@ class LivePCMTransform(discord.AudioSource):
             self._current_lowpass_hz = self._slew(self._current_lowpass_hz, self._target_lowpass_hz, 0.18)
             self._current_highpass_mix = self._slew(self._current_highpass_mix, self._target_highpass_mix, 0.2)
             self._current_lowpass_mix = self._slew(self._current_lowpass_mix, self._target_lowpass_mix, 0.2)
-            self._current_sub_gain = self._slew(self._current_sub_gain, self._target_sub_gain, 0.16)
             self._current_low_gain = self._slew(self._current_low_gain, self._target_low_gain, 0.16)
             self._current_mid_gain = self._slew(self._current_mid_gain, self._target_mid_gain, 0.16)
             self._current_high_gain = self._slew(self._current_high_gain, self._target_high_gain, 0.16)
-            self._current_air_gain = self._slew(self._current_air_gain, self._target_air_gain, 0.16)
-            self._current_tone_presence_gain = self._slew(self._current_tone_presence_gain, self._target_tone_presence_gain, 0.16)
-            self._current_stereo_width = self._slew(self._current_stereo_width, self._target_stereo_width, 0.12)
-            self._current_preset_stereo_width = self._slew(self._current_preset_stereo_width, self._target_preset_stereo_width, 0.12)
             self._current_presence_gain = self._slew(self._current_presence_gain, self._target_presence_gain, 0.16)
             self._current_preset_highpass_hz = self._slew(self._current_preset_highpass_hz, self._target_preset_highpass_hz, 0.18)
             self._current_preset_lowpass_hz = self._slew(self._current_preset_lowpass_hz, self._target_preset_lowpass_hz, 0.18)
@@ -400,12 +373,9 @@ class LivePCMTransform(discord.AudioSource):
 
             self._highpass.configure("highpass", self._current_highpass_hz)
             self._lowpass.configure("lowpass", self._current_lowpass_hz)
-            self._sub_eq.configure("low_shelf", 62.0, gain_db=self._current_sub_gain)
             self._low_eq.configure("low_shelf", 120.0, gain_db=self._current_low_gain)
             self._mid_eq.configure("peaking", 1000.0, gain_db=self._current_mid_gain, q=0.95)
             self._high_eq.configure("high_shelf", 8000.0, gain_db=self._current_high_gain)
-            self._air_eq.configure("high_shelf", 12_000.0, gain_db=self._current_air_gain)
-            self._tone_presence_eq.configure("peaking", 3500.0, gain_db=self._current_tone_presence_gain, q=1.05)
             self._presence_eq.configure("peaking", 2500.0, gain_db=self._current_presence_gain, q=1.2)
             self._preset_highpass.configure("highpass", self._current_preset_highpass_hz)
             self._preset_lowpass.configure("lowpass", self._current_preset_lowpass_hz)
@@ -419,13 +389,12 @@ class LivePCMTransform(discord.AudioSource):
             preset_highpass_mix = self._current_preset_highpass_mix
             preset_lowpass_mix = self._current_preset_lowpass_mix
             playback_rate = self._current_playback_rate
-            stereo_width = max(0.65, min(1.45, self._current_stereo_width * self._current_preset_stereo_width))
 
             if self._source_ended:
                 available = max(0.0, self._buffer_frames() - self._buffer_cursor - 1.0)
-                if available <= 0.0:
+                needed_for_full_chunk = frames_out * max(0.5, playback_rate)
+                if available < needed_for_full_chunk:
                     return b""
-                frames_out = min(frames_out, max(1, int(available / max(0.5, playback_rate))))
 
             for _ in range(frames_out):
                 dry_left, dry_right = self._sample_at(self._buffer_cursor)
@@ -433,9 +402,6 @@ class LivePCMTransform(discord.AudioSource):
                 left = dry_left
                 right = dry_right
 
-                if self._sub_eq.enabled:
-                    left = self._sub_eq.process_left(left)
-                    right = self._sub_eq.process_right(right)
                 if self._low_eq.enabled:
                     left = self._low_eq.process_left(left)
                     right = self._low_eq.process_right(right)
@@ -445,12 +411,6 @@ class LivePCMTransform(discord.AudioSource):
                 if self._high_eq.enabled:
                     left = self._high_eq.process_left(left)
                     right = self._high_eq.process_right(right)
-                if self._air_eq.enabled:
-                    left = self._air_eq.process_left(left)
-                    right = self._air_eq.process_right(right)
-                if self._tone_presence_eq.enabled:
-                    left = self._tone_presence_eq.process_left(left)
-                    right = self._tone_presence_eq.process_right(right)
                 if self._presence_eq.enabled:
                     left = self._presence_eq.process_left(left)
                     right = self._presence_eq.process_right(right)
@@ -515,12 +475,6 @@ class LivePCMTransform(discord.AudioSource):
                     dry_gain = 1.0 - (self._current_reverb_mix * 0.22)
                     left = (left * dry_gain) + (wet_left * self._current_reverb_mix)
                     right = (right * dry_gain) + (wet_right * self._current_reverb_mix)
-
-                if abs(stereo_width - 1.0) > 1e-4:
-                    mid = (left + right) * 0.5
-                    side = ((left - right) * 0.5) * stereo_width
-                    left = mid + side
-                    right = mid - side
 
                 if abs(volume - 1.0) > 1e-6:
                     left *= volume
