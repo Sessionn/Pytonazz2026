@@ -162,11 +162,19 @@ class MusicPlayer:
             if hasattr(self.vc.source, "set_filter_preset"):
                 self.vc.source.set_filter_preset(combine_live_filter_preset(self.base_filter_name, self.active_fx_names))
             if hasattr(self.vc.source, "set_eq"):
-                self.vc.source.set_eq(self.eq["low"], self.eq["mid"], self.eq["high"])
+                self.vc.source.set_eq(
+                    low=self.eq.get("low", 0.0),
+                    mid=self.eq.get("mid", 0.0),
+                    high=self.eq.get("high", 0.0),
+                    sub=self.eq.get("sub", 0.0),
+                    air=self.eq.get("air", 0.0),
+                )
             if hasattr(self.vc.source, "set_tone_filters"):
                 self.vc.source.set_tone_filters(
                     self.tone_filters["highpass_hz"],
                     self.tone_filters["lowpass_hz"],
+                    self.tone_filters.get("presence_gain", 0.0),
+                    self.tone_filters.get("stereo_width", 1.0),
                 )
         if notify:
             self._notify_state_change()
@@ -268,9 +276,11 @@ class MusicPlayer:
         self.eq = normalize_eq(eq_values)
         if self.vc and self.vc.source and hasattr(self.vc.source, "set_eq"):
             self.vc.source.set_eq(
-                self.eq["low"],
-                self.eq["mid"],
-                self.eq["high"],
+                low=self.eq.get("low", 0.0),
+                mid=self.eq.get("mid", 0.0),
+                high=self.eq.get("high", 0.0),
+                sub=self.eq.get("sub", 0.0),
+                air=self.eq.get("air", 0.0),
             )
         self._notify_state_change()
 
@@ -280,6 +290,8 @@ class MusicPlayer:
             self.vc.source.set_tone_filters(
                 self.tone_filters["highpass_hz"],
                 self.tone_filters["lowpass_hz"],
+                self.tone_filters.get("presence_gain", 0.0),
+                self.tone_filters.get("stereo_width", 1.0),
             )
         self._notify_state_change()
 
@@ -560,11 +572,15 @@ class MusicPlayer:
             source.set_tone_filters(
                 self.tone_filters["highpass_hz"],
                 self.tone_filters["lowpass_hz"],
+                self.tone_filters.get("presence_gain", 0.0),
+                self.tone_filters.get("stereo_width", 1.0),
             )
             source.set_eq(
-                self.eq["low"],
-                self.eq["mid"],
-                self.eq["high"],
+                low=self.eq.get("low", 0.0),
+                mid=self.eq.get("mid", 0.0),
+                high=self.eq.get("high", 0.0),
+                sub=self.eq.get("sub", 0.0),
+                air=self.eq.get("air", 0.0),
             )
             source.set_filter_preset(combine_live_filter_preset(self.base_filter_name, self.active_fx_names))
 

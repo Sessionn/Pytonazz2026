@@ -21,21 +21,33 @@ const els = {
   volumeValue: document.getElementById("volume-value"),
   resetMixerButton: document.getElementById("reset-mixer-button"),
   queue: document.getElementById("queue-list"),
+  eqSub: document.getElementById("eq-sub"),
+  eqSubHandle: document.getElementById("eq-sub-handle"),
   eqLow: document.getElementById("eq-low"),
   eqLowHandle: document.getElementById("eq-low-handle"),
   eqMid: document.getElementById("eq-mid"),
   eqMidHandle: document.getElementById("eq-mid-handle"),
   eqHigh: document.getElementById("eq-high"),
   eqHighHandle: document.getElementById("eq-high-handle"),
+  eqAir: document.getElementById("eq-air"),
+  eqAirHandle: document.getElementById("eq-air-handle"),
   fxHighpass: document.getElementById("fx-highpass"),
   fxLowpass: document.getElementById("fx-lowpass"),
+  fxPresence: document.getElementById("fx-presence"),
+  fxWidth: document.getElementById("fx-width"),
   fxHighpassKnob: document.getElementById("fx-highpass-knob"),
   fxLowpassKnob: document.getElementById("fx-lowpass-knob"),
+  fxPresenceKnob: document.getElementById("fx-presence-knob"),
+  fxWidthKnob: document.getElementById("fx-width-knob"),
+  eqSubValue: document.getElementById("eq-sub-value"),
   eqLowValue: document.getElementById("eq-low-value"),
   eqMidValue: document.getElementById("eq-mid-value"),
   eqHighValue: document.getElementById("eq-high-value"),
+  eqAirValue: document.getElementById("eq-air-value"),
   fxHighpassValue: document.getElementById("fx-highpass-value"),
   fxLowpassValue: document.getElementById("fx-lowpass-value"),
+  fxPresenceValue: document.getElementById("fx-presence-value"),
+  fxWidthValue: document.getElementById("fx-width-value"),
   platterWrap: document.getElementById("platter-wrap"),
   platterDisc: document.getElementById("platter-disc"),
 };
@@ -59,13 +71,31 @@ const lastTapAt = new WeakMap();
 const draggingInputs = new Set();
 
 const EQ_SCENES = {
-  flat: { low: 0, mid: 0, high: 0 },
-  club: { low: 5, mid: -1.5, high: 4 },
-  warm: { low: 3.5, mid: 1.5, high: -2 },
-  air: { low: -1, mid: 0.5, high: 5.5 },
-  "kill-low": { low: -12, mid: 0, high: 0 },
-  "kill-high": { low: 0, mid: 0, high: -12 },
+  flat: { sub: 0, low: 0, mid: 0, high: 0, air: 0 },
+  club: { sub: 2.5, low: 4.5, mid: -1.5, high: 3.5, air: 1.5 },
+  warm: { sub: 1.5, low: 3.5, mid: 1.5, high: -2, air: -1 },
+  air: { sub: -1.5, low: -1, mid: 0.5, high: 3.5, air: 5.5 },
+  vocal: { sub: -2, low: -1, mid: 2.5, high: 1.5, air: 1 },
+  lofi: { sub: 1, low: 2.5, mid: -0.5, high: -4, air: -5 },
+  "bass-tight": { sub: 3.5, low: 2, mid: -1, high: 0, air: 0 },
+  "kill-low": { sub: -12, low: -12, mid: 0, high: 0, air: 0 },
+  "kill-high": { sub: 0, low: 0, mid: 0, high: -12, air: -12 },
 };
+
+const EQ_BANDS = [
+  { key: "sub", input: "eqSub", handle: "eqSubHandle", value: "eqSubValue" },
+  { key: "low", input: "eqLow", handle: "eqLowHandle", value: "eqLowValue" },
+  { key: "mid", input: "eqMid", handle: "eqMidHandle", value: "eqMidValue" },
+  { key: "high", input: "eqHigh", handle: "eqHighHandle", value: "eqHighValue" },
+  { key: "air", input: "eqAir", handle: "eqAirHandle", value: "eqAirValue" },
+];
+
+const TONE_CONTROLS = [
+  { key: "highpass_hz", input: "fxHighpass", knob: "fxHighpassKnob", value: "fxHighpassValue", defaultValue: 0 },
+  { key: "lowpass_hz", input: "fxLowpass", knob: "fxLowpassKnob", value: "fxLowpassValue", defaultValue: 20000 },
+  { key: "presence_gain", input: "fxPresence", knob: "fxPresenceKnob", value: "fxPresenceValue", defaultValue: 0 },
+  { key: "stereo_width", input: "fxWidth", knob: "fxWidthKnob", value: "fxWidthValue", defaultValue: 1 },
+];
 
 const FILTER_LABELS = {
   off: "Off",
@@ -77,6 +107,8 @@ const FILTER_LABELS = {
   vocalboost: "Vocal Boost",
   radio: "Radio / Phone",
   reverb: "Reverb",
+  echo: "Echo",
+  wide: "Wide Stereo",
   night: "Night Mode",
 };
 
@@ -128,7 +160,7 @@ function setActiveButton(selector, predicate) {
 }
 
 function summarizeTone(eq) {
-  const values = [eq.low || 0, eq.mid || 0, eq.high || 0];
+  const values = EQ_BANDS.map((band) => eq[band.key] || 0);
   const peak = Math.max(...values.map((value) => Math.abs(value)));
   if (peak < 0.25) return "flat";
   const boosted = values.filter((value) => value > 1.5).length;
@@ -139,9 +171,7 @@ function summarizeTone(eq) {
 }
 
 function eqMatches(a, b) {
-  return Number(a.low || 0) === Number(b.low || 0) &&
-    Number(a.mid || 0) === Number(b.mid || 0) &&
-    Number(a.high || 0) === Number(b.high || 0);
+  return EQ_BANDS.every((band) => Number(a[band.key] || 0) === Number(b[band.key] || 0));
 }
 
 function setPlaybackVisual(stateName) {
@@ -301,12 +331,13 @@ function updateVolumeReadout() {
 }
 
 function updateEqValueLabels() {
-  els.eqLowValue.textContent = `${getControlValue(els.eqLow).toFixed(1)} dB`;
-  els.eqMidValue.textContent = `${getControlValue(els.eqMid).toFixed(1)} dB`;
-  els.eqHighValue.textContent = `${getControlValue(els.eqHigh).toFixed(1)} dB`;
-  setFaderHandlePosition(els.eqLowHandle, els.eqLow);
-  setFaderHandlePosition(els.eqMidHandle, els.eqMid);
-  setFaderHandlePosition(els.eqHighHandle, els.eqHigh);
+  EQ_BANDS.forEach((band) => {
+    const input = els[band.input];
+    const value = els[band.value];
+    if (!input || !value) return;
+    value.textContent = `${getControlValue(input).toFixed(1)} dB`;
+    setFaderHandlePosition(els[band.handle], input);
+  });
 }
 
 function cancelEqAnimation() {
@@ -339,8 +370,12 @@ function setKnobAngle(knob, input) {
 function updateToneValueLabels() {
   els.fxHighpassValue.textContent = formatHighpass(getControlValue(els.fxHighpass));
   els.fxLowpassValue.textContent = formatLowpass(getControlValue(els.fxLowpass));
+  els.fxPresenceValue.textContent = `${getControlValue(els.fxPresence).toFixed(1)} dB`;
+  els.fxWidthValue.textContent = `${Math.round(getControlValue(els.fxWidth) * 100)}%`;
   setKnobAngle(els.fxHighpassKnob, els.fxHighpass);
   setKnobAngle(els.fxLowpassKnob, els.fxLowpass);
+  setKnobAngle(els.fxPresenceKnob, els.fxPresence);
+  setKnobAngle(els.fxWidthKnob, els.fxWidth);
 }
 
 function syncPlatterMotion(next) {
@@ -500,38 +535,32 @@ function render(next) {
   renderQueue(next.queue || []);
 
   const eq = next.eq || { low: 0, mid: 0, high: 0 };
-  const toneFilters = next.tone_filters || { highpass_hz: 0, lowpass_hz: 20000 };
+  const toneFilters = next.tone_filters || { highpass_hz: 0, lowpass_hz: 20000, presence_gain: 0, stereo_width: 1 };
   els.toneSummary.textContent = summarizeTone(eq);
 
   if (!draggingInputs.has(els.volume)) {
     setControlValue(els.volume, next.volume ?? 0.5);
     updateVolumeReadout();
   }
-  if (!draggingInputs.has(els.eqLow)) {
-    setControlValue(els.eqLow, eq.low ?? 0);
-  }
-  if (!draggingInputs.has(els.eqMid)) {
-    setControlValue(els.eqMid, eq.mid ?? 0);
-  }
-  if (!draggingInputs.has(els.eqHigh)) {
-    setControlValue(els.eqHigh, eq.high ?? 0);
-  }
-  if (!draggingInputs.has(els.fxHighpass)) {
-    setControlValue(els.fxHighpass, toneFilters.highpass_hz ?? 0);
-  }
-  if (!draggingInputs.has(els.fxLowpass)) {
-    setControlValue(els.fxLowpass, toneFilters.lowpass_hz ?? 20000);
-  }
+  EQ_BANDS.forEach((band) => {
+    const input = els[band.input];
+    if (input && !draggingInputs.has(input)) {
+      setControlValue(input, eq[band.key] ?? 0);
+    }
+  });
+  TONE_CONTROLS.forEach((control) => {
+    const input = els[control.input];
+    if (input && !draggingInputs.has(input)) {
+      setControlValue(input, toneFilters[control.key] ?? control.defaultValue);
+    }
+  });
 
   updateEqValueLabels();
   updateToneValueLabels();
 
   setActiveButton("[data-eq-scene]", (button) => {
     const scene = EQ_SCENES[button.dataset.eqScene];
-    return scene &&
-      Number(scene.low) === Number(eq.low || 0) &&
-      Number(scene.mid) === Number(eq.mid || 0) &&
-      Number(scene.high) === Number(eq.high || 0);
+    return scene && eqMatches(scene, eq);
   });
 
   if (current && current.thumbnail) {
@@ -582,26 +611,20 @@ const liveToneSender = makeContinuousSender("set_tone_filters", () => ({
   tone_filters: {
     highpass_hz: getControlValue(els.fxHighpass),
     lowpass_hz: getControlValue(els.fxLowpass),
+    presence_gain: getControlValue(els.fxPresence),
+    stereo_width: getControlValue(els.fxWidth),
   },
 }));
 
 const liveEqSender = makeContinuousSender("set_eq", () => ({
-  eq: {
-    low: getControlValue(els.eqLow),
-    mid: getControlValue(els.eqMid),
-    high: getControlValue(els.eqHigh),
-  },
+  eq: Object.fromEntries(EQ_BANDS.map((band) => [band.key, getControlValue(els[band.input])])),
 }));
 
 function sendEqNow() {
   clearTimeout(sendEqTimer);
   sendEqTimer = null;
   return postAction("set_eq", {
-    eq: {
-      low: getControlValue(els.eqLow),
-      mid: getControlValue(els.eqMid),
-      high: getControlValue(els.eqHigh),
-    },
+    eq: Object.fromEntries(EQ_BANDS.map((band) => [band.key, getControlValue(els[band.input])])),
   });
 }
 
@@ -628,13 +651,17 @@ function animateControlTo(input, targetValue, { onFrame, onDone, durationMs = 26
 function resetEqBand(input) {
   cancelEqAnimation();
   const targetEq = {
+    sub: getControlValue(els.eqSub),
     low: getControlValue(els.eqLow),
     mid: getControlValue(els.eqMid),
     high: getControlValue(els.eqHigh),
+    air: getControlValue(els.eqAir),
   };
-  if (input === els.eqLow) targetEq.low = readDefaultValue(input);
-  if (input === els.eqMid) targetEq.mid = readDefaultValue(input);
-  if (input === els.eqHigh) targetEq.high = readDefaultValue(input);
+  EQ_BANDS.forEach((band) => {
+    if (input === els[band.input]) {
+      targetEq[band.key] = readDefaultValue(input);
+    }
+  });
   animateEqTo(targetEq, 300);
 }
 
@@ -673,16 +700,16 @@ function easeOutQuart(t) {
 function animateEqTo(targetEq, durationMs = 320) {
   cancelEqAnimation();
   const start = performance.now();
-  const startLow = getControlValue(els.eqLow);
-  const startMid = getControlValue(els.eqMid);
-  const startHigh = getControlValue(els.eqHigh);
+  const starts = Object.fromEntries(EQ_BANDS.map((band) => [band.key, getControlValue(els[band.input])]));
 
   function step(now) {
     const t = Math.min(1, (now - start) / durationMs);
     const eased = easeOutQuart(t);
-    setControlValue(els.eqLow, startLow + ((Number(targetEq.low) - startLow) * eased));
-    setControlValue(els.eqMid, startMid + ((Number(targetEq.mid) - startMid) * eased));
-    setControlValue(els.eqHigh, startHigh + ((Number(targetEq.high) - startHigh) * eased));
+    EQ_BANDS.forEach((band) => {
+      const startValue = starts[band.key] ?? 0;
+      const targetValue = Number(targetEq[band.key] ?? 0);
+      setControlValue(els[band.input], startValue + ((targetValue - startValue) * eased));
+    });
     updateEqValueLabels();
     liveEqSender();
     if (t < 1) {
@@ -869,6 +896,8 @@ els.resetMixerButton?.addEventListener("click", async () => {
   });
   setControlValue(els.fxHighpass, 0);
   setControlValue(els.fxLowpass, 20000);
+  setControlValue(els.fxPresence, 0);
+  setControlValue(els.fxWidth, 1);
   updateToneValueLabels();
   animateEqTo(EQ_SCENES.flat, 240);
   await postAction("set_base_filter", { filter_name: "off" });
@@ -878,8 +907,10 @@ els.resetMixerButton?.addEventListener("click", async () => {
     postAction("toggle_filter_fx", { fx_name: "vocalboost", enabled: false }),
     postAction("toggle_filter_fx", { fx_name: "radio", enabled: false }),
     postAction("toggle_filter_fx", { fx_name: "reverb", enabled: false }),
+    postAction("toggle_filter_fx", { fx_name: "echo", enabled: false }),
+    postAction("toggle_filter_fx", { fx_name: "wide", enabled: false }),
     postAction("toggle_filter_fx", { fx_name: "8d", enabled: false }),
-    postAction("set_tone_filters", { tone_filters: { highpass_hz: 0, lowpass_hz: 20000 } }),
+    postAction("set_tone_filters", { tone_filters: { highpass_hz: 0, lowpass_hz: 20000, presence_gain: 0, stereo_width: 1 } }),
   ]);
 });
 
@@ -895,46 +926,20 @@ setupVerticalDrag(els.volumeHandle, els.volume, {
   onReset: resetVolume,
 });
 
-setupVerticalDrag(els.eqLowHandle, els.eqLow, {
-  onChange: () => {
-    updateEqValueLabels();
-    cancelEqAnimation();
-    liveEqSender();
-  },
-  onCommit: () => {
-    updateEqValueLabels();
-    cancelEqAnimation();
-    void sendEqNow();
-  },
-  onReset: () => resetEqBand(els.eqLow),
-});
-
-setupVerticalDrag(els.eqMidHandle, els.eqMid, {
-  onChange: () => {
-    updateEqValueLabels();
-    cancelEqAnimation();
-    liveEqSender();
-  },
-  onCommit: () => {
-    updateEqValueLabels();
-    cancelEqAnimation();
-    void sendEqNow();
-  },
-  onReset: () => resetEqBand(els.eqMid),
-});
-
-setupVerticalDrag(els.eqHighHandle, els.eqHigh, {
-  onChange: () => {
-    updateEqValueLabels();
-    cancelEqAnimation();
-    liveEqSender();
-  },
-  onCommit: () => {
-    updateEqValueLabels();
-    cancelEqAnimation();
-    void sendEqNow();
-  },
-  onReset: () => resetEqBand(els.eqHigh),
+EQ_BANDS.forEach((band) => {
+  setupVerticalDrag(els[band.handle], els[band.input], {
+    onChange: () => {
+      updateEqValueLabels();
+      cancelEqAnimation();
+      liveEqSender();
+    },
+    onCommit: () => {
+      updateEqValueLabels();
+      cancelEqAnimation();
+      void sendEqNow();
+    },
+    onReset: () => resetEqBand(els[band.input]),
+  });
 });
 
 setupKnobDrag(els.fxHighpassKnob, els.fxHighpass, {
@@ -961,6 +966,30 @@ setupKnobDrag(els.fxLowpassKnob, els.fxLowpass, {
   onReset: () => resetToneBand(els.fxLowpass),
 });
 
+setupKnobDrag(els.fxPresenceKnob, els.fxPresence, {
+  onChange: () => {
+    updateToneValueLabels();
+    liveToneSender();
+  },
+  onCommit: () => {
+    updateToneValueLabels();
+    liveToneSender();
+  },
+  onReset: () => resetToneBand(els.fxPresence),
+});
+
+setupKnobDrag(els.fxWidthKnob, els.fxWidth, {
+  onChange: () => {
+    updateToneValueLabels();
+    liveToneSender();
+  },
+  onCommit: () => {
+    updateToneValueLabels();
+    liveToneSender();
+  },
+  onReset: () => resetToneBand(els.fxWidth),
+});
+
 document.querySelectorAll("[data-eq-scene]").forEach((button) => {
   button.addEventListener("click", () => {
     const scene = EQ_SCENES[button.dataset.eqScene];
@@ -969,7 +998,7 @@ document.querySelectorAll("[data-eq-scene]").forEach((button) => {
   });
 });
 
-[els.volumeHandle, els.eqLowHandle, els.eqMidHandle, els.eqHighHandle].forEach((handle) => {
+[els.volumeHandle, ...EQ_BANDS.map((band) => els[band.handle])].forEach((handle) => {
   handle.addEventListener("pointerup", () => {
     const now = performance.now();
     const previous = lastTapAt.get(handle) || 0;
@@ -982,7 +1011,7 @@ document.querySelectorAll("[data-eq-scene]").forEach((button) => {
   });
 });
 
-[els.fxHighpassKnob, els.fxLowpassKnob].forEach((knob) => {
+[els.fxHighpassKnob, els.fxLowpassKnob, els.fxPresenceKnob, els.fxWidthKnob].forEach((knob) => {
   knob.addEventListener("pointerup", () => {
     const now = performance.now();
     const previous = lastTapAt.get(knob) || 0;

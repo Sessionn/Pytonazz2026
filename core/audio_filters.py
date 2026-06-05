@@ -10,6 +10,8 @@ FILTER_PRESETS: dict[str, tuple[str | None, str]] = {
     "vocalboost": ("equalizer=f=2500:t=q:w=1.2:g=5", "Vocal Boost"),
     "radio": ("highpass=f=300,lowpass=f=3200", "Radio / Phone"),
     "reverb": ("aecho=0.8:0.88:60|120:0.22|0.12", "Reverb"),
+    "echo": ("aecho=0.8:0.82:140|230:0.32|0.18", "Echo"),
+    "wide": (None, "Wide Stereo"),
     "night": (
         "acompressor=threshold=0.22:ratio=2.5:attack=5:release=120,alimiter=limit=0.93",
         "Night Mode",
@@ -129,10 +131,35 @@ LIVE_FILTER_PRESETS: dict[str, dict[str, float]] = {
         "reverb_mix": 0.22,
         "reverb_decay": 0.42,
     },
+    "echo": {
+        "low_gain": 0.0,
+        "mid_gain": 0.0,
+        "high_gain": 0.0,
+        "presence_gain": 0.0,
+        "highpass_hz": 0.0,
+        "lowpass_hz": 17000.0,
+        "pan_rate_hz": 0.0,
+        "pan_depth": 0.0,
+        "playback_rate": 1.0,
+        "reverb_mix": 0.34,
+        "reverb_decay": 0.58,
+    },
+    "wide": {
+        "low_gain": 0.0,
+        "mid_gain": 0.0,
+        "high_gain": 0.0,
+        "presence_gain": 0.0,
+        "highpass_hz": 0.0,
+        "lowpass_hz": 20000.0,
+        "pan_rate_hz": 0.0,
+        "pan_depth": 0.0,
+        "playback_rate": 1.0,
+        "stereo_width": 1.28,
+    },
 }
 
 BASE_FILTER_NAMES = ("off", "nightcore", "vaporwave", "night")
-FX_FILTER_NAMES = ("bassboost", "trebleboost", "vocalboost", "radio", "reverb", "8d")
+FX_FILTER_NAMES = ("bassboost", "trebleboost", "vocalboost", "radio", "reverb", "echo", "wide", "8d")
 
 FILTER_COMPATIBILITY: dict[str, set[str]] = {
     "off": set(FX_FILTER_NAMES),
@@ -141,8 +168,13 @@ FILTER_COMPATIBILITY: dict[str, set[str]] = {
     "night": set(FX_FILTER_NAMES),
 }
 
-EQ_DEFAULT = {"low": 0.0, "mid": 0.0, "high": 0.0}
-TONE_FILTER_DEFAULT = {"highpass_hz": 0.0, "lowpass_hz": 20000.0}
+EQ_DEFAULT = {"sub": 0.0, "low": 0.0, "mid": 0.0, "high": 0.0, "air": 0.0}
+TONE_FILTER_DEFAULT = {
+    "highpass_hz": 0.0,
+    "lowpass_hz": 20000.0,
+    "presence_gain": 0.0,
+    "stereo_width": 1.0,
+}
 
 
 def is_base_filter(name: str) -> bool:
@@ -208,9 +240,11 @@ def combine_live_filter_preset(base_filter_name: str, fx_names: list[str] | tupl
         combined["playback_rate"] = float(combined.get("playback_rate", 1.0)) * float(fx_preset.get("playback_rate", 1.0))
         combined["reverb_mix"] = max(float(combined.get("reverb_mix", 0.0)), float(fx_preset.get("reverb_mix", 0.0)))
         combined["reverb_decay"] = max(float(combined.get("reverb_decay", 0.0)), float(fx_preset.get("reverb_decay", 0.0)))
+        combined["stereo_width"] = max(float(combined.get("stereo_width", 1.0)), float(fx_preset.get("stereo_width", 1.0)))
     combined["playback_rate"] = max(0.5, min(1.5, float(combined.get("playback_rate", 1.0))))
     combined["reverb_mix"] = max(0.0, min(0.55, float(combined.get("reverb_mix", 0.0))))
     combined["reverb_decay"] = max(0.0, min(0.75, float(combined.get("reverb_decay", 0.0))))
+    combined["stereo_width"] = max(0.65, min(1.45, float(combined.get("stereo_width", 1.0))))
     return combined
 
 
@@ -250,6 +284,16 @@ def normalize_tone_filters(values: dict | None) -> dict[str, float]:
 
     if 0.0 < data["highpass_hz"] < 20.0:
         data["highpass_hz"] = 20.0
+    try:
+        presence = float(values.get("presence_gain", 0.0))
+    except (TypeError, ValueError):
+        presence = 0.0
+    try:
+        width = float(values.get("stereo_width", 1.0))
+    except (TypeError, ValueError):
+        width = 1.0
+    data["presence_gain"] = max(-8.0, min(8.0, presence))
+    data["stereo_width"] = max(0.65, min(1.45, width))
     return data
 
 

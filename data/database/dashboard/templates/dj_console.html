@@ -109,14 +109,16 @@
             </div>
             <div class="tone-grid">
               <div class="control-stack">
-                <label>FX EQ</label>
-                <p class="control-help">Cumulabili quando compatibili con il filtro base.</p>
+                <label>FX</label>
+                <p class="control-help">Layer cumulabili: EQ, spazio, delay e 8D.</p>
                 <div class="fx-pad-grid" id="fx-toggle-grid">
                   <button data-filter-fx="bassboost">Bass</button>
                   <button data-filter-fx="trebleboost">Treble</button>
                   <button data-filter-fx="vocalboost">Vocal</button>
                   <button data-filter-fx="radio">Radio</button>
                   <button data-filter-fx="reverb">Reverb</button>
+                  <button data-filter-fx="echo">Echo</button>
+                  <button data-filter-fx="wide">Wide</button>
                   <button data-filter-fx="8d">8D Audio</button>
                 </div>
               </div>
@@ -124,12 +126,15 @@
             <div class="tone-grid">
               <div class="control-stack">
                 <label>Tone Scenes</label>
-                <p class="control-help">Preset rapidi: muovono solo Low, Mid e High.</p>
+                <p class="control-help">Preset rapidi: muovono Sub, Low, Mid, High e Air.</p>
                 <div class="fx-pad-grid">
                   <button data-eq-scene="flat">Flat</button>
                   <button data-eq-scene="club">Club</button>
                   <button data-eq-scene="warm">Warm</button>
                   <button data-eq-scene="air">Air</button>
+                  <button data-eq-scene="vocal">Vocal</button>
+                  <button data-eq-scene="lofi">Lofi</button>
+                  <button data-eq-scene="bass-tight">Bass Tight</button>
                   <button data-eq-scene="kill-low">Kill Low</button>
                   <button data-eq-scene="kill-high">Kill High</button>
                 </div>
@@ -164,9 +169,37 @@
                   <span class="knob-label">Low Pass</span>
                   <span id="fx-lowpass-value" class="knob-value">off</span>
                 </div>
+                <div class="knob-unit">
+                  <div class="knob-shell">
+                    <div id="fx-presence-knob" class="fx-knob" style="--knob-angle: 0deg;">
+                      <span class="knob-marker"></span>
+                      <input id="fx-presence" class="knob-hitbox" type="range" min="-8" max="8" step="0.5" value="0" data-default="0">
+                    </div>
+                  </div>
+                  <span class="knob-label">Presence</span>
+                  <span id="fx-presence-value" class="knob-value">0 dB</span>
+                </div>
+                <div class="knob-unit">
+                  <div class="knob-shell">
+                    <div id="fx-width-knob" class="fx-knob" style="--knob-angle: 0deg;">
+                      <span class="knob-marker"></span>
+                      <input id="fx-width" class="knob-hitbox" type="range" min="0.65" max="1.45" step="0.05" value="1" data-default="1">
+                    </div>
+                  </div>
+                  <span class="knob-label">Width</span>
+                  <span id="fx-width-value" class="knob-value">100%</span>
+                </div>
               </div>
             </div>
             <div class="eq-grid">
+              <div class="eq-band">
+                <label for="eq-sub">Sub</label>
+                <div class="fader-slot eq-slot">
+                  <input id="eq-sub" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" value="0" orient="vertical" data-default="0">
+                  <button id="eq-sub-handle" class="fader-handle" type="button" aria-label="Sub EQ fader handle"></button>
+                </div>
+                <span id="eq-sub-value">0 dB</span>
+              </div>
               <div class="eq-band">
                 <label for="eq-low">Low</label>
                 <div class="fader-slot eq-slot">
@@ -190,6 +223,14 @@
                   <button id="eq-high-handle" class="fader-handle" type="button" aria-label="High EQ fader handle"></button>
                 </div>
                 <span id="eq-high-value">0 dB</span>
+              </div>
+              <div class="eq-band">
+                <label for="eq-air">Air</label>
+                <div class="fader-slot eq-slot">
+                  <input id="eq-air" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" value="0" orient="vertical" data-default="0">
+                  <button id="eq-air-handle" class="fader-handle" type="button" aria-label="Air EQ fader handle"></button>
+                </div>
+                <span id="eq-air-value">0 dB</span>
               </div>
             </div>
           </div>

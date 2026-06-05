@@ -1862,3 +1862,101 @@ body::before {
     min-height: auto;
   }
 }
+
+/* Night-mode visual tuning requested after hands-on test. */
+:root {
+  --accent: #ff8a3d;
+  --accent-2: #76a9ff;
+  --ok: #73d0ff;
+  --ok-glow: rgba(115, 208, 255, 0.36);
+}
+
+.platter-panel {
+  grid-template-rows: auto auto auto;
+  align-content: start;
+}
+
+.progress-block {
+  margin-top: 6px;
+}
+
+.progress-track {
+  height: 10px;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+#progress-fill {
+  background: linear-gradient(90deg, #76a9ff, #ff8a3d);
+  box-shadow: 0 0 18px rgba(118, 169, 255, 0.18);
+}
+
+.filter-button-grid button.is-active,
+.fx-pad-grid button.is-active,
+.filter-button-grid button[aria-pressed="true"],
+.fx-pad-grid button[aria-pressed="true"] {
+  color: #f8fafc;
+  border-color: rgba(118, 169, 255, 0.62);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.03)),
+    linear-gradient(135deg, rgba(58, 95, 170, 0.92), rgba(255, 138, 61, 0.82));
+  box-shadow: 0 0 0 1px rgba(118,169,255,0.14), 0 12px 28px rgba(0,0,0,0.2);
+}
+
+.platter-disc {
+  background:
+    repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,0.07) 0 1px, rgba(0,0,0,0.03) 1px 5px),
+    #070a10;
+}
+
+.groove-layer {
+  opacity: 0.18;
+}
+
+.platter-shadow {
+  pointer-events: none;
+  z-index: 1;
+}
+
+.platter-disc {
+  z-index: 2;
+}
+
+.volume-well,
+.fader-slot {
+  width: 88px;
+}
+
+.eq-slot {
+  width: 78px;
+  min-height: 270px;
+}
+
+.eq-band {
+  min-height: 360px;
+}
+
+.eq-fader {
+  min-height: 236px;
+}
+
+.fader-handle {
+  width: 86px;
+}
+
+.knob-bank {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+@media (min-height: 920px) {
+  .eq-band {
+    min-height: 420px;
+  }
+
+  .eq-slot {
+    min-height: 320px;
+  }
+
+  .eq-fader {
+    min-height: 282px;
+  }
+}
