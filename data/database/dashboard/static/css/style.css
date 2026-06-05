@@ -708,6 +708,24 @@ main {
   content: "▾";
 }
 
+.table-toolbar {
+  padding: 12px 14px;
+  border-radius: 18px;
+}
+
+.table-toolbar::before {
+  width: 3px;
+  opacity: 0.72;
+}
+
+.table-toolbar .toolbar-main {
+  max-width: 720px;
+}
+
+.table-toolbar input {
+  min-height: 40px;
+}
+
 .btn,
 .theme-toggle,
 .icon-btn,

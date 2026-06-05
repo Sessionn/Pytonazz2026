@@ -640,12 +640,12 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         search = request.args.get("q", "").strip()
         source = request.args.get("source", "")
         valid = request.args.get("valid", "")
-        sort = request.args.get("sort", "hit_count")
+        sort = request.args.get("sort", "created_at")
         order = request.args.get("order", "desc")
 
-        allowed = {"hit_count", "created_at", "last_used", "title", "artist", "id"}
+        allowed = {"hit_count", "created_at", "last_used", "title", "artist", "query_raw", "id"}
         if sort not in allowed:
-            sort = "hit_count"
+            sort = "created_at"
         order = "DESC" if order == "desc" else "ASC"
 
         filters, params = [], []

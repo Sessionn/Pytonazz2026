@@ -184,8 +184,8 @@
               <th>Sorgente</th>
               <th>Cover</th>
               <th>Dur.</th>
-              <th data-col="hit_count" onclick="sortBy('hit_count')" class="sorted">Hits <span class="arrow">&#8595;</span></th>
-              <th data-col="created_at" onclick="sortBy('created_at')">Creata <span class="arrow">&#8597;</span></th>
+              <th data-col="hit_count" onclick="sortBy('hit_count')">Hits <span class="arrow">&#8597;</span></th>
+              <th data-col="created_at" onclick="sortBy('created_at')" class="sorted">Creata <span class="arrow">&#8595;</span></th>
               <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">&#8597;</span></th>
               <th>Stato</th>
               <th>Azioni</th>
@@ -204,15 +204,23 @@
         </div>
         <p>Vista rapida sugli alias esposti alla dashboard, derivata da <code>cache_queries</code>.</p>
       </div>
+      <div class="toolbar table-toolbar">
+        <div class="toolbar-main">
+          <input type="text" id="aliases-search" placeholder="Cerca alias, tipo, titolo o artista..." oninput="debouncedTableSearch('aliases')">
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost" onclick="clearTableSearch('aliases')">Reset</button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>#</th>
-              <th>Query originale</th>
-              <th>Tipo</th>
-              <th>Canzone associata</th>
-              <th>Cache ID</th>
+              <th data-table="aliases" data-col="id" onclick="sortTable('aliases', 'id')" class="sorted"># <span class="arrow">&#8595;</span></th>
+              <th data-table="aliases" data-col="query_raw" onclick="sortTable('aliases', 'query_raw')">Query originale <span class="arrow">&#8597;</span></th>
+              <th data-table="aliases" data-col="alias_type" onclick="sortTable('aliases', 'alias_type')">Tipo <span class="arrow">&#8597;</span></th>
+              <th data-table="aliases" data-col="title" onclick="sortTable('aliases', 'title')">Canzone associata <span class="arrow">&#8597;</span></th>
+              <th data-table="aliases" data-col="cache_id" onclick="sortTable('aliases', 'cache_id')">Cache ID <span class="arrow">&#8597;</span></th>
               <th>Azioni</th>
             </tr>
           </thead>
@@ -229,18 +237,26 @@
         </div>
         <p>Una riga per identita canonica del brano. Qui si separa il brano logico dalle sue singole sorgenti.</p>
       </div>
+      <div class="toolbar table-toolbar">
+        <div class="toolbar-main">
+          <input type="text" id="tracks-search" placeholder="Cerca titolo, artista o chiave normalizzata..." oninput="debouncedTableSearch('tracks')">
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost" onclick="clearTableSearch('tracks')">Reset</button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Titolo canonico</th>
-              <th>Artista canonico</th>
-              <th>Chiave normalizzata</th>
-              <th>Sorgenti</th>
-              <th>Query attive</th>
-              <th>Creata</th>
-              <th>Aggiornata</th>
+              <th data-table="tracks" data-col="id" onclick="sortTable('tracks', 'id')" class="sorted">ID <span class="arrow">&#8595;</span></th>
+              <th data-table="tracks" data-col="canonical_title" onclick="sortTable('tracks', 'canonical_title')">Titolo canonico <span class="arrow">&#8597;</span></th>
+              <th data-table="tracks" data-col="canonical_artist" onclick="sortTable('tracks', 'canonical_artist')">Artista canonico <span class="arrow">&#8597;</span></th>
+              <th data-table="tracks" data-col="normalized_query" onclick="sortTable('tracks', 'normalized_query')">Chiave normalizzata <span class="arrow">&#8597;</span></th>
+              <th data-table="tracks" data-col="source_count" onclick="sortTable('tracks', 'source_count')">Sorgenti <span class="arrow">&#8597;</span></th>
+              <th data-table="tracks" data-col="query_count" onclick="sortTable('tracks', 'query_count')">Query attive <span class="arrow">&#8597;</span></th>
+              <th data-table="tracks" data-col="created_at" onclick="sortTable('tracks', 'created_at')">Creata <span class="arrow">&#8597;</span></th>
+              <th data-table="tracks" data-col="updated_at" onclick="sortTable('tracks', 'updated_at')">Aggiornata <span class="arrow">&#8597;</span></th>
               <th>Azioni</th>
             </tr>
           </thead>
@@ -257,20 +273,28 @@
         </div>
         <p>Una riga per sorgente risolta: URL, durata, validita, hit e legame con la traccia canonica.</p>
       </div>
+      <div class="toolbar table-toolbar">
+        <div class="toolbar-main">
+          <input type="text" id="sources-search" placeholder="Cerca sorgente, titolo, artista o URL..." oninput="debouncedTableSearch('sources')">
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost" onclick="clearTableSearch('sources')">Reset</button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Track ID</th>
-              <th>Brano canonico</th>
-              <th>Sorgente</th>
-              <th>Risolto come</th>
+              <th data-table="sources" data-col="id" onclick="sortTable('sources', 'id')" class="sorted">ID <span class="arrow">&#8595;</span></th>
+              <th data-table="sources" data-col="track_id" onclick="sortTable('sources', 'track_id')">Track ID <span class="arrow">&#8597;</span></th>
+              <th data-table="sources" data-col="canonical_title" onclick="sortTable('sources', 'canonical_title')">Brano canonico <span class="arrow">&#8597;</span></th>
+              <th data-table="sources" data-col="source" onclick="sortTable('sources', 'source')">Sorgente <span class="arrow">&#8597;</span></th>
+              <th data-table="sources" data-col="resolved_title" onclick="sortTable('sources', 'resolved_title')">Risolto come <span class="arrow">&#8597;</span></th>
               <th>Cover</th>
-              <th>Durata</th>
-              <th>Hits</th>
-              <th>Stato</th>
-              <th>Usata</th>
+              <th data-table="sources" data-col="duration" onclick="sortTable('sources', 'duration')">Durata <span class="arrow">&#8597;</span></th>
+              <th data-table="sources" data-col="hit_count" onclick="sortTable('sources', 'hit_count')">Hits <span class="arrow">&#8597;</span></th>
+              <th data-table="sources" data-col="is_valid" onclick="sortTable('sources', 'is_valid')">Stato <span class="arrow">&#8597;</span></th>
+              <th data-table="sources" data-col="last_used" onclick="sortTable('sources', 'last_used')">Usata <span class="arrow">&#8597;</span></th>
               <th>Azioni</th>
             </tr>
           </thead>
@@ -287,18 +311,26 @@
         </div>
         <p>Una riga per query osservata o alias confermato, con confidence, tipo e puntamento a track/source.</p>
       </div>
+      <div class="toolbar table-toolbar">
+        <div class="toolbar-main">
+          <input type="text" id="queries-search" placeholder="Cerca query, alias, titolo o artista..." oninput="debouncedTableSearch('queries')">
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost" onclick="clearTableSearch('queries')">Reset</button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Track / Source</th>
-              <th>Query grezza</th>
-              <th>Tipo alias</th>
-              <th>Confidence</th>
-              <th>Hits</th>
-              <th>Stato</th>
-              <th>Ultima vista</th>
+              <th data-table="queries" data-col="id" onclick="sortTable('queries', 'id')" class="sorted">ID <span class="arrow">&#8595;</span></th>
+              <th data-table="queries" data-col="track_id" onclick="sortTable('queries', 'track_id')">Track / Source <span class="arrow">&#8597;</span></th>
+              <th data-table="queries" data-col="query_raw" onclick="sortTable('queries', 'query_raw')">Query grezza <span class="arrow">&#8597;</span></th>
+              <th data-table="queries" data-col="alias_type" onclick="sortTable('queries', 'alias_type')">Tipo alias <span class="arrow">&#8597;</span></th>
+              <th data-table="queries" data-col="confidence" onclick="sortTable('queries', 'confidence')">Confidence <span class="arrow">&#8597;</span></th>
+              <th data-table="queries" data-col="hit_count" onclick="sortTable('queries', 'hit_count')">Hits <span class="arrow">&#8597;</span></th>
+              <th data-table="queries" data-col="is_active" onclick="sortTable('queries', 'is_active')">Stato <span class="arrow">&#8597;</span></th>
+              <th data-table="queries" data-col="last_seen" onclick="sortTable('queries', 'last_seen')">Ultima vista <span class="arrow">&#8597;</span></th>
               <th>Azioni</th>
             </tr>
           </thead>

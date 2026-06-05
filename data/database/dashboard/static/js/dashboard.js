@@ -1,13 +1,32 @@
-﻿let currentSort = "hit_count";
+﻿let currentSort = "created_at";
 let currentOrder = "desc";
 let currentSection = "cache";
 let debounceTimer;
+let tableDebounceTimer;
 let autoRefreshInterval = null;
 let statsRefreshInterval = null;
 let statsEventSource = null;
 let lastSongIds = new Set();
 let lastSongUrls = new Map();
 const loadedSections = new Set();
+const tableData = {
+  aliases: [],
+  tracks: [],
+  sources: [],
+  queries: [],
+};
+const tableStates = {
+  aliases: { search: "", sort: "id", order: "desc" },
+  tracks: { search: "", sort: "id", order: "desc" },
+  sources: { search: "", sort: "id", order: "desc" },
+  queries: { search: "", sort: "id", order: "desc" },
+};
+const tableSearchFields = {
+  aliases: ["id", "query_raw", "alias_type", "title", "artist", "cache_id"],
+  tracks: ["id", "canonical_title", "canonical_artist", "normalized_query", "source_count", "query_count", "created_at", "updated_at"],
+  sources: ["id", "track_id", "canonical_title", "canonical_artist", "source", "resolved_title", "resolved_artist", "webpage_url", "spotify_url", "duration", "hit_count", "last_used"],
+  queries: ["id", "track_id", "source_id", "query_raw", "alias_type", "confidence", "hit_count", "canonical_title", "canonical_artist", "source", "webpage_url", "spotify_url", "last_seen"],
+};
 
 const sectionLoaders = {
   cache: () => fetchSongs(false),
@@ -16,6 +35,14 @@ const sectionLoaders = {
   sources: fetchSources,
   queries: fetchQueries,
   schema: fetchSchema,
+};
+
+const liveSectionLoaders = {
+  cache: () => fetchSongs(true),
+  aliases: () => fetchAliases(true),
+  tracks: () => fetchTracks(true),
+  sources: () => fetchSources(true),
+  queries: () => fetchQueries(true),
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -149,9 +176,8 @@ function stopStatsRefresh() {
 function startAutoRefresh(seconds = 10) {
   stopAutoRefresh();
   autoRefreshInterval = setInterval(() => {
-    if (currentSection === "cache") {
-      fetchSongs(true);
-    }
+    const loader = liveSectionLoaders[currentSection];
+    if (loader) loader();
     refreshStats();
   }, seconds * 1000);
 }
@@ -196,6 +222,85 @@ function fetchSongs(silent = false) {
 function debouncedFetch() {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => fetchSongs(false), 280);
+}
+
+function debouncedTableSearch(section) {
+  clearTimeout(tableDebounceTimer);
+  tableDebounceTimer = setTimeout(() => {
+    const state = tableStates[section];
+    const input = document.getElementById(`${section}-search`);
+    if (!state || !input) return;
+    state.search = input.value.trim();
+    renderStoredTable(section);
+  }, 180);
+}
+
+function clearTableSearch(section) {
+  const state = tableStates[section];
+  const input = document.getElementById(`${section}-search`);
+  if (!state || !input) return;
+  input.value = "";
+  state.search = "";
+  renderStoredTable(section);
+}
+
+function sortTable(section, column) {
+  const state = tableStates[section];
+  if (!state) return;
+  if (state.sort === column) {
+    state.order = state.order === "desc" ? "asc" : "desc";
+  } else {
+    state.sort = column;
+    state.order = "desc";
+  }
+  updateTableSortHeader(section);
+  renderStoredTable(section);
+}
+
+function updateTableSortHeader(section) {
+  const state = tableStates[section];
+  if (!state) return;
+  document.querySelectorAll(`th[data-table="${section}"][data-col]`).forEach(th => {
+    th.classList.remove("sorted");
+    const arrow = th.querySelector(".arrow");
+    if (arrow) arrow.textContent = "↕";
+  });
+  const th = document.querySelector(`th[data-table="${section}"][data-col="${state.sort}"]`);
+  if (!th) return;
+  th.classList.add("sorted");
+  const arrow = th.querySelector(".arrow");
+  if (arrow) arrow.textContent = state.order === "desc" ? "↓" : "↑";
+}
+
+function normalizeValue(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).toLowerCase();
+}
+
+function rowMatchesSearch(row, section) {
+  const q = normalizeValue(tableStates[section]?.search || "").trim();
+  if (!q) return true;
+  return (tableSearchFields[section] || []).some(field => normalizeValue(row[field]).includes(q));
+}
+
+function compareRows(section, a, b) {
+  const state = tableStates[section] || {};
+  const column = state.sort || "id";
+  const dir = state.order === "asc" ? 1 : -1;
+  const av = a[column];
+  const bv = b[column];
+  const an = Number(av);
+  const bn = Number(bv);
+  if (av !== "" && bv !== "" && Number.isFinite(an) && Number.isFinite(bn)) {
+    return (an - bn) * dir;
+  }
+  return normalizeValue(av).localeCompare(normalizeValue(bv), "it", { numeric: true, sensitivity: "base" }) * dir;
+}
+
+function tableRows(section) {
+  return [...(tableData[section] || [])]
+    .filter(row => rowMatchesSearch(row, section))
+    .sort((a, b) => compareRows(section, a, b));
 }
 
 function normalizedSource(source, url = "") {
@@ -351,6 +456,8 @@ function renderSongs(data) {
 }
 
 function renderSongsDiff(data) {
+  const tbody = document.getElementById("songs-body");
+  if (!tbody) return;
   const newIds = new Set(data.map(song => song.id));
 
   document.querySelectorAll("#songs-body tr[data-id]").forEach(tr => {
@@ -390,8 +497,6 @@ function renderSongsDiff(data) {
 
   if (addedIds.length > 0) {
     showToast(`+${addedIds.length} nuova traccia in cache`, "success");
-    const tbody = document.getElementById("songs-body");
-    if (!tbody) return;
     const newSongs = data.filter(song => addedIds.includes(song.id));
     newSongs.forEach(song => {
       const newTr = buildSongRow(song, 0);
@@ -404,6 +509,11 @@ function renderSongsDiff(data) {
     });
     newSongs.forEach(song => lastSongUrls.set(song.id, { webpage_url: song.webpage_url, spotify_url: song.spotify_url }));
   }
+
+  data.forEach(song => {
+    const tr = tbody.querySelector(`tr[data-id="${song.id}"]`);
+    if (tr) tbody.appendChild(tr);
+  });
 }
 
 function setSearch(value) {
@@ -420,12 +530,12 @@ function sortBy(column) {
     currentSort = column;
     currentOrder = "desc";
   }
-  document.querySelectorAll("th[data-col]").forEach(th => {
+  document.querySelectorAll("#songs-table th[data-col]").forEach(th => {
     th.classList.remove("sorted");
     const arrow = th.querySelector(".arrow");
     if (arrow) arrow.textContent = "↕";
   });
-  const currentHeader = document.querySelector(`th[data-col="${column}"]`);
+  const currentHeader = document.querySelector(`#songs-table th[data-col="${column}"]`);
   if (currentHeader) {
     currentHeader.classList.add("sorted");
     const arrow = currentHeader.querySelector(".arrow");
@@ -441,6 +551,19 @@ function clearFilters() {
   if (search) search.value = "";
   if (source) source.value = "";
   if (valid) valid.value = "";
+  currentSort = "created_at";
+  currentOrder = "desc";
+  document.querySelectorAll("#songs-table th[data-col]").forEach(th => {
+    th.classList.remove("sorted");
+    const arrow = th.querySelector(".arrow");
+    if (arrow) arrow.textContent = "↕";
+  });
+  const createdHeader = document.querySelector(`#songs-table th[data-col="created_at"]`);
+  if (createdHeader) {
+    createdHeader.classList.add("sorted");
+    const arrow = createdHeader.querySelector(".arrow");
+    if (arrow) arrow.textContent = "↓";
+  }
   fetchSongs(false);
 }
 
@@ -570,105 +693,124 @@ document.getElementById("modal-bg")?.addEventListener("click", event => {
   }
 });
 
-function fetchAliases() {
+function renderStoredTable(section) {
+  const rows = tableRows(section);
+  updateTableSortHeader(section);
+  if (section === "aliases") {
+    renderSimpleTable("aliases-body", rows, 6, (alias, index) => `
+      <td class="id-col">${alias.id}</td>
+      <td class="dim">${esc(alias.query_raw || "")}</td>
+      <td><span class="badge ${esc(alias.alias_type || "text")}">${esc(alias.alias_type || "text")}</span></td>
+      <td>
+        <span class="title-text">${esc(alias.title || "")}</span>
+        <span class="artist-text">${esc(alias.artist || "")}</span>
+      </td>
+      <td class="id-col">${alias.cache_id}</td>
+      <td>
+        <div class="row-actions">
+          ${actionLinks(alias)}
+          <button class="icon-btn del-btn" title="Elimina alias" aria-label="Elimina alias" onclick="deleteAlias(${alias.id})">&times;</button>
+        </div>
+      </td>
+    `, "Nessun alias registrato.");
+    return;
+  }
+  if (section === "tracks") {
+    renderSimpleTable("tracks-body", rows, 9, row => `
+      <td class="id-col">${row.id}</td>
+      <td><span class="title-text">${esc(row.canonical_title || "")}</span></td>
+      <td><span class="artist-text">${esc(row.canonical_artist || "")}</span></td>
+      <td class="dim mono">${esc(row.normalized_query || "")}</td>
+      <td class="id-col">${row.source_count ?? 0}</td>
+      <td class="id-col">${row.query_count ?? 0}</td>
+      <td class="dim">${fmtTs(row.created_at)}</td>
+      <td class="dim">${fmtTs(row.updated_at)}</td>
+      <td><div class="row-actions"><button class="icon-btn del-btn" title="Elimina traccia canonica" aria-label="Elimina traccia canonica" onclick="deleteTrack(${row.id})">&times;</button></div></td>
+    `, "Nessuna traccia canonica registrata.");
+    return;
+  }
+  if (section === "sources") {
+    renderSimpleTable("sources-body", rows, 11, row => `
+      <td class="id-col">${row.id}</td>
+      <td class="id-col">${row.track_id}</td>
+      <td>
+        <span class="title-text">${esc(row.canonical_title || "")}</span>
+        <span class="artist-text">${esc(row.canonical_artist || "")}</span>
+      </td>
+      <td>${sourceBadge(row.source, row.webpage_url)}</td>
+      <td>
+        <span class="title-text">${esc(row.resolved_title || "")}</span>
+        <span class="artist-text">${esc(row.resolved_artist || "")}</span>
+      </td>
+      <td>${coverBadge(row.thumbnail_source || inferCoverSource(row) || normalizedSource(row.source, row.webpage_url), row.thumbnail_confidence)}</td>
+      <td class="dim">${row.duration ? fmtDuration(row.duration) : "-"}</td>
+      <td class="hits-num">${row.hit_count ?? 0}</td>
+      <td>${row.is_valid ? `<span class="badge ok">valida</span>` : `<span class="badge err">invalida</span>`}</td>
+      <td class="dim">${fmtTs(row.last_used)}</td>
+      <td><div class="row-actions">${actionLinks(row)}<button class="icon-btn del-btn" title="Elimina sorgente" aria-label="Elimina sorgente" onclick="deleteSource(${row.id})">&times;</button></div></td>
+    `, "Nessuna sorgente risolta registrata.");
+    return;
+  }
+  if (section === "queries") {
+    renderSimpleTable("queries-body", rows, 9, row => `
+      <td class="id-col">${row.id}</td>
+      <td class="dim">T${row.track_id} / S${row.source_id}</td>
+      <td>
+        <div class="query-cell" title="${esc(row.query_raw || "")}">${esc(row.query_raw || "")}</div>
+        <div class="artist-text">${esc(row.canonical_title || "")} · ${esc(row.canonical_artist || "")}</div>
+      </td>
+      <td><span class="badge ${esc(row.alias_type || "text")}">${esc(row.alias_type || "text")}</span></td>
+      <td class="dim">${fmtConfidence(row.confidence)}</td>
+      <td class="hits-num">${row.hit_count ?? 0}</td>
+      <td>${row.is_active ? `<span class="badge ok">attiva</span>` : `<span class="badge err">disattiva</span>`}</td>
+      <td class="dim">${fmtTs(row.last_seen)}</td>
+      <td><div class="row-actions">${actionLinks(row)}<button class="icon-btn del-btn" title="Elimina query" aria-label="Elimina query" onclick="deleteQuery(${row.id})">&times;</button></div></td>
+    `, "Nessuna query osservata registrata.");
+  }
+}
+
+function fetchAliases(silent = false) {
   fetch("/api/aliases")
     .then(r => r.json())
     .then(data => {
-      const tbody = document.getElementById("aliases-body");
-      if (!tbody) return;
-      if (data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Nessun alias registrato.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = data.map((alias, index) => {
-        return `
-          <tr style="animation-delay:${index * 25}ms" data-alias-id="${alias.id}">
-            <td class="id-col">${alias.id}</td>
-            <td class="dim">${esc(alias.query_raw || "")}</td>
-            <td><span class="badge ${esc(alias.alias_type || "text")}">${esc(alias.alias_type || "text")}</span></td>
-            <td>
-              <span class="title-text">${esc(alias.title || "")}</span>
-              <span class="artist-text">${esc(alias.artist || "")}</span>
-            </td>
-            <td class="id-col">${alias.cache_id}</td>
-            <td>
-              <div class="row-actions">
-                ${actionLinks(alias)}
-                <button class="icon-btn del-btn" title="Elimina alias" aria-label="Elimina alias" onclick="deleteAlias(${alias.id})">&times;</button>
-              </div>
-            </td>
-          </tr>`;
-      }).join("");
+      tableData.aliases = data;
+      renderStoredTable("aliases");
       loadedSections.add("aliases");
-    });
+    })
+    .catch(() => !silent && showToast("Errore nel caricamento alias", "error"));
 }
 
-function fetchTracks() {
+function fetchTracks(silent = false) {
   fetch("/api/tracks")
     .then(r => r.json())
     .then(data => {
-      renderSimpleTable("tracks-body", data, 9, row => `
-        <td class="id-col">${row.id}</td>
-        <td><span class="title-text">${esc(row.canonical_title || "")}</span></td>
-        <td><span class="artist-text">${esc(row.canonical_artist || "")}</span></td>
-        <td class="dim mono">${esc(row.normalized_query || "")}</td>
-        <td class="id-col">${row.source_count ?? 0}</td>
-        <td class="id-col">${row.query_count ?? 0}</td>
-        <td class="dim">${fmtTs(row.created_at)}</td>
-        <td class="dim">${fmtTs(row.updated_at)}</td>
-        <td><div class="row-actions"><button class="icon-btn del-btn" title="Elimina traccia canonica" aria-label="Elimina traccia canonica" onclick="deleteTrack(${row.id})">&times;</button></div></td>
-      `, "Nessuna traccia canonica registrata.");
+      tableData.tracks = data;
+      renderStoredTable("tracks");
       loadedSections.add("tracks");
-    });
+    })
+    .catch(() => !silent && showToast("Errore nel caricamento tracce", "error"));
 }
 
-function fetchSources() {
+function fetchSources(silent = false) {
   fetch("/api/sources")
     .then(r => r.json())
     .then(data => {
-      renderSimpleTable("sources-body", data, 11, row => `
-        <td class="id-col">${row.id}</td>
-        <td class="id-col">${row.track_id}</td>
-        <td>
-          <span class="title-text">${esc(row.canonical_title || "")}</span>
-          <span class="artist-text">${esc(row.canonical_artist || "")}</span>
-        </td>
-        <td>${sourceBadge(row.source, row.webpage_url)}</td>
-        <td>
-          <span class="title-text">${esc(row.resolved_title || "")}</span>
-          <span class="artist-text">${esc(row.resolved_artist || "")}</span>
-        </td>
-        <td>${coverBadge(row.thumbnail_source || inferCoverSource(row) || normalizedSource(row.source, row.webpage_url), row.thumbnail_confidence)}</td>
-        <td class="dim">${row.duration ? fmtDuration(row.duration) : "-"}</td>
-        <td class="hits-num">${row.hit_count ?? 0}</td>
-        <td>${row.is_valid ? `<span class="badge ok">valida</span>` : `<span class="badge err">invalida</span>`}</td>
-        <td class="dim">${fmtTs(row.last_used)}</td>
-        <td><div class="row-actions">${actionLinks(row)}<button class="icon-btn del-btn" title="Elimina sorgente" aria-label="Elimina sorgente" onclick="deleteSource(${row.id})">&times;</button></div></td>
-      `, "Nessuna sorgente risolta registrata.");
+      tableData.sources = data;
+      renderStoredTable("sources");
       loadedSections.add("sources");
-    });
+    })
+    .catch(() => !silent && showToast("Errore nel caricamento sorgenti", "error"));
 }
 
-function fetchQueries() {
+function fetchQueries(silent = false) {
   fetch("/api/queries")
     .then(r => r.json())
     .then(data => {
-      renderSimpleTable("queries-body", data, 9, row => `
-        <td class="id-col">${row.id}</td>
-        <td class="dim">T${row.track_id} / S${row.source_id}</td>
-        <td>
-          <div class="query-cell" title="${esc(row.query_raw || "")}">${esc(row.query_raw || "")}</div>
-          <div class="artist-text">${esc(row.canonical_title || "")} · ${esc(row.canonical_artist || "")}</div>
-        </td>
-        <td><span class="badge ${esc(row.alias_type || "text")}">${esc(row.alias_type || "text")}</span></td>
-        <td class="dim">${fmtConfidence(row.confidence)}</td>
-        <td class="hits-num">${row.hit_count ?? 0}</td>
-        <td>${row.is_active ? `<span class="badge ok">attiva</span>` : `<span class="badge err">disattiva</span>`}</td>
-        <td class="dim">${fmtTs(row.last_seen)}</td>
-        <td><div class="row-actions">${actionLinks(row)}<button class="icon-btn del-btn" title="Elimina query" aria-label="Elimina query" onclick="deleteQuery(${row.id})">&times;</button></div></td>
-      `, "Nessuna query osservata registrata.");
+      tableData.queries = data;
+      renderStoredTable("queries");
       loadedSections.add("queries");
-    });
+    })
+    .catch(() => !silent && showToast("Errore nel caricamento query", "error"));
 }
 
 function fetchSchema() {
@@ -716,13 +858,8 @@ function showSection(section, el) {
     if (target) target.style.display = name === section ? "grid" : "none";
   });
 
-  if (section === "cache") {
-    startAutoRefresh(10);
-    startStatsRefresh(8);
-  } else {
-    stopAutoRefresh();
-    stopStatsRefresh();
-  }
+  startAutoRefresh(10);
+  startStatsRefresh(8);
 
   const loader = sectionLoaders[section];
   if (!loader) return;

@@ -1438,11 +1438,11 @@ def list_song_rows(
     search: str = "",
     source: str = "",
     valid: str = "",
-    sort: str = "hit_count",
+    sort: str = "created_at",
     order: str = "DESC",
 ) -> list[dict]:
-    allowed = {"hit_count", "created_at", "last_used", "title", "artist", "id"}
-    sort = sort if sort in allowed else "hit_count"
+    allowed = {"hit_count", "created_at", "last_used", "title", "artist", "query_raw", "id"}
+    sort = sort if sort in allowed else "created_at"
     order = "DESC" if str(order).upper() == "DESC" else "ASC"
 
     filters, params = [], []
