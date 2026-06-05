@@ -1173,6 +1173,8 @@ class SourceResolver:
                     or _is_short_or_ambiguous_query(query)
                     or (time.perf_counter() - t0) >= 4.0
                 )
+                if fast_path and sp_future is not None and not sp_future.done():
+                    should_retry_enrich = False
                 if should_retry_enrich:
                     results = await loop.run_in_executor(
                         None, cls._enrich_with_spotify, results, query

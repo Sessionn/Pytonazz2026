@@ -66,6 +66,16 @@ notte_blu = _compute_enrich_confidence(
     },
 )
 
+cinderella_typo = _compute_enrich_confidence(
+    "cindirellla",
+    Track("Future, Metro Boomin, Travis Scott - Cinderella (Official Audio)", "", 154),
+    {
+        "title": "Cinderella",
+        "artist": "Future, Metro Boomin, Travis Scott",
+        "duration": 154,
+    },
+)
+
 assert clean["decision"] in {"full", "cover_only"}, clean
 assert dirty["decision"] == "skip", dirty
 assert dirty["variant_penalty"] >= clean["variant_penalty"] + 0.20, (clean, dirty)
@@ -73,5 +83,7 @@ assert unexpected_variant["variant_penalty"] >= 0.28, unexpected_variant
 assert requested_variant["variant_penalty"] < unexpected_variant["variant_penalty"], (requested_variant, unexpected_variant)
 assert notte_blu["decision"] == "cover_only", notte_blu
 assert notte_blu["reason"] == "strong_yt_title_cover", notte_blu
+assert cinderella_typo["decision"] == "full", cinderella_typo
+assert cinderella_typo["query_sim"] >= 0.90, cinderella_typo
 
 print("OK: scoring guardrails per query rischiose")

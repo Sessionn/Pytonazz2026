@@ -85,6 +85,8 @@ _ENRICH_WEIGHT_ARTIST_HINT       = 0.10
 _NON_MUSIC_QUERY_MAX_WORDS       = 6
 _SPOTIFY_RETRY_BASE_DELAY_SECONDS = 0.4
 _ARTIST_TOKEN_MIN_LENGTH         = 3
+_FUZZY_TOKEN_MIN_LENGTH          = 5
+_FUZZY_TOKEN_SIM_THRESHOLD       = 0.82
 _NON_MUSIC_QUERY_PENALTY         = 0.35
 _RISKY_VARIANT_PENALTY           = 0.25
 _UNREQUESTED_VARIANT_PENALTY     = 0.28
@@ -152,12 +154,47 @@ def _jaccard_tokens(a: str, b: str) -> float:
     return intersection / union
 
 
+def _fuzzy_jaccard_tokens(a: str, b: str) -> float:
+    """Order-independent token similarity with typo tolerance for long words."""
+    left_tokens = a.split()
+    right_tokens = b.split()
+    if not left_tokens and not right_tokens:
+        return 1.0
+    if not left_tokens or not right_tokens:
+        return 0.0
+
+    matched_left: set[int] = set()
+    matched_right: set[int] = set()
+    pairs: list[tuple[float, int, int]] = []
+    for i, left in enumerate(left_tokens):
+        for j, right in enumerate(right_tokens):
+            if left == right:
+                pairs.append((1.0, i, j))
+            elif (
+                min(len(left), len(right)) >= _FUZZY_TOKEN_MIN_LENGTH
+                and abs(len(left) - len(right)) <= 2
+            ):
+                sim = SequenceMatcher(None, left, right).ratio()
+                if sim >= _FUZZY_TOKEN_SIM_THRESHOLD:
+                    pairs.append((sim, i, j))
+
+    for _sim, i, j in sorted(pairs, reverse=True):
+        if i in matched_left or j in matched_right:
+            continue
+        matched_left.add(i)
+        matched_right.add(j)
+
+    intersection = len(matched_left)
+    union = len(left_tokens) + len(right_tokens) - intersection
+    return intersection / union if union else 0.0
+
+
 def _enrich_sim(query: str, sp_title: str, sp_artist: str) -> float:
     """Compute max Jaccard similarity for query vs title and query vs title+artist."""
     q_norm  = _normalize_for_sim(query)
     t_norm  = _normalize_for_sim(sp_title)
     ta_norm = _normalize_for_sim(f"{sp_title} {sp_artist}")
-    return max(_jaccard_tokens(q_norm, t_norm), _jaccard_tokens(q_norm, ta_norm))
+    return max(_fuzzy_jaccard_tokens(q_norm, t_norm), _fuzzy_jaccard_tokens(q_norm, ta_norm))
 
 
 def _duration_similarity(yt_duration: int, sp_duration: int) -> float:
