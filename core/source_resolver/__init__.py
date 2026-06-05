@@ -401,6 +401,21 @@ def _should_retry_canonical_after_weak_hint(query: str, track, sp_meta: dict, sc
     return False
 
 
+def _should_retry_canonical_after_music_video_hint(query: str, track, sp_meta: dict, score: dict) -> bool:
+    """For text queries, avoid caching official videos when a studio/audio result is nearby."""
+    if _query_requests_variant(query):
+        return False
+    if not _is_music_video(getattr(track, "title", "") or "", getattr(track, "artist", "") or ""):
+        return False
+    if not (sp_meta.get("title") and sp_meta.get("artist")):
+        return False
+    if float(score.get("query_sim", 0.0) or 0.0) < 0.55:
+        return False
+    if float(score.get("duration_sim", 0.0) or 0.0) < _DURATION_DEFAULT_SCORE:
+        return False
+    return True
+
+
 def _should_force_multi_candidate_retry(query: str, score: dict) -> bool:
     if not _is_short_or_ambiguous_query(query):
         return False
@@ -431,6 +446,14 @@ def _should_accept_spotify_direct_fast_match(sp_title: str, track, score: dict) 
     if float(score.get("variant_penalty", 0.0) or 0.0) > 0.0:
         return False
     return True
+
+
+def _select_best_spotify_hint_result(results: list, sp_meta: dict, query: str) -> list:
+    if not results or len(results) <= 1:
+        return results
+    sp_dur = float(sp_meta.get("duration", 0) or 0)
+    best = _prefer_studio(results, sp_dur=sp_dur, user_query=query)
+    return [best] if best else results[:1]
 
 
 def _spotify_enrich_mode(score: dict) -> str:
@@ -1008,6 +1031,33 @@ class SourceResolver:
 
             if sp_meta_hint and results:
                 score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
+                retry_music_video = _should_retry_canonical_after_music_video_hint(
+                    query, results[0], sp_meta_hint, score
+                )
+                if retry_music_video:
+                    canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
+                    canonical_yt_query = _spotify_youtube_query(canonical, query)
+                    if canonical_yt_query:
+                        log.debug(tag(
+                            "SPOTIFY",
+                            f"video ufficiale evitabile  {b(query)}"
+                            f"  retry={b(canonical_yt_query)}  keep_if_empty={b(results[0].title)}",
+                        ))
+                        yt_t0 = time.perf_counter()
+                        canonical_results = await loop.run_in_executor(
+                            None, cls._run_ytdlp, f"ytsearch{search_n}:{canonical_yt_query}", requester, requester_id
+                        )
+                        log.debug(tag("PERF", f"ytsearch{search_n} video-retry  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
+                        if canonical_results:
+                            ranked = _select_best_spotify_hint_result(
+                                _drop_unrequested_variants(query, canonical_results, context="video-retry"),
+                                sp_meta_hint,
+                                query,
+                            )
+                            if ranked:
+                                results = ranked
+                                score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
+
                 if _spotify_enrich_mode(score) != "skip":
                     used_spotify_hint = True
                     yt_title_before = results[0].title
@@ -1045,6 +1095,7 @@ class SourceResolver:
                         log.debug(tag("PERF", f"ytsearch{retry_n} canonical  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
                         if canonical_results:
                             results = _drop_unrequested_variants(query, canonical_results, context="canonical")
+                            results = _select_best_spotify_hint_result(results, sp_meta_hint, query)
                             if results:
                                 canonical_score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
                                 if _spotify_enrich_mode(canonical_score) != "skip":
@@ -1332,6 +1383,7 @@ class SourceResolver:
                     chosen = _prefer_studio(candidates, sp_dur, user_query=sp_title)
                     chosen.title = sp_title
                     chosen.popularity = sp_pop
+                    chosen.duration = int(round(sp_dur)) if sp_dur else int(chosen.duration or 0)
                     if sp_thumb:
                         chosen.thumbnail = sp_thumb
                         chosen.thumbnail_source = "spotify"
@@ -1378,6 +1430,7 @@ class SourceResolver:
 
         chosen.title       = sp_title
         chosen.popularity  = sp_pop
+        chosen.duration    = int(round(sp_dur)) if sp_dur else int(chosen.duration or 0)
         if sp_thumb:
             chosen.thumbnail = sp_thumb
             chosen.thumbnail_source = "spotify"

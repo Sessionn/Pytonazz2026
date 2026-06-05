@@ -14,7 +14,7 @@ from typing import Protocol
 # ── Regex patterns ────────────────────────────────────────────────────────────
 
 _MV_KEYWORDS = re.compile(
-    r"\b(official\s+video|music\s+video|video\s+ufficiale|videoclip|\bvevo\b|\bclip\b|\bmv\b|\blyrics?\s+video\b)",
+    r"\b(official\s+video|music\s+video|video\s+ufficiale|videoclip|\bvevo\b|\bclip\b|\bmv\b|\blyrics?\s+video\b|kondzilla)",
     re.IGNORECASE,
 )
 
