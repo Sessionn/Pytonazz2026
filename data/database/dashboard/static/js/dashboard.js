@@ -3,9 +3,9 @@ let currentOrder = "desc";
 let currentSection = "cache";
 let debounceTimer;
 let tableDebounceTimer;
-let autoRefreshInterval = null;
 let statsRefreshInterval = null;
 let statsEventSource = null;
+let lastStatsSignature = "";
 let lastSongIds = new Set();
 let lastSongUrls = new Map();
 const loadedSections = new Set();
@@ -52,7 +52,6 @@ document.addEventListener("DOMContentLoaded", () => {
   normalizeSortArrows();
   animateCounters();
   fetchSongs(false);
-  startAutoRefresh(10);
   startStatsRefresh(8);
   startRealtimeStats();
   updateGenTime();
@@ -126,11 +125,19 @@ function refreshStats() {
       if (!r.ok) throw new Error("stats fetch failed");
       return r.json();
     })
-    .then(applyStatsPayload)
+    .then(data => {
+      if (applyStatsPayload(data)) refreshCurrentData(true);
+    })
     .catch(() => {});
 }
 
 function applyStatsPayload(data) {
+  const signature = ["total", "valid", "invalid", "hits", "aliases"]
+    .map(key => `${key}:${data[key] ?? 0}`)
+    .join("|");
+  const changed = Boolean(lastStatsSignature && signature !== lastStatsSignature);
+  lastStatsSignature = signature;
+
   ["total", "valid", "invalid", "hits", "aliases"].forEach(key => {
     const el = document.querySelector(`.val[data-stat="${key}"]`);
     if (!el) return;
@@ -141,6 +148,12 @@ function applyStatsPayload(data) {
     }
   });
   updateGenTime();
+  return changed;
+}
+
+function refreshCurrentData(silent = true) {
+  const loader = silent ? liveSectionLoaders[currentSection] : sectionLoaders[currentSection];
+  if (loader) loader();
 }
 
 function startRealtimeStats() {
@@ -148,7 +161,7 @@ function startRealtimeStats() {
   statsEventSource = new EventSource("/api/events");
   statsEventSource.addEventListener("stats", event => {
     try {
-      applyStatsPayload(JSON.parse(event.data));
+      if (applyStatsPayload(JSON.parse(event.data))) refreshCurrentData(true);
     } catch (_) {}
   });
   statsEventSource.onerror = () => {
@@ -170,22 +183,6 @@ function stopStatsRefresh() {
   if (statsRefreshInterval) {
     clearInterval(statsRefreshInterval);
     statsRefreshInterval = null;
-  }
-}
-
-function startAutoRefresh(seconds = 10) {
-  stopAutoRefresh();
-  autoRefreshInterval = setInterval(() => {
-    const loader = liveSectionLoaders[currentSection];
-    if (loader) loader();
-    refreshStats();
-  }, seconds * 1000);
-}
-
-function stopAutoRefresh() {
-  if (autoRefreshInterval) {
-    clearInterval(autoRefreshInterval);
-    autoRefreshInterval = null;
   }
 }
 
@@ -857,9 +854,6 @@ function showSection(section, el) {
     const target = document.getElementById(`${name}-section`);
     if (target) target.style.display = name === section ? "grid" : "none";
   });
-
-  startAutoRefresh(10);
-  startStatsRefresh(8);
 
   const loader = sectionLoaders[section];
   if (!loader) return;
