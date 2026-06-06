@@ -41,5 +41,11 @@ Thumbs.db
 # database
 *.db
 *.sqlite
-.\data\database\cache.db-shm
-.\data\database\cache.db-wal
+*.db-shm
+*.db-wal
+*.db.broken
+*.bak
+screenlog.*
+tmp_vm_*.py
+data/database/cache.db-shm
+data/database/cache.db-wal
