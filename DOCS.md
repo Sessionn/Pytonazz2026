@@ -403,7 +403,7 @@ Layout:
 - venv: `~/Pytonazz2026/venv`;
 - script runtime: `~/.local/bin/pytonazz-bot`;
 - utility WARP manuale: `~/.local/bin/rotate-warp`;
-- artifact locali: `~/pytonazz_vm_artifacts/`;
+- cookie YouTube: `/home/sessionn/cookies.txt`;
 - dashboard: `127.0.0.1:5000`;
 - reverse proxy: Caddy su `80/443`;
 - servizi host rilevanti: `cron`, `caddy`, `docker`, `warp-svc`.
@@ -424,7 +424,7 @@ Autostart:
 @reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start
 ```
 
-La home dell'utente deve restare pulita. Probe, benchmark temporanei, backup env/cookie, log screen e backup rete vanno sotto `~/pytonazz_vm_artifacts/`.
+La home dell'utente deve restare pulita. Sono ammessi solo repo, dotfile/cartelle utente, script operativi in `~/.local/bin` e `~/cookies.txt`. Probe, benchmark temporanei, log screen e backup manuali vanno eliminati a fine lavoro; se serve conservarli per poco, tenerli fuori dal repo e non committarli.
 
 Deploy tipico sulla VM attuale:
 

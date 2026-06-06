@@ -35,7 +35,7 @@ Stato operativo verificato sulla VM:
 - WARP SOCKS locale: `127.0.0.1:40000`;
 - processo bot: `screen` session `pytonazz`;
 - script runtime: `~/.local/bin/pytonazz-bot`;
-- artifact VM: `~/pytonazz_vm_artifacts/`;
+- cookie YouTube: `/home/sessionn/cookies.txt`;
 - autostart: crontab utente.
 
 Home policy:
@@ -45,10 +45,10 @@ Home policy:
 |-- Pytonazz2026/              # repo produzione
 |-- .local/bin/pytonazz-bot    # start/stop/restart
 |-- .local/bin/rotate-warp     # utility manuale WARP
-|-- pytonazz_vm_artifacts/     # probe, backup, log, clone non runtime
+|-- cookies.txt                # cookie YouTube aggiornabile da PC
 ```
 
-Non lasciare probe Python, screen log, backup `.env`, cookie o clone temporanei nella root della home.
+Non lasciare probe Python, screen log, backup `.env`, clone temporanei o altri artifact nella root della home. Finito il debug, rimuovili.
 
 ## 2. Prerequisiti
 
@@ -183,7 +183,7 @@ Se usi cookie per YouTube, usa un path assoluto leggibile dal processo del bot. 
 Sulla VM attuale il path ordinato per i cookie archiviati e':
 
 ```env
-COOKIE_FILE=/home/sessionn/pytonazz_vm_artifacts/env-backups/cookies.txt
+COOKIE_FILE=/home/sessionn/cookies.txt
 ```
 
 `COOKIES_ENABLED` deve essere valorizzato solo quando vuoi davvero usare quel file. Se e' vuoto, il bot non passa cookie a yt-dlp.
@@ -310,7 +310,7 @@ Se invece usi `screen`, assicurati che lo script di start entri nel repo, attivi
 Setup screen usato sulla VM attuale:
 
 ```bash
-mkdir -p ~/.local/bin ~/pytonazz_vm_artifacts/logs
+mkdir -p ~/.local/bin
 
 # Script operativo atteso:
 ~/.local/bin/pytonazz-bot start
@@ -489,5 +489,5 @@ Segreti da ruotare se finiti in file o log:
 - [ ] servizio systemd o screen attivo
 - [ ] `python tools/benchmark_resolve.py "titolo artista"` eseguito
 - [ ] `/play` reale provato in Discord
-- [ ] home utente pulita: solo repo, dotfile e `pytonazz_vm_artifacts`
-- [ ] artifact temporanei sotto `~/pytonazz_vm_artifacts/`
+- [ ] home utente pulita: repo, dotfile/cartelle utente e `cookies.txt`
+- [ ] artifact temporanei eliminati dopo debug

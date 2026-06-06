@@ -169,7 +169,8 @@ Layout della VM operativa attuale:
 - alias shell: `gp`, `sta`, `sto`, `res`, `scr`;
 - autostart: crontab `@reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start`;
 - dashboard: `127.0.0.1:5000` dietro Caddy su `80/443`;
-- artifact locali VM: `~/pytonazz_vm_artifacts/`, non nella home root e non nel repo.
+- cookie YouTube: `/home/sessionn/cookies.txt`, comodo da aggiornare da PC;
+- artifact temporanei: non lasciarli nella home; eliminarli a fine lavoro o tenerli fuori repo solo per debug breve.
 
 Guida completa: [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
 
