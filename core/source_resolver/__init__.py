@@ -767,7 +767,7 @@ class SourceResolver:
         sp_title = meta.get("title", "")
         sp_artist = meta.get("artist", "")
         conf_pct = int(score["confidence"] * 100)
-        clip = lambda value, limit=92: (str(value)[: limit - 3] + "...") if len(str(value)) > limit else str(value)
+        clip = lambda value, limit=68: (str(value)[: limit - 3] + "...") if len(str(value)) > limit else str(value)
         sp_label = clip(sp_title + (f"  {sp_artist}" if sp_artist else ""))
         yt_label = clip(yt_title_before)
         enrich_log.info(tag("SPOTIFY", f"enrich[{idx}]"))

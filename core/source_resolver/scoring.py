@@ -26,7 +26,7 @@ _VARIANT_KEYWORDS = re.compile(
 )
 
 _NOISE_WORDS = re.compile(
-    r"\b(official|audio|video|ufficiale|lyrics?|ft\.?|feat\.?|vs\.?|&|remix|remaster(?:ed)?|explicit|clean|hq|hd|4k)\b",
+    r"\b(official|audio|video|ufficiale|lyrics?|test[io]|ft\.?|feat\.?|vs\.?|&|remix|remaster(?:ed)?|explicit|clean|hq|hd|4k)\b",
     re.IGNORECASE,
 )
 
