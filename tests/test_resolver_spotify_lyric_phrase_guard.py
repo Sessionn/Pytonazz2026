@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config
 from core.source_resolver import SourceResolver
+from core.source_resolver import _spotify_track_derived_search_query
 from core.source_resolver.models import TrackInfo
 
 
@@ -97,6 +98,24 @@ async def run_case(sp_meta: dict, expected_call: str) -> list[TrackInfo]:
 
 
 async def main() -> None:
+    phrase_track = TrackInfo(
+        title="The Long Faces - Jane! (Lyrics)",
+        artist="The Long Faces",
+        webpage_url="https://www.youtube.com/watch?v=jane",
+        duration=218,
+        thumbnail="https://i.ytimg.com/vi/jane/hqdefault.jpg",
+        requester="tester",
+        requester_id=1,
+        source="youtube",
+    )
+    derived_query = _spotify_track_derived_search_query("jane, you're early", phrase_track)
+    assert "you're early" not in derived_query.lower(), derived_query
+    assert "The Long Faces" in derived_query, derived_query
+    assert "Jane!" in derived_query, derived_query
+
+    normal_query = _spotify_track_derived_search_query("splinter cell g.mineiro", phrase_track)
+    assert normal_query.startswith("splinter cell g.mineiro"), normal_query
+
     low_pop_spotify = {
         "title": "Jane, You're Early",
         "artist": "Royal Sadness",

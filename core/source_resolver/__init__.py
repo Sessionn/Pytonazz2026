@@ -546,6 +546,17 @@ def _prefer_track_derived_spotify_meta(
     return derived_pop >= original_pop or derived_conf >= original_conf + 0.18
 
 
+def _spotify_track_derived_search_query(original_query: str, track) -> str:
+    search_parts = []
+    if not _looks_like_lyric_phrase_query(original_query):
+        search_parts.append(original_query)
+    if getattr(track, "title", ""):
+        search_parts.append(track.title)
+    if getattr(track, "artist", ""):
+        search_parts.append(track.artist)
+    return " ".join(x.strip() for x in search_parts if x and x.strip())
+
+
 def _spotify_enrich_mode(score: dict) -> str:
     decision = score.get("decision", "skip")
     if decision in ("full", "cover_only"):
@@ -836,12 +847,9 @@ class SourceResolver:
     def _sp_search_track_meta_for_track(
         cls, original_query: str, track: "TrackInfo"
     ) -> tuple[Optional[dict], Optional[dict]]:
-        search_parts = [original_query]
-        if track.title:
-            search_parts.append(track.title)
-        if track.artist:
-            search_parts.append(track.artist)
-        search_query = " ".join(x.strip() for x in search_parts if x and x.strip())
+        search_query = _spotify_track_derived_search_query(original_query, track)
+        if not search_query:
+            return None, None
 
         for attempt in range(3):
             sp = cls._sp_client()
