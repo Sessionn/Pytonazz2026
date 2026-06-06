@@ -433,13 +433,20 @@ def _raw_result_supports_spotify_artist(query: str, track, sp_artist: str) -> bo
 def _should_retry_canonical_after_weak_hint(query: str, track, sp_meta: dict, score: dict) -> bool:
     if _is_short_or_ambiguous_query(query):
         return True
+    raw_artist_ok = _raw_result_supports_spotify_artist(query, track, sp_meta.get("artist", ""))
     if not _query_requests_variant(query) and float(score.get("variant_penalty", 0.0) or 0.0) >= 0.20:
+        if (
+            raw_artist_ok
+            and float(score.get("duration_sim", 0.0) or 0.0) >= 0.82
+            and max(float(score.get("query_sim", 0.0) or 0.0), float(score.get("yt_sim", 0.0) or 0.0)) >= 0.55
+        ):
+            return False
         return True
     if _is_variant(getattr(track, "title", "") or "") and not _query_requests_variant(query):
         return True
     if score.get("yt_sim", 0.0) < 0.50:
         return True
-    if not _raw_result_supports_spotify_artist(query, track, sp_meta.get("artist", "")):
+    if not raw_artist_ok:
         return True
     return False
 
@@ -497,6 +504,46 @@ def _select_best_spotify_hint_result(results: list, sp_meta: dict, query: str) -
     sp_dur = float(sp_meta.get("duration", 0) or 0)
     best = _prefer_studio(results, sp_dur=sp_dur, user_query=query)
     return [best] if best else results[:1]
+
+
+def _should_try_track_derived_spotify_enrich(query: str, track, sp_meta: dict, score: dict) -> bool:
+    if not sp_meta or not track:
+        return False
+    if _spotify_enrich_mode(score) != "skip":
+        return False
+    if _is_url_like_query(query):
+        return False
+    title_blob = f"{getattr(track, 'title', '') or ''} {getattr(track, 'artist', '') or ''}"
+    if not title_blob.strip():
+        return False
+    if _is_music_video(getattr(track, "title", "") or "", getattr(track, "artist", "") or ""):
+        return False
+    if _should_defer_spotify_canonical_for_phrase_query(query, sp_meta):
+        return True
+    confidence = float(score.get("confidence", 0.0) or 0.0)
+    return _spotify_meta_popularity(sp_meta) < 35 and confidence < 0.45 and (
+        bool(getattr(track, "artist", "") or "") or " - " in getattr(track, "title", "")
+    )
+
+
+def _prefer_track_derived_spotify_meta(
+    query: str,
+    original_meta: dict,
+    original_score: dict,
+    derived_meta: dict | None,
+    derived_score: dict | None,
+) -> bool:
+    if not derived_meta or not derived_score:
+        return False
+    if _spotify_enrich_mode(derived_score) == "skip":
+        return False
+    original_pop = _spotify_meta_popularity(original_meta)
+    derived_pop = _spotify_meta_popularity(derived_meta)
+    if _should_defer_spotify_canonical_for_phrase_query(query, original_meta):
+        return derived_pop >= max(0, original_pop - 10)
+    original_conf = float(original_score.get("confidence", 0.0) or 0.0)
+    derived_conf = float(derived_score.get("confidence", 0.0) or 0.0)
+    return derived_pop >= original_pop or derived_conf >= original_conf + 0.18
 
 
 def _spotify_enrich_mode(score: dict) -> str:
@@ -1218,6 +1265,23 @@ class SourceResolver:
 
             if sp_meta_hint and results and not used_spotify_hint:
                 score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
+                if _should_try_track_derived_spotify_enrich(query, results[0], sp_meta_hint, score):
+                    try:
+                        alt_meta, alt_score = await loop.run_in_executor(
+                            None, cls._sp_search_track_meta_for_track, query, results[0]
+                        )
+                    except Exception as e:
+                        alt_meta, alt_score = None, None
+                        log.debug(tag("SPOTIFY", f"track-derived enrich skip  {b(query)}  {e}"))
+                    if _prefer_track_derived_spotify_meta(query, sp_meta_hint, score, alt_meta, alt_score):
+                        log.debug(tag(
+                            "SPOTIFY",
+                            f"track-derived enrich preferito  {b(query)}"
+                            f"  old_pop={b(str(_spotify_meta_popularity(sp_meta_hint)))}"
+                            f"  new_pop={b(str(_spotify_meta_popularity(alt_meta or {})))}",
+                        ))
+                        sp_meta_hint = alt_meta
+                        score = alt_score
                 yt_title_before = results[0].title
                 cls._apply_spotify_meta(results[0], sp_meta_hint, score)
                 cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, score)

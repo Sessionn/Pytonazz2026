@@ -413,6 +413,16 @@ def _compute_enrich_confidence(
     ):
         decision = "full"
         reason   = "title_artist_equivalent"
+    elif (
+        title_artist_equivalent
+        and query_sim >= 0.25
+        and not artist_mismatch
+        and duration_good
+        and variant_penalty <= 0.0
+        and non_music_penalty <= 0.0
+    ):
+        decision = "full"
+        reason   = "title_artist_equivalent_raw"
     elif confidence >= _ENRICH_CONFIDENCE_MEDIUM and not artist_mismatch and duration_good:
         decision = "cover_only"
         reason   = "medium_confidence"
