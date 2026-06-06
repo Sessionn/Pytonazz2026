@@ -547,13 +547,35 @@ def _prefer_track_derived_spotify_meta(
 
 
 def _spotify_track_derived_search_query(original_query: str, track) -> str:
+    title_text = (getattr(track, "title", "") or "").strip()
+    artist_text = (getattr(track, "artist", "") or "").strip()
+    if _looks_like_lyric_phrase_query(original_query) and title_text:
+        cleaned_title = re.sub(
+            r"\((?:lyrics?|official\s+audio|official\s+video|audio|video)\)",
+            " ",
+            title_text,
+            flags=re.IGNORECASE,
+        )
+        cleaned_title = re.sub(
+            r"\[(?:lyrics?|official\s+audio|official\s+video|audio|video)\]",
+            " ",
+            cleaned_title,
+            flags=re.IGNORECASE,
+        )
+        cleaned_title = re.sub(r"\s+", " ", cleaned_title).strip(" -|")
+        if " - " in cleaned_title:
+            left, right = cleaned_title.split(" - ", 1)
+            return f"{left.strip()} {right.strip()}".strip()
+        if artist_text and _contains_token(_normalize_for_sim(cleaned_title), _normalize_for_sim(artist_text)):
+            return cleaned_title
+        return " ".join(x for x in (cleaned_title, artist_text) if x).strip()
+
     search_parts = []
-    if not _looks_like_lyric_phrase_query(original_query):
-        search_parts.append(original_query)
-    if getattr(track, "title", ""):
-        search_parts.append(track.title)
-    if getattr(track, "artist", ""):
-        search_parts.append(track.artist)
+    search_parts.append(original_query)
+    if title_text:
+        search_parts.append(title_text)
+    if artist_text:
+        search_parts.append(artist_text)
     return " ".join(x.strip() for x in search_parts if x and x.strip())
 
 

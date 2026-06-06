@@ -100,7 +100,7 @@ async def run_case(sp_meta: dict, expected_call: str) -> list[TrackInfo]:
 async def main() -> None:
     phrase_track = TrackInfo(
         title="The Long Faces - Jane! (Lyrics)",
-        artist="The Long Faces",
+        artist="BangersOnly",
         webpage_url="https://www.youtube.com/watch?v=jane",
         duration=218,
         thumbnail="https://i.ytimg.com/vi/jane/hqdefault.jpg",
@@ -110,6 +110,7 @@ async def main() -> None:
     )
     derived_query = _spotify_track_derived_search_query("jane, you're early", phrase_track)
     assert "you're early" not in derived_query.lower(), derived_query
+    assert "BangersOnly" not in derived_query, derived_query
     assert "The Long Faces" in derived_query, derived_query
     assert "Jane!" in derived_query, derived_query
 
