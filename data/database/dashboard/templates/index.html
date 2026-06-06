@@ -69,7 +69,23 @@
       <div class="page-header-top">
         <div class="page-copy">
           <p class="eyebrow">Dashboard Database</p>
-          <h1><span aria-hidden="true">🎛️</span> Cache DB</h1>
+          <h1>
+            <span class="title-mark" aria-hidden="true">
+              <svg viewBox="0 0 64 64" role="img">
+                <defs>
+                  <linearGradient id="dashboard-title-gradient" x1="10" y1="8" x2="54" y2="58">
+                    <stop stop-color="#38bdf8"/>
+                    <stop offset="0.55" stop-color="#22d3ee"/>
+                    <stop offset="1" stop-color="#0f172a"/>
+                  </linearGradient>
+                </defs>
+                <rect x="8" y="10" width="48" height="44" rx="14" fill="url(#dashboard-title-gradient)"/>
+                <path d="M20 24h24M20 32h24M20 40h14" stroke="#e0f2fe" stroke-width="4" stroke-linecap="round"/>
+                <circle cx="46" cy="40" r="5" fill="#f97316"/>
+              </svg>
+            </span>
+            Cache DB
+          </h1>
           <p class="page-sub">Monitoraggio della cache, delle query osservate e delle sorgenti risolte in tempo reale.</p>
           <p id="gen-time" class="gen-time"></p>
           <div class="signal-row">

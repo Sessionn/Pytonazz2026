@@ -50,16 +50,23 @@ assert state["active_fx_names"] == ["bassboost", "radio"]
 assert any(entry["name"] == "nightcore" for entry in state["filter_catalog"]["base_filters"])
 assert any(entry["name"] == "bassboost" for entry in state["filter_catalog"]["fx_filters"])
 
+player.reset_live_mixer()
+assert player.filter_name == "off"
+assert player.base_filter_name == "off"
+assert player.active_fx_names == []
+assert player.eq == {"low": 0.0, "mid": 0.0, "high": 0.0}
+assert player.tone_filters == {"highpass_hz": 0.0, "lowpass_hz": 20000.0}
+
 
 class DummySource:
-    def __init__(self, payload: bytes):
+    def __init__(self, payload: bytes, repeats: int = 2):
         self.payload = payload
-        self.done = False
+        self.remaining = repeats
 
     def read(self):
-        if self.done:
+        if self.remaining <= 0:
             return b""
-        self.done = True
+        self.remaining -= 1
         return self.payload
 
     def is_opus(self):
@@ -93,5 +100,11 @@ live_eq = LivePCMTransform(DummySource(pcm3), volume=1.0)
 live_eq.set_eq(low=8.0, mid=0.0, high=-6.0)
 eq_processed = live_eq.read()
 assert eq_processed and eq_processed != pcm3
+
+live_rate = LivePCMTransform(DummySource(pcm3), volume=1.0)
+live_rate.set_filter_preset({"playback_rate": 1.25}, immediate=True)
+assert abs(live_rate._current_playback_rate - 1.25) < 1e-6
+live_rate.set_filter_preset({"playback_rate": 1.0}, immediate=True)
+assert abs(live_rate._current_playback_rate - 1.0) < 1e-6
 
 print("OK: dj player volume/eq/filter state")

@@ -285,6 +285,8 @@ class DJAccessController:
             await player.set_filter(str(payload.get("filter_name", "off")))
         elif action == "set_base_filter":
             await player.set_base_filter(str(payload.get("filter_name", "off")))
+        elif action == "reset_mixer":
+            player.reset_live_mixer()
         elif action == "toggle_filter_fx":
             await player.toggle_filter_fx(
                 str(payload.get("fx_name", "")),

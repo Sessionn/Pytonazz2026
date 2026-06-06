@@ -350,6 +350,47 @@ def _is_title_only_candidate(query: str) -> bool:
     return not any(sep in q_norm for sep in (" - ", " feat ", " ft ", " by "))
 
 
+_LYRIC_PHRASE_WORD_RE = re.compile(
+    r"\b(i|im|i'm|me|my|you|youre|you're|your|we|our|they|them|she|he|her|him|"
+    r"dont|don't|cant|can't|wont|won't|gonna|wanna)\b",
+    re.IGNORECASE,
+)
+_LYRIC_PHRASE_PUNCT_RE = re.compile(r"[,!?\"']")
+
+
+def _spotify_meta_popularity(sp_meta: dict) -> int:
+    try:
+        return int(sp_meta.get("popularity") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _looks_like_lyric_phrase_query(query: str) -> bool:
+    raw = (query or "").strip()
+    q_norm = _normalize_for_sim(raw)
+    if not raw or not q_norm:
+        return False
+    parts = q_norm.split()
+    if len(parts) < 2 or len(parts) > 8:
+        return False
+    if _query_requests_variant(raw):
+        return False
+    if any(sep in q_norm for sep in (" feat ", " ft ", " prod ", " by ")):
+        return False
+    has_phrase_punct = bool(_LYRIC_PHRASE_PUNCT_RE.search(raw))
+    has_phrase_word = bool(_LYRIC_PHRASE_WORD_RE.search(raw))
+    return has_phrase_punct and (has_phrase_word or len(parts) >= 3)
+
+
+def _should_defer_spotify_canonical_for_phrase_query(query: str, sp_meta: dict) -> bool:
+    if not sp_meta or not _looks_like_lyric_phrase_query(query):
+        return False
+    artist_sim, artist_hint_present = _query_artist_signal(query, sp_meta.get("artist", ""))
+    if artist_hint_present and artist_sim > 0.45:
+        return False
+    return _spotify_meta_popularity(sp_meta) < 45
+
+
 def _should_use_spotify_canonical_early(query: str, sp_meta: dict) -> bool:
     if not sp_meta:
         return False
@@ -360,6 +401,8 @@ def _should_use_spotify_canonical_early(query: str, sp_meta: dict) -> bool:
     if not q_norm or not title_norm:
         return False
     if artist_hint_present and artist_sim > 0:
+        return False
+    if q_norm == title_norm and _should_defer_spotify_canonical_for_phrase_query(query, sp_meta):
         return False
     return q_norm == title_norm
 
@@ -732,6 +775,7 @@ class SourceResolver:
                     "duration":    int((t.get("duration_ms") or 0) / 1000),
                     "artist":      ", ".join(a["name"] for a in t.get("artists", [])),
                     "spotify_url": t.get("external_urls", {}).get("spotify", ""),
+                    "popularity":  _spotify_item_popularity(t),
                 }
             except Exception as e:
                 cls._sp = None
@@ -774,6 +818,7 @@ class SourceResolver:
                         "duration": int((item.get("duration_ms") or 0) / 1000),
                         "artist": ", ".join(a["name"] for a in item.get("artists", [])),
                         "spotify_url": item.get("external_urls", {}).get("spotify", ""),
+                        "popularity": _spotify_item_popularity(item),
                     }
                     score = _compute_enrich_confidence(original_query, track, meta)
                     if best_score is None or score["confidence"] > best_score["confidence"]:
@@ -976,7 +1021,7 @@ class SourceResolver:
                     except Exception:
                         sp_meta_hint = None
                     log.debug(tag("PERF", f"spotify ambiguous hint  {b(query)}  {ms((time.perf_counter() - sp_t0) * 1000)}"))
-                if sp_meta_hint:
+                if sp_meta_hint and not _should_defer_spotify_canonical_for_phrase_query(query, sp_meta_hint):
                     canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                     if canonical:
                         yt_query = _spotify_youtube_query(canonical, query)
@@ -1064,6 +1109,7 @@ class SourceResolver:
                     cls._apply_spotify_meta(results[0], sp_meta_hint, score)
                     cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, score)
                 else:
+                    defer_spotify_canonical = _should_defer_spotify_canonical_for_phrase_query(query, sp_meta_hint)
                     canonical = f"{sp_meta_hint['title']} {sp_meta_hint['artist']}".strip()
                     canonical_yt_query = _spotify_youtube_query(canonical, query)
                     same_query_retry = (
@@ -1073,6 +1119,7 @@ class SourceResolver:
                     )
                     if (
                         canonical_yt_query
+                        and not defer_spotify_canonical
                         and (
                             same_query_retry
                             or (
@@ -1103,6 +1150,13 @@ class SourceResolver:
                                     yt_title_before = results[0].title
                                     cls._apply_spotify_meta(results[0], sp_meta_hint, canonical_score)
                                     cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, canonical_score)
+                    elif defer_spotify_canonical and canonical_yt_query and canonical_yt_query != yt_query:
+                        log.debug(tag(
+                            "SPOTIFY",
+                            f"canonical differito per query frase  {b(query)}"
+                            f"  spotify={b(canonical)}  keep={b(results[0].title)}"
+                            f"  pop={b(str(_spotify_meta_popularity(sp_meta_hint)))}",
+                        ))
                     elif canonical_yt_query and canonical_yt_query != yt_query:
                         log.debug(tag(
                             "SPOTIFY",

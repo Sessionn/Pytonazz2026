@@ -46,7 +46,18 @@ class Filters(commands.Cog):
 
     @app_commands.command(name="filteroff", description="Disattiva i filtri audio")
     async def filter_off(self, inter: discord.Interaction):
-        await self._apply_named_filter(inter, "off")
+        await inter.response.defer(ephemeral=True)
+        p = self._get_player(inter.guild_id)
+        if not p:
+            return await inter.followup.send(
+                embed=error_embed("Nessun player attivo. Avvia una riproduzione prima."),
+                ephemeral=True,
+            )
+        p.reset_live_mixer()
+        await inter.followup.send(
+            embed=success_embed("Mixer resettato: filtri, FX, EQ e tone riportati allo stato neutro."),
+            ephemeral=True,
+        )
 
     @app_commands.command(name="nightcore", description="Applica il filtro Nightcore")
     async def filter_nightcore(self, inter: discord.Interaction):

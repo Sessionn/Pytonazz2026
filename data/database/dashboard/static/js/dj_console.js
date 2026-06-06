@@ -63,8 +63,8 @@ const EQ_SCENES = {
   club: { low: 5, mid: -1.5, high: 4 },
   warm: { low: 3.5, mid: 1.5, high: -2 },
   vocal: { low: -1, mid: 2.5, high: 1.5 },
-  lofi: { low: 2.5, mid: -0.5, high: -4 },
-  "bass-tight": { low: 4, mid: -1, high: 0 },
+  lofi: { low: 3.4, mid: -1.2, high: -6.2 },
+  "bass-tight": { low: 5.2, mid: -1.2, high: -0.4 },
   "kill-low": { low: -12, mid: 0, high: 0 },
   "kill-high": { low: 0, mid: 0, high: -12 },
 };
@@ -871,17 +871,7 @@ els.resetMixerButton?.addEventListener("click", async () => {
   setControlValue(els.fxLowpass, 20000);
   updateToneValueLabels();
   animateEqTo(EQ_SCENES.flat, 240);
-  await postAction("set_base_filter", { filter_name: "off" });
-  await Promise.all([
-    postAction("toggle_filter_fx", { fx_name: "bassboost", enabled: false }),
-    postAction("toggle_filter_fx", { fx_name: "trebleboost", enabled: false }),
-    postAction("toggle_filter_fx", { fx_name: "vocalboost", enabled: false }),
-    postAction("toggle_filter_fx", { fx_name: "radio", enabled: false }),
-    postAction("toggle_filter_fx", { fx_name: "reverb", enabled: false }),
-    postAction("toggle_filter_fx", { fx_name: "echo", enabled: false }),
-    postAction("toggle_filter_fx", { fx_name: "8d", enabled: false }),
-    postAction("set_tone_filters", { tone_filters: { highpass_hz: 0, lowpass_hz: 20000 } }),
-  ]);
+  await postAction("reset_mixer");
 });
 
 setupVerticalDrag(els.volumeHandle, els.volume, {

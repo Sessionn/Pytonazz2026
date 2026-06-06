@@ -322,7 +322,7 @@ class LivePCMTransform(discord.AudioSource):
             self._target_mid_gain = max(-12.0, min(12.0, float(mid)))
             self._target_high_gain = max(-12.0, min(12.0, float(high)))
 
-    def set_filter_preset(self, preset: dict[str, float] | None = None) -> None:
+    def set_filter_preset(self, preset: dict[str, float] | None = None, immediate: bool = False) -> None:
         data = preset or {}
         with self._lock:
             self._target_preset_low_gain = max(-12.0, min(12.0, float(data.get("low_gain", 0.0))))
@@ -341,6 +341,25 @@ class LivePCMTransform(discord.AudioSource):
             self._target_playback_rate = max(0.5, min(1.5, float(data.get("playback_rate", 1.0))))
             self._target_reverb_mix = max(0.0, min(0.55, float(data.get("reverb_mix", 0.0))))
             self._target_reverb_decay = max(0.0, min(0.75, float(data.get("reverb_decay", 0.0))))
+            if immediate:
+                self._current_preset_low_gain = self._target_preset_low_gain
+                self._current_preset_mid_gain = self._target_preset_mid_gain
+                self._current_preset_high_gain = self._target_preset_high_gain
+                self._current_presence_gain = self._target_presence_gain
+                self._current_preset_highpass_hz = self._target_preset_highpass_hz
+                self._current_preset_lowpass_hz = self._target_preset_lowpass_hz
+                self._current_preset_highpass_mix = self._target_preset_highpass_mix
+                self._current_preset_lowpass_mix = self._target_preset_lowpass_mix
+                self._current_pan_rate_hz = self._target_pan_rate_hz
+                self._current_pan_depth = self._target_pan_depth
+                self._current_playback_rate = self._target_playback_rate
+                self._current_reverb_mix = self._target_reverb_mix
+                self._current_reverb_decay = self._target_reverb_decay
+                if self._target_reverb_mix <= 1e-4:
+                    self._reverb_delay_l = [0.0] * len(self._reverb_delay_l)
+                    self._reverb_delay_r = [0.0] * len(self._reverb_delay_r)
+                    self._reverb_pos_l = 0
+                    self._reverb_pos_r = 0
 
     def read(self) -> bytes:
         frames_out = self._ensure_frames_for_rate(self._current_playback_rate)

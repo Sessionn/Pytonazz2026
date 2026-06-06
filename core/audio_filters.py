@@ -59,8 +59,8 @@ LIVE_FILTER_PRESETS: dict[str, dict[str, float]] = {
         "playback_rate": 1.0,
     },
     "bassboost": {
-        "low_gain": 8.0,
-        "mid_gain": -1.0,
+        "low_gain": 9.0,
+        "mid_gain": -1.2,
         "high_gain": 1.0,
         "presence_gain": 0.0,
         "highpass_hz": 0.0,

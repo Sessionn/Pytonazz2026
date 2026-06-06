@@ -122,6 +122,34 @@ body::before {
   text-shadow: 0 0 16px rgba(248,250,252,0.06);
 }
 
+.brand-block h1 {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.deck-title-mark {
+  display: inline-grid;
+  place-items: center;
+  width: clamp(48px, 4.2vw, 64px);
+  height: clamp(48px, 4.2vw, 64px);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03)),
+    rgba(37, 99, 235, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  box-shadow:
+    0 20px 42px rgba(37, 99, 235, 0.2),
+    inset 0 1px 0 rgba(255,255,255,0.18);
+}
+
+.deck-title-mark svg {
+  display: block;
+  width: 84%;
+  height: 84%;
+  filter: drop-shadow(0 10px 18px rgba(96, 165, 250, 0.22));
+}
+
 .subcopy,
 .controls-header p,
 .error-copy,

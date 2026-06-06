@@ -160,7 +160,10 @@ class MusicPlayer:
         self._refresh_filter_summary()
         if self.vc and self.vc.source:
             if hasattr(self.vc.source, "set_filter_preset"):
-                self.vc.source.set_filter_preset(combine_live_filter_preset(self.base_filter_name, self.active_fx_names))
+                self.vc.source.set_filter_preset(
+                    combine_live_filter_preset(self.base_filter_name, self.active_fx_names),
+                    immediate=True,
+                )
             if hasattr(self.vc.source, "set_eq"):
                 self.vc.source.set_eq(
                     low=self.eq.get("low", 0.0),
@@ -570,7 +573,10 @@ class MusicPlayer:
                 mid=self.eq.get("mid", 0.0),
                 high=self.eq.get("high", 0.0),
             )
-            source.set_filter_preset(combine_live_filter_preset(self.base_filter_name, self.active_fx_names))
+            source.set_filter_preset(
+                combine_live_filter_preset(self.base_filter_name, self.active_fx_names),
+                immediate=True,
+            )
 
             def _after(err):
                 # threading.Event.is_set() è thread-safe: nessun rischio di
