@@ -430,9 +430,54 @@ def _raw_result_supports_spotify_artist(query: str, track, sp_artist: str) -> bo
     return any(_contains_token(yt_blob, tok) for tok in artist_tokens)
 
 
+def _raw_result_beats_weak_spotify_hint(query: str, track, sp_meta: dict) -> bool:
+    """Avoid replacing a query-coherent raw result with a weak Spotify guess."""
+    raw_sim = _enrich_sim(query, getattr(track, "title", "") or "", getattr(track, "artist", "") or "")
+    spotify_sim = _enrich_sim(query, sp_meta.get("title", ""), sp_meta.get("artist", ""))
+    raw_recall = _query_token_recall(query, f"{getattr(track, 'title', '') or ''} {getattr(track, 'artist', '') or ''}")
+    spotify_recall = _query_token_recall(query, f"{sp_meta.get('title', '')} {sp_meta.get('artist', '')}")
+    if raw_recall >= 0.67 and raw_recall >= spotify_recall + 0.34:
+        return True
+    if raw_sim >= 0.55 and spotify_sim < 0.45:
+        return True
+    if raw_sim >= 0.42 and raw_sim >= spotify_sim + 0.18:
+        return True
+    return False
+
+
+def _query_token_recall(query: str, candidate_text: str) -> float:
+    query_tokens = [tok for tok in _normalize_for_sim(query).split() if tok]
+    candidate_tokens = [tok for tok in _normalize_for_sim(candidate_text).split() if tok]
+    if not query_tokens or not candidate_tokens:
+        return 0.0
+    matched = 0
+    used: set[int] = set()
+    for q_tok in query_tokens:
+        best_idx = -1
+        best_score = 0.0
+        for idx, c_tok in enumerate(candidate_tokens):
+            if idx in used:
+                continue
+            if q_tok == c_tok:
+                best_idx = idx
+                best_score = 1.0
+                break
+            if min(len(q_tok), len(c_tok)) >= 4 and abs(len(q_tok) - len(c_tok)) <= 3:
+                sim = _str_sim(q_tok, c_tok)
+                if sim >= 0.78 and sim > best_score:
+                    best_idx = idx
+                    best_score = sim
+        if best_idx >= 0:
+            used.add(best_idx)
+            matched += 1
+    return matched / len(query_tokens)
+
+
 def _should_retry_canonical_after_weak_hint(query: str, track, sp_meta: dict, score: dict) -> bool:
     if _is_short_or_ambiguous_query(query):
         return True
+    if _raw_result_beats_weak_spotify_hint(query, track, sp_meta):
+        return False
     raw_artist_ok = _raw_result_supports_spotify_artist(query, track, sp_meta.get("artist", ""))
     if not _query_requests_variant(query) and float(score.get("variant_penalty", 0.0) or 0.0) >= 0.20:
         if (
@@ -722,31 +767,22 @@ class SourceResolver:
         sp_title = meta.get("title", "")
         sp_artist = meta.get("artist", "")
         conf_pct = int(score["confidence"] * 100)
-        _sp_label = b(sp_title) + (f"  {sp_artist}" if sp_artist else "")
-        _yt_label = dim(yt_title_before) if decision == "full" else b(yt_title_before)
-        enrich_log.info(tag(
-            "SPOTIFY",
-            "\n".join([
-                f"enrich[{idx}]",
-                f"  query={b(original_query)}",
-                f"  spotify={_sp_label}",
-                f"  youtube={_yt_label}",
-                f"  decision={hi(decision, _dc)}  conf={hi(f'{conf_pct}%', _dc)}",
-            ]),
-        ))
-        enrich_log.debug(tag(
-            "SPOTIFY",
-            "\n".join([
-                f"enrich[{idx}]  scores:",
-                f"    query={int(score['query_sim'] * 100)}%",
-                f"    youtube={int(score['yt_sim'] * 100)}%",
-                f"    artist={int(score['artist_sim'] * 100)}%",
-                f"    duration={int(score['duration_sim'] * 100)}%",
-                f"    junk={int(score['variant_penalty'] * 100)}%",
-                f"    non_music={int(score['non_music_penalty'] * 100)}%",
-                f"    reason={dim(score['reason'])}",
-            ]),
-        ))
+        clip = lambda value, limit=92: (str(value)[: limit - 3] + "...") if len(str(value)) > limit else str(value)
+        sp_label = clip(sp_title + (f"  {sp_artist}" if sp_artist else ""))
+        yt_label = clip(yt_title_before)
+        enrich_log.info(tag("SPOTIFY", f"enrich[{idx}]"))
+        enrich_log.info(tag("SPOTIFY", f"  query={b(clip(original_query))}"))
+        enrich_log.info(tag("SPOTIFY", f"  spotify={b(sp_label)}"))
+        enrich_log.info(tag("SPOTIFY", f"  youtube={(dim(yt_label) if decision == 'full' else b(yt_label))}"))
+        enrich_log.info(tag("SPOTIFY", f"  decision={hi(decision, _dc)}  conf={hi(f'{conf_pct}%', _dc)}"))
+        enrich_log.debug(tag("SPOTIFY", f"enrich[{idx}] scores"))
+        enrich_log.debug(tag("SPOTIFY", f"  query={int(score['query_sim'] * 100)}%"))
+        enrich_log.debug(tag("SPOTIFY", f"  youtube={int(score['yt_sim'] * 100)}%"))
+        enrich_log.debug(tag("SPOTIFY", f"  artist={int(score['artist_sim'] * 100)}%"))
+        enrich_log.debug(tag("SPOTIFY", f"  duration={int(score['duration_sim'] * 100)}%"))
+        enrich_log.debug(tag("SPOTIFY", f"  junk={int(score['variant_penalty'] * 100)}%"))
+        enrich_log.debug(tag("SPOTIFY", f"  non_music={int(score['non_music_penalty'] * 100)}%"))
+        enrich_log.debug(tag("SPOTIFY", f"  reason={dim(clip(score['reason']))}"))
 
     @classmethod
     def _cache_prune_locked(cls, cache: dict, max_size: int) -> None:

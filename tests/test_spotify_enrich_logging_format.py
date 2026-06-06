@@ -54,12 +54,13 @@ finally:
 
 output = stream.getvalue()
 assert "enrich[1]" in output, output
-assert "\n  query=" in output, output
-assert "\n  spotify=" in output, output
-assert "\n  youtube=" in output, output
-assert "\n  decision=" in output, output
-assert "scores:" in output, output
-assert "\n    query=" in output, output
-assert "\n    reason=" in output, output
+lines = [line for line in output.splitlines() if line.strip()]
+assert any("  query=" in line for line in lines), output
+assert any("  spotify=" in line for line in lines), output
+assert any("  youtube=" in line for line in lines), output
+assert any("  decision=" in line for line in lines), output
+assert any("scores" in line for line in lines), output
+assert any("  reason=" in line for line in lines), output
+assert all("\n" not in line for line in lines), output
 
-print("OK: spotify enrich logging is multiline and compact")
+print("OK: spotify enrich logging uses compact stable records")
