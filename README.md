@@ -162,6 +162,15 @@ Internet -> 80/443 -> Caddy -> 127.0.0.1:5000 -> dashboard Flask
 Discord voice -> processo Python -> FFmpeg
 ```
 
+Layout della VM operativa attuale:
+
+- repo produzione: `~/Pytonazz2026`, branch `main-2`;
+- start/stop/restart: `~/.local/bin/pytonazz-bot`;
+- alias shell: `gp`, `sta`, `sto`, `res`, `scr`;
+- autostart: crontab `@reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start`;
+- dashboard: `127.0.0.1:5000` dietro Caddy su `80/443`;
+- artifact locali VM: `~/pytonazz_vm_artifacts/`, non nella home root e non nel repo.
+
 Guida completa: [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
 
 ## Debug performance musicale

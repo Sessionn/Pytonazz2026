@@ -323,6 +323,17 @@ SQLite puo' creare:
 
 Sono file runtime normali. Non committarli. Se devi fare backup, stoppa il bot o usa `/cache export`.
 
+Sulla VM gli artifact runtime e i backup manuali non devono stare nella root della home. Usa:
+
+```text
+~/pytonazz_vm_artifacts/backups/
+~/pytonazz_vm_artifacts/env-backups/
+~/pytonazz_vm_artifacts/logs/
+~/pytonazz_vm_artifacts/probes/
+```
+
+Il repo deve restare pulito: DB, WAL/SHM, log screen, cookie, dump e probe temporanei sono esclusi dal versionamento.
+
 ## 15. Test consigliati dopo modifiche
 
 ```bash

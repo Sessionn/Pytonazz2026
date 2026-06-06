@@ -29,6 +29,8 @@ data/*
 # Cache runtime (token Spotify di spotipy, yt-dlp, libs)
 .cache
 .cache/
+cookies.txt
+*.cookies.txt
 
 # OS
 .DS_Store

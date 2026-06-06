@@ -20,6 +20,36 @@ Principi:
 - yt-dlp deve essere aggiornato spesso;
 - FFmpeg deve supportare le opzioni passate dal bot.
 
+## 1.1 Configurazione VM attuale
+
+Stato operativo verificato sulla VM:
+
+- OS: Ubuntu 22.04 LTS;
+- repo produzione: `~/Pytonazz2026`;
+- branch produzione: `main-2`;
+- Python: `3.10`;
+- FFmpeg: serie `4.4.x` Ubuntu;
+- yt-dlp: installato nel venv;
+- dashboard: `127.0.0.1:5000`;
+- proxy pubblico: Caddy su `80/443`;
+- WARP SOCKS locale: `127.0.0.1:40000`;
+- processo bot: `screen` session `pytonazz`;
+- script runtime: `~/.local/bin/pytonazz-bot`;
+- artifact VM: `~/pytonazz_vm_artifacts/`;
+- autostart: crontab utente.
+
+Home policy:
+
+```text
+~/
+|-- Pytonazz2026/              # repo produzione
+|-- .local/bin/pytonazz-bot    # start/stop/restart
+|-- .local/bin/rotate-warp     # utility manuale WARP
+|-- pytonazz_vm_artifacts/     # probe, backup, log, clone non runtime
+```
+
+Non lasciare probe Python, screen log, backup `.env`, cookie o clone temporanei nella root della home.
+
 ## 2. Prerequisiti
 
 - Ubuntu 22.04 o 24.04;
@@ -150,6 +180,14 @@ Inserisci l'output in `DASH_SECRET_KEY`.
 
 Se usi cookie per YouTube, usa un path assoluto leggibile dal processo del bot. Evita file copiati in path temporanei o con permessi solo root.
 
+Sulla VM attuale il path ordinato per i cookie archiviati e':
+
+```env
+COOKIE_FILE=/home/sessionn/pytonazz_vm_artifacts/env-backups/cookies.txt
+```
+
+`COOKIES_ENABLED` deve essere valorizzato solo quando vuoi davvero usare quel file. Se e' vuoto, il bot non passa cookie a yt-dlp.
+
 ## 8. Cache DB
 
 Schema corrente: SQLite normalizzato con tracce, sorgenti, alias query e viste dashboard. La documentazione tecnica e in `CACHE_DB.md`.
@@ -235,6 +273,8 @@ sudo systemctl status caddy --no-pager
 
 ## 12. Service systemd
 
+La VM attuale usa `screen` e crontab, non systemd per il bot. Questa sezione resta valida se in futuro vuoi migrare a un servizio systemd.
+
 Crea `/etc/systemd/system/pytonazz.service`:
 
 ```ini
@@ -267,6 +307,30 @@ sudo systemctl status pytonazz --no-pager
 
 Se invece usi `screen`, assicurati che lo script di start entri nel repo, attivi `venv` e lanci `python main.py`.
 
+Setup screen usato sulla VM attuale:
+
+```bash
+mkdir -p ~/.local/bin ~/pytonazz_vm_artifacts/logs
+
+# Script operativo atteso:
+~/.local/bin/pytonazz-bot start
+~/.local/bin/pytonazz-bot stop
+~/.local/bin/pytonazz-bot restart
+
+# Alias consigliati in ~/.bashrc:
+alias gp='cd ~/Pytonazz2026 && git pull && cd ~'
+alias sta='~/.local/bin/pytonazz-bot start'
+alias sto='~/.local/bin/pytonazz-bot stop'
+alias res='~/.local/bin/pytonazz-bot restart'
+alias scr='screen -r pytonazz'
+alias warp-rotate='~/.local/bin/rotate-warp'
+
+# Autostart:
+(crontab -l 2>/dev/null; echo '@reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start') | crontab -
+```
+
+Evita `screen -L` senza `-Logfile`: crea `screenlog.0` nella directory corrente, spesso la home.
+
 ## 13. Deploy aggiornamenti
 
 Prima di pullare:
@@ -291,6 +355,22 @@ sudo systemctl restart caddy
 ```
 
 Con `screen`, sostituisci il restart systemd con i tuoi alias di stop/start.
+
+Deploy standard sulla VM attuale:
+
+```bash
+gp
+res
+```
+
+Se cambi dipendenze Python:
+
+```bash
+cd ~/Pytonazz2026
+source venv/bin/activate
+pip install -r requirements.txt
+res
+```
 
 ## 14. Test rete e TLS
 
@@ -409,3 +489,5 @@ Segreti da ruotare se finiti in file o log:
 - [ ] servizio systemd o screen attivo
 - [ ] `python tools/benchmark_resolve.py "titolo artista"` eseguito
 - [ ] `/play` reale provato in Discord
+- [ ] home utente pulita: solo repo, dotfile e `pytonazz_vm_artifacts`
+- [ ] artifact temporanei sotto `~/pytonazz_vm_artifacts/`

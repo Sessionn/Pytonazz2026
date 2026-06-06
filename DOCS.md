@@ -392,25 +392,60 @@ Get-ChildItem tests -Filter *.py | ForEach-Object { .\venv\Scripts\python.exe $_
 
 Per installazione completa segui [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
 
-Deploy tipico:
+### VM operativa attuale
+
+La VM di produzione usa `screen`, non un servizio `pytonazz.service` systemd.
+
+Layout:
+
+- repo: `~/Pytonazz2026`;
+- branch: `main-2`;
+- venv: `~/Pytonazz2026/venv`;
+- script runtime: `~/.local/bin/pytonazz-bot`;
+- utility WARP manuale: `~/.local/bin/rotate-warp`;
+- artifact locali: `~/pytonazz_vm_artifacts/`;
+- dashboard: `127.0.0.1:5000`;
+- reverse proxy: Caddy su `80/443`;
+- servizi host rilevanti: `cron`, `caddy`, `docker`, `warp-svc`.
+
+Alias shell:
+
+```bash
+gp   # cd ~/Pytonazz2026 && git pull && cd ~
+sta  # start bot
+sto  # stop bot
+res  # restart bot
+scr  # screen -r pytonazz
+```
+
+Autostart:
+
+```bash
+@reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start
+```
+
+La home dell'utente deve restare pulita. Probe, benchmark temporanei, backup env/cookie, log screen e backup rete vanno sotto `~/pytonazz_vm_artifacts/`.
+
+Deploy tipico sulla VM attuale:
 
 ```bash
 cd ~/Pytonazz2026
-git pull --rebase
+git pull
 source venv/bin/activate
 pip install -r requirements.txt
 python -m py_compile config.py main.py
+res
 ```
 
-Se usi `screen`:
+Controlli rapidi:
 
 ```bash
-screen -S pytonazz
-source venv/bin/activate
-python main.py
+screen -list
+ss -ltnp | grep -E ':80|:443|:5000|:40000'
+systemctl is-active cron caddy docker warp-svc
 ```
 
-Se usi systemd, aggiorna e riavvia:
+Deploy generico con systemd, se in futuro si passa a un servizio dedicato:
 
 ```bash
 sudo systemctl restart pytonazz
