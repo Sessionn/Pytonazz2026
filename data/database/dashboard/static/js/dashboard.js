@@ -119,14 +119,14 @@ function tweenCounter(el, from, to, duration = 600) {
   requestAnimationFrame(update);
 }
 
-function refreshStats() {
+function refreshStats(refreshData = true) {
   fetch("/api/stats")
     .then(r => {
       if (!r.ok) throw new Error("stats fetch failed");
       return r.json();
     })
     .then(data => {
-      if (applyStatsPayload(data)) refreshCurrentData(true);
+      if (applyStatsPayload(data) && refreshData) refreshCurrentData(true);
     })
     .catch(() => {});
 }
@@ -597,7 +597,7 @@ function deleteSong(id) {
       showToast("Entry eliminata", "success");
       closeModal();
       refreshLoadedSections();
-      setTimeout(refreshStats, 350);
+      setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
 }
@@ -609,7 +609,7 @@ function deleteTrack(id) {
       if (!data.ok) throw new Error("delete track failed");
       showToast("Traccia canonica eliminata", "success");
       refreshLoadedSections();
-      setTimeout(refreshStats, 350);
+      setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione traccia", "error"));
 }
@@ -621,7 +621,7 @@ function deleteSource(id) {
       if (!data.ok) throw new Error("delete source failed");
       showToast("Sorgente eliminata", "success");
       refreshLoadedSections();
-      setTimeout(refreshStats, 350);
+      setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione sorgente", "error"));
 }
@@ -633,7 +633,7 @@ function deleteAlias(id) {
       if (!data.ok) throw new Error("delete alias failed");
       showToast("Alias eliminato", "success");
       refreshLoadedSections();
-      setTimeout(refreshStats, 350);
+      setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione alias", "error"));
 }
@@ -645,7 +645,7 @@ function deleteQuery(id) {
       if (!data.ok) throw new Error("delete query failed");
       showToast("Query eliminata", "success");
       refreshLoadedSections();
-      setTimeout(refreshStats, 350);
+      setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione query", "error"));
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 from array import array
 from types import SimpleNamespace
 
@@ -47,8 +48,16 @@ assert state["tone_filters"]["highpass_hz"] == 85.0
 assert state["filter_name"] == "nightcore + bassboost + radio"
 assert state["base_filter_name"] == "nightcore"
 assert state["active_fx_names"] == ["bassboost", "radio"]
+assert state["playback_rate"] == 1.25
 assert any(entry["name"] == "nightcore" for entry in state["filter_catalog"]["base_filters"])
 assert any(entry["name"] == "bassboost" for entry in state["filter_catalog"]["fx_filters"])
+
+player._play_start = time.monotonic() - 8.0
+player._seek_offset = 0.0
+player._paused_total = 0.0
+player._pause_at = 0.0
+player._position_playback_rate = 1.25
+assert 9.5 <= player.position <= 10.5
 
 player.reset_live_mixer()
 assert player.filter_name == "off"

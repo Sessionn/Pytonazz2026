@@ -247,6 +247,35 @@ def _compact_tokens(text: str) -> str:
     return "".join(_normalize_for_sim(text).split())
 
 
+def _fuzzy_token_subset(needles: set[str], haystack: set[str]) -> tuple[bool, set[str]]:
+    matched_haystack: set[str] = set()
+    used_haystack: set[str] = set()
+    for needle in needles:
+        if needle in haystack and needle not in used_haystack:
+            matched_haystack.add(needle)
+            used_haystack.add(needle)
+            continue
+
+        best_token = ""
+        best_score = 0.0
+        for candidate in haystack:
+            if candidate in used_haystack:
+                continue
+            if (
+                min(len(needle), len(candidate)) >= _FUZZY_TOKEN_MIN_LENGTH
+                and abs(len(needle) - len(candidate)) <= 2
+            ):
+                score = SequenceMatcher(None, needle, candidate).ratio()
+                if score >= _FUZZY_TOKEN_SIM_THRESHOLD and score > best_score:
+                    best_token = candidate
+                    best_score = score
+        if not best_token:
+            return False, matched_haystack
+        matched_haystack.add(best_token)
+        used_haystack.add(best_token)
+    return True, matched_haystack
+
+
 def _title_artist_equivalent(yt_title: str, yt_artist: str, sp_title: str, sp_artist: str) -> bool:
     """True when YouTube is effectively "artist - title" for the Spotify track."""
     title_norm = _normalize_for_sim(sp_title)
@@ -258,7 +287,8 @@ def _title_artist_equivalent(yt_title: str, yt_artist: str, sp_title: str, sp_ar
 
     title_tokens = set(title_norm.split())
     yt_title_tokens = set(yt_title_norm.split())
-    if not title_tokens or not title_tokens.issubset(yt_title_tokens):
+    title_matches, matched_title_tokens = _fuzzy_token_subset(title_tokens, yt_title_tokens)
+    if not title_tokens or not title_matches:
         return False
 
     artist_compact = _compact_tokens(sp_artist)
@@ -266,7 +296,7 @@ def _title_artist_equivalent(yt_title: str, yt_artist: str, sp_title: str, sp_ar
     if not artist_compact or artist_compact not in yt_title_compact:
         return False
 
-    allowed = title_tokens | set(artist_norm.split())
+    allowed = title_tokens | matched_title_tokens | set(artist_norm.split())
     compact_allowed = _compact_tokens(" ".join(allowed))
     title_extra_tokens = yt_title_tokens - allowed
     if not title_extra_tokens or _compact_tokens(" ".join(title_extra_tokens)) in compact_allowed:

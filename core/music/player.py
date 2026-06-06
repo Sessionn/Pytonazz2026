@@ -74,6 +74,7 @@ class MusicPlayer:
 
         self._play_start:   float = 0.0
         self._seek_offset:  float = 0.0
+        self._position_playback_rate: float = 1.0
         self._pause_at:     float = 0.0
         self._paused_total: float = 0.0
         self.autoplay_enabled: bool = False
@@ -85,7 +86,19 @@ class MusicPlayer:
         paused = self._paused_total
         if self._paused and self._pause_at > 0:
             paused += time.monotonic() - self._pause_at
-        return max(0.0, self._seek_offset + (time.monotonic() - self._play_start) - paused)
+        elapsed = max(0.0, (time.monotonic() - self._play_start) - paused)
+        return max(0.0, self._seek_offset + (elapsed * self._position_playback_rate))
+
+    def _reanchor_position_rate(self, next_rate: float) -> None:
+        if self._play_start == 0.0:
+            self._position_playback_rate = max(0.5, min(1.5, float(next_rate or 1.0)))
+            return
+        current_position = self.position
+        self._seek_offset = current_position
+        self._play_start = time.monotonic()
+        self._paused_total = 0.0
+        self._pause_at = self._play_start if self._paused else 0.0
+        self._position_playback_rate = max(0.5, min(1.5, float(next_rate or 1.0)))
 
     @property
     def is_paused(self) -> bool:
@@ -120,6 +133,7 @@ class MusicPlayer:
 
     def to_public_state(self) -> dict:
         vc = self.vc
+        live_preset = combine_live_filter_preset(self.base_filter_name, self.active_fx_names)
         return {
             "guild_id": self.guild.id if self.guild else 0,
             "connected": bool(vc),
@@ -134,6 +148,7 @@ class MusicPlayer:
             "filter_name": self.filter_name,
             "base_filter_name": self.base_filter_name,
             "active_fx_names": list(self.active_fx_names),
+            "playback_rate": round(float(live_preset.get("playback_rate", 1.0) or 1.0), 3),
             "filter_catalog": {
                 "base_filters": list_base_filters(),
                 "fx_filters": list_fx_filters(self.base_filter_name),
@@ -152,6 +167,7 @@ class MusicPlayer:
         self.filter_name = " + ".join(parts) if parts else "off"
 
     def reset_live_mixer(self, notify: bool = True) -> None:
+        self._reanchor_position_rate(1.0)
         self.base_filter_name = "off"
         self.active_fx_names = []
         self.filter = None
@@ -208,6 +224,7 @@ class MusicPlayer:
         if is_fx_filter(filter_name):
             self.base_filter_name = "off"
             self.active_fx_names = [filter_name]
+            self._reanchor_position_rate(combine_live_filter_preset(self.base_filter_name, self.active_fx_names).get("playback_rate", 1.0))
             self.filter = None
             self._refresh_filter_summary()
             self._apply_live_filter_state()
@@ -219,6 +236,7 @@ class MusicPlayer:
         else:
             self.base_filter_name = "off"
             self.active_fx_names = []
+        self._reanchor_position_rate(combine_live_filter_preset(self.base_filter_name, self.active_fx_names).get("playback_rate", 1.0))
         self.filter = None
         self._refresh_filter_summary()
         if self._apply_live_filter_state():
@@ -266,6 +284,7 @@ class MusicPlayer:
         else:
             active.discard(fx_name)
         self.active_fx_names = sorted(active, key=lambda name: FX_FILTER_NAMES.index(name) if name in FX_FILTER_NAMES else 999)
+        self._reanchor_position_rate(combine_live_filter_preset(self.base_filter_name, self.active_fx_names).get("playback_rate", 1.0))
         self.filter = None
         self._refresh_filter_summary()
         self._apply_live_filter_state()
@@ -436,6 +455,7 @@ class MusicPlayer:
         self._version_switch     = True
         self._seek_position      = 0.0
         self._seek_offset        = 0.0
+        self._position_playback_rate = 1.0
         self._cached_stream_url  = ""
         if self.vc and (self.vc.is_playing() or self.vc.is_paused()):
             self.vc.stop()
@@ -609,6 +629,7 @@ class MusicPlayer:
 
             self.vc.play(source, after=_after)
             self._play_start   = time.monotonic()
+            self._position_playback_rate = float(combine_live_filter_preset(self.base_filter_name, self.active_fx_names).get("playback_rate", 1.0) or 1.0)
             self._pause_at     = 0.0
             self._paused_total = 0.0
             self._paused       = False

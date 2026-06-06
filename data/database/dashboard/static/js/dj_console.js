@@ -63,8 +63,8 @@ const EQ_SCENES = {
   club: { low: 5, mid: -1.5, high: 4 },
   warm: { low: 3.5, mid: 1.5, high: -2 },
   vocal: { low: -1, mid: 2.5, high: 1.5 },
-  lofi: { low: 3.4, mid: -1.2, high: -6.2 },
-  "bass-tight": { low: 5.2, mid: -1.2, high: -0.4 },
+  lofi: { low: 4.4, mid: -2.0, high: -8.0 },
+  "bass-tight": { low: 5.8, mid: -1.4, high: -0.6 },
   "kill-low": { low: -12, mid: 0, high: 0 },
   "kill-high": { low: 0, mid: 0, high: -12 },
 };
@@ -233,8 +233,9 @@ function getDisplayedPosition() {
     return base;
   }
   const elapsed = Math.max(0, (performance.now() - lastStateSyncAt) / 1000);
+  const playbackRate = Math.max(0.5, Math.min(1.5, Number(state.playback_rate || 1)));
   const duration = Number(state.duration || 0);
-  const next = base + elapsed;
+  const next = base + (elapsed * playbackRate);
   if (duration > 0) {
     return Math.min(duration, next);
   }
