@@ -47,9 +47,9 @@ async def run_case(sp_meta: dict, expected_call: str) -> list[TrackInfo]:
         return [
             TrackInfo(
                 title="The Long Faces - Jane!",
-                artist="The Long Faces",
+                artist="BangersOnly",
                 webpage_url="https://www.youtube.com/watch?v=jane",
-                duration=218,
+                duration=186,
                 thumbnail="https://i.ytimg.com/vi/jane/hqdefault.jpg",
                 requester=requester,
                 requester_id=requester_id,
@@ -65,7 +65,7 @@ async def run_case(sp_meta: dict, expected_call: str) -> list[TrackInfo]:
         meta = {
             "title": "Jane!",
             "artist": "The Long Faces",
-            "duration": 218,
+            "duration": 186,
             "thumbnail": "https://i.scdn.co/image/jane",
             "thumbnail_source": "spotify",
             "thumbnail_confidence": 0.92,

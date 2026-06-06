@@ -239,22 +239,28 @@ def _title_artist_equivalent(yt_title: str, yt_artist: str, sp_title: str, sp_ar
     """True when YouTube is effectively "artist - title" for the Spotify track."""
     title_norm = _normalize_for_sim(sp_title)
     artist_norm = _normalize_for_sim(sp_artist)
+    yt_title_norm = _normalize_for_sim(yt_title)
     yt_norm = _normalize_for_sim(f"{yt_title} {yt_artist}".strip())
-    if not title_norm or not artist_norm or not yt_norm:
+    if not title_norm or not artist_norm or not yt_title_norm:
         return False
 
     title_tokens = set(title_norm.split())
-    yt_tokens = set(yt_norm.split())
-    if not title_tokens or not title_tokens.issubset(yt_tokens):
+    yt_title_tokens = set(yt_title_norm.split())
+    if not title_tokens or not title_tokens.issubset(yt_title_tokens):
         return False
 
     artist_compact = _compact_tokens(sp_artist)
-    yt_compact = _compact_tokens(yt_norm)
-    if not artist_compact or artist_compact not in yt_compact:
+    yt_title_compact = _compact_tokens(yt_title_norm)
+    if not artist_compact or artist_compact not in yt_title_compact:
         return False
 
     allowed = title_tokens | set(artist_norm.split())
     compact_allowed = _compact_tokens(" ".join(allowed))
+    title_extra_tokens = yt_title_tokens - allowed
+    if not title_extra_tokens or _compact_tokens(" ".join(title_extra_tokens)) in compact_allowed:
+        return True
+
+    yt_tokens = set(yt_norm.split())
     extra_tokens = yt_tokens - allowed
     return not extra_tokens or _compact_tokens(" ".join(extra_tokens)) in compact_allowed
 
