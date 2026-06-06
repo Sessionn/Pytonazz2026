@@ -26,7 +26,17 @@ _VARIANT_KEYWORDS = re.compile(
 )
 
 _NOISE_WORDS = re.compile(
-    r"\b(official|audio|video|ufficiale|lyrics?|test[io]|ft\.?|feat\.?|vs\.?|&|remix|remaster(?:ed)?|explicit|clean|hq|hd|4k)\b",
+    r"\b(official|audio|video|visualizer|ufficiale|lyrics?|test[io]|ft\.?|feat\.?|vs\.?|&|remix|remaster(?:ed)?|explicit|clean|hq|hd|4k)\b",
+    re.IGNORECASE,
+)
+
+_PRODUCER_CREDIT_SEGMENT = re.compile(
+    r"[\(\[\{][^\)\]\}]*\b(?:prod\.?|produced\s+by|producer)\b[^\)\]\}]*[\)\]\}]",
+    re.IGNORECASE,
+)
+
+_INLINE_PRODUCER_CREDIT = re.compile(
+    r"\b(?:prod\.?|produced\s+by|producer)\s+[^()\[\]\|]+",
     re.IGNORECASE,
 )
 
@@ -127,6 +137,8 @@ def _str_sim(a: str, b: str) -> float:
 
 
 def _normalize_for_sim(text: str) -> str:
+    text = _PRODUCER_CREDIT_SEGMENT.sub(" ", text)
+    text = _INLINE_PRODUCER_CREDIT.sub(" ", text)
     text = _NOISE_WORDS.sub(" ", text)
     text = re.sub(r"[^\w\s]", " ", text)
     return re.sub(r"\s+", " ", text).strip().lower()
