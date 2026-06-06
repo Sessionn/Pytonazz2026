@@ -1315,6 +1315,18 @@ class SourceResolver:
                 yt_title_before = results[0].title
                 cls._apply_spotify_meta(results[0], sp_meta_hint, score)
                 cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, score)
+            elif fast_path and not sp_meta_hint and results and _looks_like_lyric_phrase_query(query):
+                try:
+                    alt_meta, alt_score = await loop.run_in_executor(
+                        None, cls._sp_search_track_meta_for_track, query, results[0]
+                    )
+                except Exception as e:
+                    alt_meta, alt_score = None, None
+                    log.debug(tag("SPOTIFY", f"lyrics track-derived enrich skip  {b(query)}  {e}"))
+                if alt_meta and alt_score and _spotify_enrich_mode(alt_score) != "skip":
+                    yt_title_before = results[0].title
+                    cls._apply_spotify_meta(results[0], alt_meta, alt_score)
+                    cls._log_spotify_enrich(1, query, yt_title_before, alt_meta, alt_score)
             elif not sp_meta_hint and _should_enrich_with_spotify(query, results):
                 should_retry_enrich = (
                     not fast_path

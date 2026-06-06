@@ -117,6 +117,11 @@ async def main() -> None:
     normal_query = _spotify_track_derived_search_query("splinter cell g.mineiro", phrase_track)
     assert normal_query.startswith("splinter cell g.mineiro"), normal_query
 
+    tracks = await run_case(None, "ytsearch1:jane, you're early")
+    assert tracks[0].title == "Jane!", tracks[0]
+    assert tracks[0].artist == "The Long Faces", tracks[0]
+    assert tracks[0].spotify_url == "https://open.spotify.com/track/jane", tracks[0]
+
     low_pop_spotify = {
         "title": "Jane, You're Early",
         "artist": "Royal Sadness",
