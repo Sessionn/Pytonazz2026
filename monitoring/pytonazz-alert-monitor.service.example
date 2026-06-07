@@ -1,0 +1,16 @@
+[Unit]
+Description=Pytonazz alert monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sessionn
+WorkingDirectory=/home/sessionn/Pytonazz2026
+EnvironmentFile=/home/sessionn/Pytonazz2026/monitoring/.env
+ExecStart=/home/sessionn/Pytonazz2026/venv/bin/python -m monitoring.log_monitor
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

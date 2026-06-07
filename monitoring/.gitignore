@@ -1,0 +1,5 @@
+.env
+*.log
+*.json
+.alert-monitor-state.json
+logs/
