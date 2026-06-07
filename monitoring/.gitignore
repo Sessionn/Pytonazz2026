@@ -1,5 +1,7 @@
 .env
 *.log
 *.json
+!alert_profiles.example.json
 .alert-monitor-state.json
 logs/
+alert_profiles.json

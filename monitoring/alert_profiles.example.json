@@ -1,0 +1,101 @@
+{
+  "youtube_cookie": {
+    "label": "YouTube cookie",
+    "emoji": "🍪",
+    "tags": "cookie,warning",
+    "summary": "YouTube sta chiedendo cookie o verifica anti-bot al resolver.",
+    "checks": [
+      "Controlla COOKIE_FILE=/home/sessionn/cookies.txt nel .env del bot.",
+      "Aggiorna i cookie YouTube se sono vecchi o scaduti.",
+      "Aggiorna yt-dlp nel venv della VM."
+    ]
+  },
+  "youtube_cookie_hint": {
+    "label": "YouTube cookie",
+    "emoji": "🍪",
+    "tags": "cookie,warning",
+    "summary": "yt-dlp ha prodotto un messaggio legato ai cookie YouTube.",
+    "checks": [
+      "Verifica che COOKIE_FILE punti a un file leggibile dal processo del bot.",
+      "Se il file esiste, prova a rigenerarlo dal browser.",
+      "Rilancia un benchmark con tools/benchmark_ytdlp.py."
+    ]
+  },
+  "youtube_bot_check": {
+    "label": "YouTube anti-bot",
+    "emoji": "🛡️",
+    "tags": "shield,warning",
+    "summary": "YouTube ha attivato un controllo anti-bot sulla VM.",
+    "checks": [
+      "Verifica cookie e proxy/WARP se configurati.",
+      "Aggiorna yt-dlp.",
+      "Se succede spesso, prova a ruotare rete o ridurre richieste ripetute."
+    ]
+  },
+  "ffmpeg_error": {
+    "label": "FFmpeg audio",
+    "emoji": "🎧",
+    "tags": "headphones,warning",
+    "summary": "Il player audio ha visto un errore FFmpeg o stream non riproducibile.",
+    "checks": [
+      "Controlla se lo stream URL e' scaduto.",
+      "Verifica ffmpeg -version sulla VM.",
+      "Riprova /play e guarda se il resolver rigenera lo stream."
+    ]
+  },
+  "critical": {
+    "label": "Critico",
+    "emoji": "🚨",
+    "tags": "rotating_light",
+    "summary": "Evento critico: il bot potrebbe essere instabile o bloccato.",
+    "checks": [
+      "Controlla subito il processo del bot.",
+      "Guarda le righe prima e dopo nel log.",
+      "Se il bot non risponde, valuta restart controllato."
+    ]
+  },
+  "traceback": {
+    "label": "Traceback",
+    "emoji": "💥",
+    "tags": "boom,warning",
+    "summary": "Python ha stampato uno stack trace.",
+    "checks": [
+      "Leggi le righe successive nel log per il file e la funzione.",
+      "Cerca l'ultima riga dello stack trace: di solito contiene la causa.",
+      "Se e' ripetuto, conserva le righe vicine per debug."
+    ]
+  },
+  "exception": {
+    "label": "Eccezione",
+    "emoji": "💥",
+    "tags": "boom,warning",
+    "summary": "Una parte del bot ha segnalato una eccezione.",
+    "checks": [
+      "Cerca nel log il comando o evento che l'ha causata.",
+      "Controlla se riguarda Discord, resolver, dashboard o cache.",
+      "Se si ripete, conserva le righe vicine per debug."
+    ]
+  },
+  "error": {
+    "label": "Errore",
+    "emoji": "❌",
+    "tags": "x,warning",
+    "summary": "Errore generico rilevato nei log.",
+    "checks": [
+      "Leggi la riga completa e le righe immediatamente precedenti.",
+      "Se riguarda musica, prova benchmark_resolve o benchmark_ytdlp.",
+      "Se riguarda Discord, verifica permessi e stato del bot."
+    ]
+  },
+  "warning": {
+    "label": "Warning",
+    "emoji": "⚠️",
+    "tags": "warning",
+    "summary": "Warning rilevato: non sempre e' grave, ma va tenuto d'occhio.",
+    "checks": [
+      "Se e' isolato, probabilmente basta monitorarlo.",
+      "Se si ripete spesso, alza priorita' e controlla il modulo indicato.",
+      "Guarda se precede un ERROR o un problema utente reale."
+    ]
+  }
+}

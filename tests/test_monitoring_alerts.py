@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from monitoring.log_monitor import AlertRule, LogMonitor, MonitorState
+from monitoring.log_monitor import AlertRule, LogMonitor, MonitorState, format_notification, load_alert_profiles
 from monitoring.notifier import NtfyConfig, build_ntfy_request
 
 
@@ -94,6 +94,76 @@ class MonitoringAlertsTests(unittest.TestCase):
 
             self.assertEqual(len(alerts), 1)
             self.assertIn("primo", alerts[0].line)
+
+    def test_youtube_cookie_alert_uses_specific_rule_before_generic_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "bot.log"
+            log_path.write_text(
+                "ERROR: Sign in to confirm you are not a bot. Use --cookies\n",
+                encoding="utf-8",
+            )
+
+            monitor = LogMonitor(log_path=log_path, state=MonitorState(), cooldown_seconds=0)
+            alerts = monitor.scan_once(now=1000.0)
+
+            self.assertEqual(len(alerts), 1)
+            self.assertEqual(alerts[0].rule_name, "youtube_cookie")
+
+    def test_notification_format_is_clear_and_actionable(self):
+        alert = AlertRule(
+            name="youtube_cookie",
+            severity="urgent",
+            patterns=("confirm you are not a bot",),
+        )
+        matched = LogMonitor(
+            log_path=Path("bot.log"),
+            state=MonitorState(),
+            rules=[alert],
+            cooldown_seconds=0,
+        )._alert_for_line("ERROR: Sign in to confirm you are not a bot. Use --cookies", 1000.0)
+
+        notification = format_notification(matched, Path("/home/sessionn/Pytonazz2026/monitoring/logs/bot.log"))
+
+        self.assertEqual(notification.priority, "urgent")
+        self.assertIn("🍪", notification.title)
+        self.assertIn("YouTube cookie", notification.title)
+        self.assertIn("Cosa significa", notification.message)
+        self.assertIn("Controlli rapidi", notification.message)
+        self.assertIn("COOKIE_FILE", notification.message)
+        self.assertIn("yt-dlp", notification.message)
+        self.assertIn("cookie,warning", notification.tags)
+
+    def test_notification_profiles_can_be_overridden_from_json(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "profiles.json"
+            profile_path.write_text(
+                """
+{
+  "youtube_cookie": {
+    "label": "YouTube bloccato",
+    "emoji": "🍪",
+    "tags": "cookie,rotating_light",
+    "summary": "Messaggio personalizzato.",
+    "checks": ["Controllo uno.", "Controllo due."]
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            profiles = load_alert_profiles(profile_path)
+            matched = LogMonitor(
+                log_path=Path("bot.log"),
+                state=MonitorState(),
+                rules=[AlertRule("youtube_cookie", "urgent", ("cookies",))],
+                cooldown_seconds=0,
+            )._alert_for_line("ERROR --cookies", 1000.0)
+
+            notification = format_notification(matched, Path("bot.log"), profiles=profiles)
+
+            self.assertIn("YouTube bloccato", notification.title)
+            self.assertEqual(notification.tags, "cookie,rotating_light")
+            self.assertIn("Messaggio personalizzato", notification.message)
+            self.assertIn("Controllo uno", notification.message)
 
 
 if __name__ == "__main__":
