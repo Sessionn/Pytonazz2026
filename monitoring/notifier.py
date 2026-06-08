@@ -58,9 +58,9 @@ def build_ntfy_request(
     tags: str = "warning",
 ) -> urllib.request.Request:
     headers = {
-        "Title": title,
-        "Priority": priority,
-        "Tags": tags,
+        "Title": _http_header_value(title, fallback="Pytonazz alert"),
+        "Priority": _http_header_value(priority, fallback="default"),
+        "Tags": _http_header_value(tags, fallback="warning"),
     }
     if config.token:
         headers["Authorization"] = f"Bearer {config.token}"
@@ -71,6 +71,21 @@ def build_ntfy_request(
         headers=headers,
         method="POST",
     )
+
+
+def _http_header_value(value: str, *, fallback: str) -> str:
+    cleaned = "".join(ch for ch in str(value) if _is_latin1_header_char(ch)).strip()
+    return cleaned or fallback
+
+
+def _is_latin1_header_char(ch: str) -> bool:
+    if ch in "\r\n":
+        return False
+    try:
+        ch.encode("latin-1")
+        return True
+    except UnicodeEncodeError:
+        return False
 
 
 class NtfyNotifier:

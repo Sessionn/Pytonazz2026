@@ -37,6 +37,19 @@ class MonitoringAlertsTests(unittest.TestCase):
         self.assertEqual(request.headers["Priority"], "high")
         self.assertEqual(request.data, "Errore resolver YouTube".encode("utf-8"))
 
+    def test_ntfy_request_keeps_headers_http_safe_when_title_has_emoji(self):
+        request = build_ntfy_request(
+            NtfyConfig(url="https://alerts.example.com/bot-errors"),
+            title="🍪 Pytonazz: YouTube cookie",
+            message="🍪 Corpo UTF-8 consentito",
+            priority="urgent",
+            tags="cookie,warning",
+        )
+
+        request.headers["Title"].encode("latin-1")
+        self.assertEqual(request.headers["Title"], "Pytonazz: YouTube cookie")
+        self.assertEqual(request.data, "🍪 Corpo UTF-8 consentito".encode("utf-8"))
+
     def test_log_monitor_detects_youtube_cookie_problem(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "bot.log"
