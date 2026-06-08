@@ -16,6 +16,8 @@ DEFAULT_TEST_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 DEFAULT_INTERVAL_SECONDS = 3600
 DEFAULT_STARTUP_DELAY_SECONDS = 30
 DEFAULT_COOLDOWN_SECONDS = 21600
+DEFAULT_INLINE_COOLDOWN_SECONDS = 300
+_last_inline_cookie_alert_at = 0.0
 
 
 class AlertNotifier(Protocol):
@@ -131,6 +133,38 @@ def classify_cookie_probe_output(*, returncode: int, output: str) -> CookieProbe
         rule_name="error",
         detail=f"Cookie probe fallito con codice {returncode}. Output: {text}",
     )
+
+
+def notify_ytdlp_cookie_error(
+    message: str,
+    *,
+    config: CookieWatchConfig | None = None,
+    notifier: AlertNotifier | None = None,
+    now: float | None = None,
+) -> bool:
+    global _last_inline_cookie_alert_at
+    result = classify_cookie_probe_output(returncode=1, output=message)
+    if result.ok or result.rule_name not in ("youtube_cookie", "youtube_cookie_hint"):
+        return False
+
+    config = CookieWatchConfig.from_env() if config is None else config
+    if not config.enabled:
+        return False
+    now = time.time() if now is None else now
+    cooldown = min(config.cooldown_seconds, DEFAULT_INLINE_COOLDOWN_SECONDS)
+    if now - _last_inline_cookie_alert_at < cooldown:
+        return False
+
+    notifier = NtfyNotifier(NtfyConfig.from_env()) if notifier is None else notifier
+    notification = _build_cookie_failure_notification(config, result)
+    notifier.send(
+        title=notification.title,
+        message=notification.message,
+        priority=notification.priority,
+        tags=notification.tags,
+    )
+    _last_inline_cookie_alert_at = now
+    return True
 
 
 async def run_ytdlp_cookie_probe(config: CookieWatchConfig) -> CookieProbeResult:

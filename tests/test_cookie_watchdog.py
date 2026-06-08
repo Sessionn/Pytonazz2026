@@ -13,6 +13,7 @@ from monitoring.cookie_watchdog import (
     CookieWatchConfig,
     CookieWatchState,
     classify_cookie_probe_output,
+    notify_ytdlp_cookie_error,
     run_cookie_check_once,
 )
 
@@ -126,6 +127,37 @@ class CookieWatchdogTests(unittest.TestCase):
         self.assertTrue(first)
         self.assertFalse(second)
         self.assertEqual(len(notifier.sent), 1)
+
+    def test_ytdlp_error_hook_sends_immediate_cookie_alert_with_cooldown(self):
+        notifier = FakeNotifier()
+        config = CookieWatchConfig(
+            enabled=True,
+            cookie_file="/home/sessionn/cookies.txt",
+            alert_url="https://ntfy.sh/pytonazBot",
+            interval_seconds=60,
+            startup_delay_seconds=0,
+            cooldown_seconds=300,
+            test_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        )
+
+        first = notify_ytdlp_cookie_error(
+            "ERROR: [youtube] Sign in to confirm you are not a bot. Use --cookies",
+            config=config,
+            notifier=notifier,
+            now=1000.0,
+        )
+        second = notify_ytdlp_cookie_error(
+            "ERROR: [youtube] Sign in to confirm you are not a bot. Use --cookies",
+            config=config,
+            notifier=notifier,
+            now=1100.0,
+        )
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        self.assertEqual(len(notifier.sent), 1)
+        self.assertIn("YouTube cookie", notifier.sent[0]["title"])
+        self.assertIn("Sign in to confirm", notifier.sent[0]["message"])
 
 
 if __name__ == "__main__":

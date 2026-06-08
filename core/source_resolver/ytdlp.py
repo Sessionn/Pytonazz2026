@@ -15,6 +15,7 @@ import urllib.request
 
 from config import Config
 from core.log_colors import tag
+from monitoring.cookie_watchdog import notify_ytdlp_cookie_error
 
 # ── Cache TTL / size constants ────────────────────────────────────────────────
 
@@ -43,6 +44,10 @@ class _YdlLogger:
     def error(self, msg: str) -> None:
         if "DRM" not in msg:
             log.error(tag("ERR", f"{msg}"))
+            try:
+                notify_ytdlp_cookie_error(msg)
+            except Exception as exc:
+                log.debug(tag("COOKIE", f"notifica cookie yt-dlp saltata: {exc}"))
 
 
 # ── Option builder ────────────────────────────────────────────────────────────
