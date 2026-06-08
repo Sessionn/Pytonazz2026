@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Mapping, Protocol
 
+from core.log_colors import _BGRN, _CYN, b, hi, tag
 from monitoring.log_monitor import Alert, format_notification, load_alert_profiles
 from monitoring.notifier import NtfyConfig, NtfyNotifier
 
@@ -268,9 +269,5 @@ def start_cookie_watchdog(bot, *, logger=None):
     task = asyncio.create_task(cookie_watch_loop(config=config, notifier=notifier, logger=logger))
     bot._cookie_watchdog_task = task
     if logger:
-        logger.info(
-            "cookie watchdog avviato: ogni %ss, test_url=%s",
-            config.interval_seconds,
-            config.test_url,
-        )
+        logger.info(tag("COOKIE", f"{hi('watchdog avviato', _BGRN)}: ogni {b(hi(str(config.interval_seconds) + 's', _CYN))}"))
     return task
