@@ -37,9 +37,16 @@ PYTONAZZ_ALERT_BASE_URL=https://tuo-dominio.example.com/ntfy
 PYTONAZZ_ALERT_TOPIC=topic-lungo-random-non-indovinabile
 PYTONAZZ_MONITOR_LOG=/home/sessionn/Pytonazz2026/monitoring/bot.log
 PYTONAZZ_ALERT_PROFILES=/home/sessionn/Pytonazz2026/monitoring/alert_profiles.json
+PYTONAZZ_COOKIE_WATCH_ENABLED=true
+PYTONAZZ_COOKIE_WATCH_INTERVAL_SECONDS=3600
+PYTONAZZ_COOKIE_WATCH_STARTUP_DELAY_SECONDS=30
+PYTONAZZ_COOKIE_WATCH_COOLDOWN_SECONDS=21600
+PYTONAZZ_COOKIE_WATCH_TEST_URL=https://www.youtube.com/watch?v=dQw4w9WgXcQ
 ```
 
 `PYTONAZZ_ALERT_TOKEN` resta vuoto se proteggi il topic solo con nome lungo e HTTPS. Se abiliti auth ntfy, metti qui il token bearer.
+
+Il cookie watchdog interno al bot legge anche `monitoring/.env` all'avvio, senza sovrascrivere le variabili gia presenti nel `.env` principale. Parte quando trova `COOKIE_FILE` e ntfy configurato. Controlla i cookie ogni `PYTONAZZ_COOKIE_WATCH_INTERVAL_SECONDS`; se fallisce manda ntfy direttamente, senza dipendere dal file log o dallo script esterno.
 
 ## Personalizzazione messaggi
 

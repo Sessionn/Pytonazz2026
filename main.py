@@ -24,6 +24,7 @@ from core.runtime import (
     snapshot_extension_mtimes,
     start_dashboard_thread,
 )
+from monitoring.cookie_watchdog import start_cookie_watchdog
 from assets.status_messages import STATUS_CYCLE
 
 print_banner()           # <-- banner prima di qualsiasi log
@@ -232,6 +233,7 @@ async def on_ready():
         watchdog.start()
     if not rotate_status.is_running():
         rotate_status.start()
+    start_cookie_watchdog(bot, logger=logging.getLogger("pitonazz.cookie_watchdog"))
 
     if not cfg.maintenance:
         try:
