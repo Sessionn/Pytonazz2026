@@ -138,8 +138,10 @@ class MonitoringAlertsTests(unittest.TestCase):
         notification = format_notification(matched, Path("/home/sessionn/Pytonazz2026/monitoring/logs/bot.log"))
 
         self.assertEqual(notification.priority, "urgent")
-        self.assertIn("🍪", notification.title)
+        self.assertTrue(notification.title.startswith("🍪 "))
+        self.assertTrue(notification.title.endswith(" 🍪"))
         self.assertIn("YouTube cookie", notification.title)
+        self.assertEqual(notification.message.splitlines()[0], "Tipo: YouTube cookie")
         self.assertIn("Cosa significa", notification.message)
         self.assertIn("Controlli rapidi", notification.message)
         self.assertIn("COOKIE_FILE", notification.message)

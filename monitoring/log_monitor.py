@@ -299,7 +299,7 @@ def format_notification(
     priority = _priority_for_severity(alert.severity)
     checks = "\n".join(f"- {check}" for check in profile.checks)
     message = (
-        f"{profile.emoji} {profile.label}\n"
+        f"Tipo: {profile.label}\n"
         f"Priorita': {alert.severity.upper()}\n"
         f"Log: {log_path}\n\n"
         f"Cosa significa\n"
@@ -310,7 +310,7 @@ def format_notification(
         f"{alert.line}"
     )
     return Notification(
-        title=f"{profile.emoji} Pytonazz: {profile.label}",
+        title=f"{profile.emoji} Pytonazz: {profile.label} {profile.emoji}",
         message=message,
         priority=priority,
         tags=profile.tags,
