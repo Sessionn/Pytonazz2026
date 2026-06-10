@@ -503,6 +503,9 @@ def _find_unique_canonical_query_match(
         elif query_music == full_music:
             method = "canonical_metadata"
             confidence = 1.0
+        elif query_tokens == _music_tokens(title):
+            method = "canonical_title_tokens"
+            confidence = 0.98
         else:
             title_similarity = _string_similarity(query_raw, title)
             title_overlap = _token_overlap(query_raw, title)
@@ -1093,6 +1096,14 @@ def put(query: str, track) -> None:
 
         if existing_source:
             source_id = int(existing_source["id"])
+            existing_source_name = (existing_source["source"] or "").strip().lower()
+            incoming_source_name = (source or "").strip().lower()
+            preserve_spotify_metadata = (
+                existing_source_name == "spotify"
+                and incoming_source_name != "spotify"
+                and (existing_source["spotify_url"] or "").strip()
+                and not spotify_url
+            )
             cur.execute(
                 """
                 UPDATE cache_sources
@@ -1101,10 +1112,10 @@ def put(query: str, track) -> None:
                        stream_url = CASE WHEN ? != '' THEN ? ELSE stream_url END,
                        stream_expires_at = CASE WHEN ? != '' THEN ? ELSE stream_expires_at END,
                        last_stream_check = CASE WHEN ? != '' THEN ? ELSE last_stream_check END,
-                       source = ?,
-                       resolved_title = ?,
-                       resolved_artist = ?,
-                       duration = ?,
+                       source = CASE WHEN ? THEN source ELSE ? END,
+                       resolved_title = CASE WHEN ? THEN resolved_title ELSE ? END,
+                       resolved_artist = CASE WHEN ? THEN resolved_artist ELSE ? END,
+                       duration = CASE WHEN ? THEN duration ELSE ? END,
                        thumbnail = CASE
                            WHEN ? = '' THEN thumbnail
                            WHEN thumbnail = '' THEN ?
@@ -1138,9 +1149,13 @@ def put(query: str, track) -> None:
                     stream_url, stream_url,
                     stream_url, stream_expires_at,
                     stream_url, now,
+                    1 if preserve_spotify_metadata else 0,
                     source,
+                    1 if preserve_spotify_metadata else 0,
                     title,
+                    1 if preserve_spotify_metadata else 0,
                     artist,
+                    1 if preserve_spotify_metadata else 0,
                     duration,
                     thumbnail,
                     thumbnail,
