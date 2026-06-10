@@ -11,6 +11,7 @@ from core.log_colors import _BGRN, _BRED, b, dim, hi, tag
 DEFAULT_COGS = [
     "cogs.ai",
     "cogs.birthdays",
+    "cogs.channel_control",
     "cogs.dj",
     "cogs.dev",
     "cogs.dev_audio",

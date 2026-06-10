@@ -21,6 +21,7 @@ _DEFAULTS: dict = {
     "maintenance":       False,
     "tts_volume":        1.5,
     "disabled_commands": [],
+    "channel_controls":  {},
 }
 
 
@@ -78,6 +79,15 @@ class BotConfig:
     def disabled_commands(self) -> list[str]:
         return list(self._data.get("disabled_commands", []))
 
+    def channel_controls_for_guild(self, guild_id: int) -> dict[int, str]:
+        raw = self._data.get("channel_controls", {}).get(str(guild_id), {})
+        return {int(ch_id): str(control) for ch_id, control in raw.items()}
+
+    def get_channel_control(self, guild_id: int, channel_id: int) -> str | None:
+        controls = self._data.get("channel_controls", {}).get(str(guild_id), {})
+        value = controls.get(str(channel_id))
+        return str(value) if value else None
+
     # ── Setters asincroni ─────────────────────────────────────────────────────
 
     async def set_status_interval(self, seconds: int) -> None:
@@ -118,6 +128,30 @@ class BotConfig:
         return command_slug(slug) in self._data.get("disabled_commands", [])
 
     # ── Snapshot ──────────────────────────────────────────────────────────────
+
+    async def set_channel_control(self, guild_id: int, channel_id: int, control: str) -> bool:
+        guild_key = str(guild_id)
+        channel_key = str(channel_id)
+        control = str(control).strip()
+        controls = self._data.setdefault("channel_controls", {}).setdefault(guild_key, {})
+        if controls.get(channel_key) == control:
+            return False
+        controls[channel_key] = control
+        await self._persist()
+        return True
+
+    async def remove_channel_control(self, guild_id: int, channel_id: int) -> bool:
+        guild_key = str(guild_id)
+        channel_key = str(channel_id)
+        all_controls = self._data.setdefault("channel_controls", {})
+        controls = all_controls.get(guild_key, {})
+        if channel_key not in controls:
+            return False
+        controls.pop(channel_key, None)
+        if not controls:
+            all_controls.pop(guild_key, None)
+        await self._persist()
+        return True
 
     def snapshot(self) -> dict:
         """Restituisce una copia immutabile della configurazione attuale."""

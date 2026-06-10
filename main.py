@@ -4,6 +4,7 @@ import logging
 import random
 
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
@@ -67,6 +68,35 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 init_dj_access_controller(bot)
 
 COGS = list(DEFAULT_COGS)
+
+_CHANNEL_CONTROL_LABELS = {
+    "bot_commands_only": "solo comandi bot",
+    "no_bot_commands": "comandi bot bloccati",
+}
+
+
+async def _is_dev_user(discord_user) -> bool:
+    if discord_user.id in Config.DEV_IDS:
+        return True
+    return await bot.is_owner(discord_user)
+
+
+@bot.tree.interaction_check
+async def channel_control_interaction_check(inter: discord.Interaction) -> bool:
+    if not inter.guild_id or not inter.channel_id:
+        return True
+    if await _is_dev_user(inter.user):
+        return True
+    control = cfg.get_channel_control(inter.guild_id, inter.channel_id)
+    if control != "no_bot_commands":
+        return True
+    label = _CHANNEL_CONTROL_LABELS.get(control, control)
+    if not inter.response.is_done():
+        await inter.response.send_message(
+            f"\u274c Questo canale ha controllo **{label}**.",
+            ephemeral=True,
+        )
+    raise app_commands.CheckFailure("channel blocks bot commands")
 
 
 async def load_cogs():
@@ -259,6 +289,25 @@ async def on_command_error(ctx, error):
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot or not message.guild:
+        return
+    if await _is_dev_user(message.author):
+        await bot.process_commands(message)
+        return
+    control = cfg.get_channel_control(message.guild.id, message.channel.id)
+    if control != "bot_commands_only":
+        await bot.process_commands(message)
+        return
+    try:
+        await message.delete()
+    except discord.Forbidden:
+        log.warning(tag("CHANCTL", f"delete Forbidden #{getattr(message.channel, 'name', message.channel.id)}"))
+    except discord.NotFound:
+        pass
+
+
 async def main():
     async with bot:
         await load_cogs()

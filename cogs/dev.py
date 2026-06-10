@@ -84,8 +84,8 @@ class Dev(commands.Cog):
 
     # ── OWNER ONLY ────────────────────────────────────────────────────────────
 
-    @app_commands.command(name="restart", description=f"{_OWN} \U0001f451 Riavvia il bot")
-    @owner_check
+    @app_commands.command(name="restart", description=f"{_OWN} Riavvia il bot (solo dev)")
+    @dev_check
     async def restart(self, inter: discord.Interaction):
         await inter.response.send_message("\U0001f504 Riavvio in corso...", ephemeral=True)
         log.info(tag("DEV", f"restart richiesto da {user(str(inter.user))}"))
@@ -119,9 +119,9 @@ class Dev(commands.Cog):
             log.info(tag("DEV", f"sync globale \u2192 {b(len(synced))} comandi"))
         await inter.followup.send("\n".join(lines), ephemeral=True)
 
-    @app_commands.command(name="maintenance", description=f"{_OWN} \U0001f451 Attiva/disattiva modalit\u00e0 manutenzione")
-    @app_commands.describe(attiva="True = solo owner usa il bot, False = tutti")
-    @owner_check
+    @app_commands.command(name="maintenance", description=f"{_OWN} Attiva/disattiva modalit\u00e0 manutenzione (solo dev)")
+    @app_commands.describe(attiva="True = solo dev usano il bot, False = tutti")
+    @dev_check
     async def maintenance(self, inter: discord.Interaction, attiva: bool):
         await cfg.set_maintenance(attiva)
         if attiva:
@@ -129,7 +129,7 @@ class Dev(commands.Cog):
         else:
             await self.bot.restore_presence_after_maintenance()
         stato = (
-            "\U0001f6a7 **MANUTENZIONE ATTIVA** \u2014 solo tu puoi usare i comandi."
+            "\U0001f6a7 **MANUTENZIONE ATTIVA** \u2014 solo dev possono usare i comandi."
             if attiva
             else "\u2705 Manutenzione **disattivata** \u2014 bot accessibile a tutti."
         )
