@@ -41,6 +41,13 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Codex/plugin runtime files
+.blender-toolkit/
+.plugin-config/
+.complexity-log.md
+.todos-report.md
+docs/superpowers/
+
 # database
 *.db
 *.sqlite

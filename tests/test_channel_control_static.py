@@ -21,6 +21,10 @@ assert "async def on_message" in main_py
 assert 'control != "bot_commands_only"' in main_py
 assert "await bot.process_commands(message)" in main_py
 assert 'name="channel_control"' in cog_py
+assert '_ICON = "\\U0001f451"' in cog_py
+assert 'COG_TYPE = "admin"' in cog_py
+assert "@admin_check" in cog_py
+assert '@perm("admin")' in cog_py
 assert 'name="set"' in cog_py
 assert 'name="remove"' in cog_py
 assert 'name="list"' in cog_py

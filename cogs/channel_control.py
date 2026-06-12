@@ -6,11 +6,11 @@ from discord.ext import commands
 
 from core.bot_config import cfg
 from core.log_colors import tag
-from core.permissions import dev_check
+from core.permissions import admin_check, perm
 
 log = logging.getLogger("pitonazz.channel_control")
 
-_ICON = "\U0001f6e0\ufe0f"
+_ICON = "\U0001f451"
 _CONTROL_LABELS = {
     "bot_commands_only": "Solo comandi bot",
     "no_bot_commands": "Blocca comandi bot",
@@ -20,7 +20,7 @@ _CONTROL_LABELS = {
 class ChannelControl(commands.Cog):
     COG_ICON = _ICON
     COG_LABEL = "Controlli canale"
-    COG_TYPE = "dev"
+    COG_TYPE = "admin"
 
     channel_control = app_commands.Group(
         name="channel_control",
@@ -33,7 +33,8 @@ class ChannelControl(commands.Cog):
         app_commands.Choice(name="Solo comandi bot", value="bot_commands_only"),
         app_commands.Choice(name="Blocca comandi bot", value="no_bot_commands"),
     ])
-    @dev_check
+    @perm("admin")
+    @admin_check
     async def set_control(
         self,
         inter: discord.Interaction,
@@ -51,7 +52,8 @@ class ChannelControl(commands.Cog):
 
     @channel_control.command(name="remove", description=f"{_ICON} Rimuovi il controllo da un canale")
     @app_commands.describe(canale="Canale da liberare")
-    @dev_check
+    @perm("admin")
+    @admin_check
     async def remove_control(self, inter: discord.Interaction, canale: discord.TextChannel):
         removed = await cfg.remove_channel_control(inter.guild_id, canale.id)
         if not removed:
@@ -66,7 +68,8 @@ class ChannelControl(commands.Cog):
         )
 
     @channel_control.command(name="list", description=f"{_ICON} Mostra i controlli canale configurati")
-    @dev_check
+    @perm("admin")
+    @admin_check
     async def list_controls(self, inter: discord.Interaction):
         controls = cfg.channel_controls_for_guild(inter.guild_id)
         if not controls:

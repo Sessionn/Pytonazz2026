@@ -2,6 +2,5 @@
   "showLogs": false,
   "requireGitRepo": true,
   "commitOnlyIfChanges": true,
-  "includeTimestamp": true,
-  "_pluginVersion": "1.1.1"
+  "includeTimestamp": true
 }
