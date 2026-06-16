@@ -19,6 +19,7 @@ _UNCONFIGURED_PROXY  = "(non configurata in env)"
 _UNCONFIGURED_COOKIE = "(non configurato in env)"
 
 _DB_PATH_DEFAULT = "data/database/cache.db"
+_PROJECT_ROOT = Path(__file__).resolve().parent
 
 
 def _is_http_proxy_url(value: str) -> bool:
@@ -74,6 +75,20 @@ def _resolve_db_path(raw: str) -> str:
     return str(path)
 
 
+def _resolve_optional_file_path(raw: str) -> str:
+    """
+    Normalizza un path opzionale proveniente da .env.
+    I path relativi vengono risolti dalla root progetto, non dalla cwd del processo.
+    """
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    path = Path(os.path.expandvars(os.path.expanduser(value)))
+    if not path.is_absolute():
+        path = _PROJECT_ROOT / path
+    return str(path)
+
+
 class Config:
     DISCORD_TOKEN:         str = os.getenv("DISCORD_TOKEN", "")
     DISCORD_CLIENT_ID:     str = os.getenv("DISCORD_CLIENT_ID", "").strip()
@@ -114,8 +129,8 @@ class Config:
         if _cookies_enabled_raw
         else bool(_cookies_raw)
     )
-    EFFECTIVE_COOKIE_FILE: str = _cookies_raw if COOKIES_ENABLED else ""
-    COOKIE_FILE: str           = _cookies_raw   # alias di compatibilita'
+    COOKIE_FILE: str           = _resolve_optional_file_path(_cookies_raw)
+    EFFECTIVE_COOKIE_FILE: str = COOKIE_FILE if COOKIES_ENABLED else ""
     _cookies: str              = EFFECTIVE_COOKIE_FILE
 
     # ── Audio ──────────────────────────────────────────────────────────────────────────────────

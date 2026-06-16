@@ -1813,6 +1813,10 @@ class SourceResolver:
         normalized_query = query.strip()
         origin_query = re.sub(r"^ytsearch\d*:", "", normalized_query, count=1).strip() or normalized_query
         try:
+            fast_search_results = cls._run_ytdlp_flat_first(normalized_query, requester, requester_id, origin_query)
+            if fast_search_results is not None:
+                cls._set_cached_ytdlp_results(cache_key, fast_search_results)
+                return fast_search_results
             try:
                 with yt_dlp.YoutubeDL(_make_opts()) as ydl:
                     info = ydl.extract_info(query, download=False)
@@ -1835,32 +1839,7 @@ class SourceResolver:
                 return []
             if not info:
                 return []
-            raw_entries = info.get("entries")
-            entries = raw_entries if raw_entries is not None else [info]
-            results = []
-            for e in entries:
-                if not e or cls._is_drm(e):
-                    continue
-                url = cls._best_audio_url(e)
-                if not url:
-                    continue
-                webpage_url = e.get("webpage_url", "")
-                src    = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
-                artist = e.get("artist") or e.get("creator") or e.get("uploader", "")
-                results.append(TrackInfo(
-                    title        = e.get("title", "Senza titolo"),
-                    webpage_url  = webpage_url,
-                    duration     = int(e.get("duration") or 0),
-                    thumbnail    = e.get("thumbnail", ""),
-                    requester    = requester,
-                    requester_id = requester_id,
-                    source       = src,
-                    stream_url   = url,
-                    artist       = artist,
-                    origin_query = origin_query,
-                    thumbnail_source = src,
-                    thumbnail_confidence = 0.45,
-                ))
+            results = cls._tracks_from_ytdlp_info(info, requester, requester_id, origin_query)
             cls._set_cached_ytdlp_results(cache_key, results)
             return results
         finally:
@@ -1868,6 +1847,71 @@ class SourceResolver:
                 done = cls._ytdlp_query_inflight.pop(cache_key, None)
                 if done is not None:
                     done.set()
+
+    @classmethod
+    def _run_ytdlp_flat_first(
+        cls,
+        query: str,
+        requester: str,
+        requester_id: int,
+        origin_query: str,
+    ) -> Optional[list]:
+        if not re.match(r"^ytsearch1:", query, re.IGNORECASE):
+            return None
+        try:
+            with yt_dlp.YoutubeDL(_make_opts({"extract_flat": True, "format": "bestaudio/best"})) as ydl:
+                info = ydl.extract_info(query, download=False)
+            direct_url = cls._first_ytdlp_webpage_url(info or {})
+            if not direct_url:
+                return None
+            with yt_dlp.YoutubeDL(_make_opts({"noplaylist": True})) as ydl:
+                direct_info = ydl.extract_info(direct_url, download=False)
+            results = cls._tracks_from_ytdlp_info(direct_info or {}, requester, requester_id, origin_query)
+            return results if results else None
+        except Exception as exc:
+            log.debug(tag("RESOLVE", f"flat-first ytsearch fallback  {b(query)}  {exc}"))
+            return None
+
+    @staticmethod
+    def _first_ytdlp_webpage_url(info: dict) -> str:
+        entries = info.get("entries") or []
+        first = entries[0] if entries else info
+        if not first:
+            return ""
+        url = first.get("webpage_url") or first.get("url") or ""
+        if url and not url.startswith(("http://", "https://")):
+            url = f"https://www.youtube.com/watch?v={url}"
+        return url
+
+    @classmethod
+    def _tracks_from_ytdlp_info(cls, info: dict, requester: str, requester_id: int, origin_query: str) -> list:
+        raw_entries = info.get("entries")
+        entries = raw_entries if raw_entries is not None else [info]
+        results = []
+        for e in entries:
+            if not e or cls._is_drm(e):
+                continue
+            url = cls._best_audio_url(e)
+            if not url:
+                continue
+            webpage_url = e.get("webpage_url", "")
+            src    = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
+            artist = e.get("artist") or e.get("creator") or e.get("uploader", "")
+            results.append(TrackInfo(
+                title        = e.get("title", "Senza titolo"),
+                webpage_url  = webpage_url,
+                duration     = int(e.get("duration") or 0),
+                thumbnail    = e.get("thumbnail", ""),
+                requester    = requester,
+                requester_id = requester_id,
+                source       = src,
+                stream_url   = url,
+                artist       = artist,
+                origin_query = origin_query,
+                thumbnail_source = src,
+                thumbnail_confidence = 0.45,
+            ))
+        return results
 
     @classmethod
     def _fetch_stream_url(cls, webpage_url: str) -> str:
