@@ -91,17 +91,48 @@ Percorso direct play:
 4. Se serve un refresh, `_fetch_stream_url(webpage_url)` aggiorna stream temporaneo.
 5. Se cache miss, il resolver avvia Spotify hint quando configurato.
 6. yt-dlp esegue `ytsearch1` per minimizzare latenza cold miss.
-7. Lo scoring decide se applicare metadata Spotify: `full`, `cover_only`, `cover_link`,
+7. `selection.py` ranka i candidati quando il primo risultato e' sospetto o quando
+   arrivano piu' candidati.
+8. Lo scoring decide se applicare metadata Spotify: `full`, `cover_only`, `cover_link`,
    `link_only` o `skip`.
-8. Il risultato viene salvato in cache se `n == 1`.
-9. `MusicPlayer.play_next()` usa `track.stream_url` o `resolve_fresh_url()`.
-10. FFmpeg riproduce lo stream e il player prefetch-a la prossima traccia.
+9. Il risultato viene salvato in cache se `n == 1`.
+10. `MusicPlayer.play_next()` usa `track.stream_url` o `resolve_fresh_url()`.
+11. FFmpeg riproduce lo stream e il player prefetch-a la prossima traccia.
 
 ## 6. Resolver e confronto con altri bot musicali
 
 Bot basati su Lavalink/LavaSrc usano spesso il modello "mirror": metadata da
 Spotify/Apple/Deezer e playback da una sorgente diretta. Pytonazz segue lo stesso
 principio, ma lo implementa localmente con `spotipy` + `yt-dlp`.
+
+La logica non deve fare brute force. Il resolver divide prima l'input:
+
+- link YouTube/SoundCloud: identita gia' nota, risoluzione diretta, nessuna ricerca
+  concorrente;
+- link Spotify track: Spotify e' fonte metadata autorevole, poi mirroring verso
+  YouTube con query `titolo artista`;
+- link Spotify playlist/album/artista: metadata Spotify e risoluzione tracce in
+  batch controllato;
+- query testuale: cache, hint Spotify solo quando utile, poi `ytsearch1` rapido;
+- query testuale sospetta: un solo widening a `ytsearch3`, solo se il primo candidato
+  sembra non coerente con l'intento.
+
+La scelta del candidato vive in `core/source_resolver/selection.py`. E' una policy
+pura, senza rete e senza DB, quindi testabile velocemente. Ogni candidato riceve un
+punteggio su:
+
+- similarita query <-> titolo/artista;
+- confidenza Spotify quando esiste un hint metadata;
+- compatibilita durata;
+- bonus per upload ufficiale o official audio;
+- bonus forte per varianti richieste esplicitamente, come `live` o `remix`;
+- penalty per varianti non richieste, video musicali non richiesti, durata anomala
+  su query che sembrano canzoni.
+
+Questo imita il ragionamento dei bot robusti: prima definiscono l'intento, poi usano
+provider costosi solo se servono, infine rankano candidati con segnali musicali.
+La reattivita' non viene dalla CPU pura, ma da cache, provider caldi, timeout, prefetch
+e dal non chiamare piu' fonti del necessario.
 
 Scelte da mantenere:
 
@@ -215,6 +246,7 @@ Test mirati dopo resolver/player:
 
 ```powershell
 & 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tests\test_resolver_ytdlp_cache_shared_requesters.py
+& 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tests\test_resolver_selection_policy.py
 & 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tests\test_resolver_spotify_fast_path.py
 & 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tests\test_stream_expiry.py
 ```
@@ -326,7 +358,7 @@ python -m py_compile config.py main.py
 res
 ```
 
-## 13. Refactor e omologazione
+## 14. Refactor e omologazione
 
 Stato architetturale attuale:
 
@@ -344,7 +376,7 @@ Prima di spostare file:
 3. Aggiorna test e docs nello stesso cambio.
 4. Esegui `tools/audit_architecture.py`.
 
-## 14. Checklist prima di merge
+## 15. Checklist prima di merge
 
 - `git status --short` non contiene artifact runtime.
 - `python -m compileall -q .` passa.

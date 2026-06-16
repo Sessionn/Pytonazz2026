@@ -13,6 +13,10 @@ from config import Config
 from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
 from core.stream_expiry import stream_ttl_seconds
 from core.source_resolver.models import TrackInfo, clone_track as _clone_track
+from core.source_resolver.selection import (
+    needs_wider_search,
+    select_best_track,
+)
 
 # â”€â”€ Sub-module imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from core.source_resolver.scoring import (
@@ -42,7 +46,6 @@ from core.source_resolver.scoring import (
     _query_requests_variant,
     _str_sim,
     _normalize_for_sim,
-    _jaccard_tokens,
     _enrich_sim,
     _duration_similarity,
     _contains_token,
@@ -240,72 +243,21 @@ def is_spotify_artist_url(url: str) -> bool:
     return extract_spotify_artist_id(url) is not None
 
 
-def _candidate_query_similarity(query: str, candidate) -> float:
-    q_norm = _normalize_for_sim(query)
-    if not q_norm:
-        return 0.0
-    title_norm = _normalize_for_sim(getattr(candidate, "title", "") or "")
-    artist_norm = _normalize_for_sim(getattr(candidate, "artist", "") or "")
-    full_norm = (f"{title_norm} {artist_norm}").strip()
-    return max(
-        _jaccard_tokens(q_norm, title_norm),
-        _jaccard_tokens(q_norm, full_norm),
-    )
-
-
-# Parole chiave che identificano canali/upload ufficiali dell'artista
-_OFFICIAL_UPLOADER_KEYWORDS = re.compile(
-    r"\b(vevo|official|music|records?|label|entertainment|ufficiale)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_official_upload(track) -> bool:
-    """Restituisce True se il track sembra provenire da un canale/upload ufficiale."""
-    artist = getattr(track, "artist", "") or ""
-    title  = getattr(track, "title", "") or ""
-    # Canali VEVO sono sempre ufficiali
-    if "vevo" in artist.lower():
-        return True
-    # "Official Audio", "Official Video", "Official Music Video" nel titolo
-    if re.search(r"\bofficial\b", title, re.IGNORECASE):
-        return True
-    # Uploader coincide (parzialmente) con l'artista del brano
-    if _OFFICIAL_UPLOADER_KEYWORDS.search(artist):
-        return True
-    return False
-
-
-def _prefer_studio(candidates: list, sp_dur: float = 0, user_query: str = "") -> object:
+def _prefer_studio(
+    candidates: list,
+    sp_dur: float = 0,
+    user_query: str = "",
+    sp_meta: dict | None = None,
+) -> object:
     if not candidates:
         return None
-    non_mv = [c for c in candidates if not _is_music_video(c.title, getattr(c, "artist", ""))]
-    pool   = non_mv if non_mv else candidates
-    if not _query_requests_variant(user_query):
-        studio = [c for c in pool if not _is_variant(c.title)]
-        pool   = studio if studio else pool
-    if len(pool) == 1:
-        return pool[0]
-
-    # Preferire upload ufficiali (VEVO / Official Audio) sugli altri
-    official = [c for c in pool if _is_official_upload(c)]
-    if official:
-        pool = official
-
-    if (user_query or "").strip():
-        if sp_dur > 0:
-            return max(
-                pool,
-                key=lambda c: (
-                    _candidate_query_similarity(user_query, c),
-                    -(abs(c.duration - sp_dur) if c.duration else 9999),
-                ),
-            )
-        return max(pool, key=lambda c: _candidate_query_similarity(user_query, c))
-
-    if sp_dur > 0:
-        pool.sort(key=lambda c: abs(c.duration - sp_dur) if c.duration else 9999)
-    return pool[0]
+    meta = dict(sp_meta or {})
+    if sp_dur > 0 and "duration" not in meta:
+        meta["duration"] = sp_dur
+    if (user_query or "").strip() or meta:
+        best = select_best_track(user_query, candidates, meta or None)
+        return best if best else candidates[0]
+    return candidates[0]
 
 
 def _is_url_like_query(query: str) -> bool:
@@ -547,7 +499,7 @@ def _select_best_spotify_hint_result(results: list, sp_meta: dict, query: str) -
     if not results or len(results) <= 1:
         return results
     sp_dur = float(sp_meta.get("duration", 0) or 0)
-    best = _prefer_studio(results, sp_dur=sp_dur, user_query=query)
+    best = _prefer_studio(results, sp_dur=sp_dur, user_query=query, sp_meta=sp_meta)
     return [best] if best else results[:1]
 
 
@@ -1363,6 +1315,26 @@ class SourceResolver:
 
             results = _drop_unrequested_variants(query, results, context="ytsearch1")
 
+            if (
+                results
+                and sp_meta_hint is None
+                and not _looks_like_lyric_phrase_query(query)
+                and needs_wider_search(query, results[0])
+            ):
+                log.debug(tag(
+                    "RESOLVE",
+                    f"primo candidato sospetto  {b(query)}  candidate={b(results[0].title)}  widen=ytsearch{search_n}",
+                ))
+                yt_t0 = time.perf_counter()
+                wider_results = await loop.run_in_executor(
+                    None, cls._run_ytdlp, f"ytsearch{search_n}:{query}", requester, requester_id
+                )
+                wider_results = _drop_unrequested_variants(query, wider_results, context="quality-widen")
+                log.debug(tag("PERF", f"ytsearch{search_n} quality-widen  {b(query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
+                if wider_results:
+                    best = _prefer_studio(wider_results, user_query=query)
+                    results = [best] if best else wider_results[:1]
+
             if sp_meta_hint and results:
                 score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
                 retry_music_video = _should_retry_canonical_after_music_video_hint(
@@ -1502,7 +1474,7 @@ class SourceResolver:
 
             sp_dur = float(sp_meta_hint.get("duration", 0) or 0) if sp_meta_hint else 0.0
             if n == 1 and len(results) > 1:
-                best = _prefer_studio(results, sp_dur=sp_dur, user_query=query)
+                best = _prefer_studio(results, sp_dur=sp_dur, user_query=query, sp_meta=sp_meta_hint)
                 results = [best] if best else results[:1]
 
             if sp_meta_hint and results and not used_spotify_hint:
@@ -1763,7 +1735,12 @@ class SourceResolver:
                     candidates = fast_candidates
                     for c in candidates:
                         c.source = "spotify"
-                    chosen = _prefer_studio(candidates, sp_dur, user_query=sp_title)
+                    chosen = _prefer_studio(
+                        candidates,
+                        sp_dur,
+                        user_query=query_with_artist,
+                        sp_meta=sp_meta,
+                    )
                     chosen.title = sp_title
                     chosen.popularity = sp_pop
                     chosen.duration = int(round(sp_dur)) if sp_dur else int(chosen.duration or 0)
@@ -1809,7 +1786,12 @@ class SourceResolver:
         for c in candidates:
             c.source = "spotify"
 
-        chosen = _prefer_studio(candidates, sp_dur, user_query=sp_title)
+        chosen = _prefer_studio(
+            candidates,
+            sp_dur,
+            user_query=query_with_artist,
+            sp_meta=sp_meta,
+        )
 
         chosen.title       = sp_title
         chosen.popularity  = sp_pop
