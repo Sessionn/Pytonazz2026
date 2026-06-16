@@ -98,6 +98,7 @@ class Config:
     SPOTIFY_HINT_WAIT_SECONDS: float = float(os.getenv("SPOTIFY_HINT_WAIT_SECONDS", "0.25"))
     SPOTIFY_AMBIGUOUS_WAIT_SECONDS: float = float(os.getenv("SPOTIFY_AMBIGUOUS_WAIT_SECONDS", "0.75"))
     RESOLVE_HARD_TIMEOUT_SECONDS: float = float(os.getenv("RESOLVE_HARD_TIMEOUT_SECONDS", "4.75"))
+    RESOLVE_FALLBACK_DELAY_SECONDS: float = float(os.getenv("RESOLVE_FALLBACK_DELAY_SECONDS", "2.0"))
     GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
     YTDLP_PATH:            str = os.getenv("YTDLP_PATH", "").strip()
     FFMPEG_PATH:           str = os.getenv("FFMPEG_PATH", "").strip()

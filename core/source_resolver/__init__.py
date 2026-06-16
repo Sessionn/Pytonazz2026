@@ -753,6 +753,10 @@ class SourceResolver:
             return 4.75
 
     @staticmethod
+    def _full_resolve_timeout_seconds(total_timeout: float) -> float:
+        return max(0.5, min(total_timeout, total_timeout - 1.0))
+
+    @staticmethod
     def _apply_spotify_meta(track: "TrackInfo", meta: dict, score: dict) -> None:
         decision = score["decision"]
         enrich_mode = _spotify_enrich_mode(score)
@@ -1043,14 +1047,23 @@ class SourceResolver:
     @classmethod
     async def resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
         timeout = cls._resolve_timeout_seconds()
+        full_timeout = cls._full_resolve_timeout_seconds(timeout)
+        fallback_task = asyncio.create_task(cls._resolve_fallback_track(query, requester, requester_id))
         try:
             return await asyncio.wait_for(
                 cls._resolve_impl(query, requester, requester_id),
-                timeout=timeout,
+                timeout=full_timeout,
             )
         except asyncio.TimeoutError:
-            log.warning(tag("RESOLVE", f"timeout  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
-            return []
+            fallback = await cls._finish_fallback(fallback_task, timeout - full_timeout, query, requester, requester_id)
+            if fallback is not None:
+                log.warning(tag("RESOLVE", f"timeout fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
+                return [fallback]
+            log.warning(tag("RESOLVE", f"timeout emergency fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
+            return [cls._emergency_fallback_track(query, requester, requester_id)]
+        finally:
+            if not fallback_task.done():
+                fallback_task.cancel()
 
     @classmethod
     async def _resolve_impl(cls, query: str, requester: str, requester_id: int = 0) -> list:
@@ -1116,14 +1129,136 @@ class SourceResolver:
         cls, query: str, requester: str, requester_id: int, n: int = 7
     ) -> list:
         timeout = cls._resolve_timeout_seconds()
+        full_timeout = cls._full_resolve_timeout_seconds(timeout)
+        fallback_task = asyncio.create_task(cls._resolve_fallback_track(query, requester, requester_id))
         try:
             return await asyncio.wait_for(
                 cls._resolve_choices_impl(query, requester, requester_id, n=n),
-                timeout=timeout,
+                timeout=full_timeout,
             )
         except asyncio.TimeoutError:
-            log.warning(tag("RESOLVE", f"timeout choices  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
-            return []
+            fallback = await cls._finish_fallback(fallback_task, timeout - full_timeout, query, requester, requester_id)
+            if fallback is not None:
+                log.warning(tag("RESOLVE", f"timeout choices fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
+                return [fallback]
+            log.warning(tag("RESOLVE", f"timeout choices emergency fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
+            return [cls._emergency_fallback_track(query, requester, requester_id)]
+        finally:
+            if not fallback_task.done():
+                fallback_task.cancel()
+
+    @classmethod
+    async def _finish_fallback(cls, fallback_task, timeout: float, query: str, requester: str, requester_id: int):
+        if fallback_task.done():
+            try:
+                return fallback_task.result()
+            except Exception:
+                return None
+        try:
+            return await asyncio.wait_for(fallback_task, timeout=max(0.05, timeout))
+        except Exception:
+            return None
+
+    @classmethod
+    async def _resolve_fallback_track(cls, query: str, requester: str, requester_id: int):
+        if not query:
+            return None
+        if extract_spotify_playlist_id(query) or extract_spotify_album_id(query) or extract_spotify_artist_id(query):
+            return None
+        try:
+            delay = max(0.0, float(Config.RESOLVE_FALLBACK_DELAY_SECONDS))
+        except (TypeError, ValueError):
+            delay = 2.0
+        if delay:
+            await asyncio.sleep(delay)
+        loop = asyncio.get_running_loop()
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, cls._fallback_track_sync, query, requester, requester_id),
+                timeout=max(0.5, cls._resolve_timeout_seconds() - 0.25),
+            )
+        except Exception:
+            return None
+
+    @classmethod
+    def _fallback_track_sync(cls, query: str, requester: str, requester_id: int):
+        if not _is_url_like_query(query):
+            cached = cls._fallback_from_cache(query, requester, requester_id)
+            if cached is not None:
+                return cached
+        return cls._fallback_from_flat_ytdlp(query, requester, requester_id)
+
+    @classmethod
+    def _fallback_from_cache(cls, query: str, requester: str, requester_id: int):
+        try:
+            qc = _get_query_cache()
+            if qc is None:
+                return None
+            hit = qc.lookup(query)
+            if not hit:
+                return None
+            return _cache_hit_to_track(hit, requester, requester_id, "")
+        except Exception:
+            return None
+
+    @classmethod
+    def _fallback_from_flat_ytdlp(cls, query: str, requester: str, requester_id: int):
+        target = query.strip()
+        is_url = _is_url_like_query(target)
+        if not is_url:
+            target = f"ytsearch1:{target}"
+        try:
+            with yt_dlp.YoutubeDL(_make_opts({"extract_flat": True, "format": "bestaudio/best"})) as ydl:
+                info = ydl.extract_info(target, download=False)
+        except Exception:
+            return None
+
+        entries = (info or {}).get("entries") or []
+        item = entries[0] if entries else (info or {})
+        webpage_url = cls._first_ytdlp_webpage_url(info or {}) if not is_url else (
+            item.get("webpage_url") or target
+        )
+        if not webpage_url:
+            return None
+        src = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
+        title_value = item.get("title") or item.get("fulltitle") or query.strip()
+        artist = item.get("artist") or item.get("creator") or item.get("uploader") or ""
+        try:
+            duration = int(item.get("duration") or 0)
+        except (TypeError, ValueError):
+            duration = 0
+        return TrackInfo(
+            title=title_value,
+            webpage_url=webpage_url,
+            duration=duration,
+            thumbnail=item.get("thumbnail") or "",
+            requester=requester,
+            requester_id=requester_id,
+            source=src,
+            artist=artist,
+            origin_query=query.strip(),
+            thumbnail_source=src,
+            thumbnail_confidence=0.25,
+        )
+
+    @staticmethod
+    def _emergency_fallback_track(query: str, requester: str, requester_id: int):
+        raw = (query or "").strip()
+        is_url = _is_url_like_query(raw)
+        webpage_url = raw if is_url else f"ytsearch1:{raw}"
+        source = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
+        return TrackInfo(
+            title=raw or "Ricerca musicale",
+            webpage_url=webpage_url,
+            duration=0,
+            thumbnail="",
+            requester=requester,
+            requester_id=requester_id,
+            source=source,
+            origin_query=raw,
+            thumbnail_source="fallback",
+            thumbnail_confidence=0.0,
+        )
 
     @classmethod
     async def _resolve_choices_impl(
@@ -1993,6 +2128,12 @@ class SourceResolver:
             if not info or cls._is_drm(info):
                 cls.invalidate_stream_cache(normalized_webpage_url)
                 return ""
+            entries = info.get("entries") or []
+            if entries:
+                info = next((entry for entry in entries if entry and not cls._is_drm(entry)), {}) or {}
+                if not info:
+                    cls.invalidate_stream_cache(normalized_webpage_url)
+                    return ""
             stream_url = cls._best_audio_url(info) or ""
             if stream_url:
                 cls._set_cached_stream_url(normalized_webpage_url, stream_url)
