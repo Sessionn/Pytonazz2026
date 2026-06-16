@@ -55,6 +55,7 @@ TAG = {
     "JOIN"    : ("JOIN",     _TEAL),
     "TTS"     : ("TTS",      _BMAG),
     "DEV"     : ("DEV",      _ORG),
+    "DJ"      : ("DJ",       _TEAL),
     "STATUS"  : ("STATUS",   _BYEL),
     "VOICE"   : ("VOICE",    _TEAL),
     "DISC"    : ("DISC",     _GRY),

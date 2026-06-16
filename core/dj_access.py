@@ -12,6 +12,7 @@ from typing import Any
 import discord
 
 from core.dj_role_store import get_dj_role
+from core.log_colors import tag
 
 log = logging.getLogger("pitonazz.dj_access")
 
@@ -25,25 +26,25 @@ class DJAccessController:
 
     def bind_music_cog(self, music_cog) -> None:
         self._music_cog = music_cog
-        log.info("DJ access bound music cog: %s", type(music_cog).__name__)
+        log.info(tag("DJ", f"access bound music_cog={type(music_cog).__name__}"))
 
     def _resolve_music_cog(self):
         if self._music_cog is not None:
             return self._music_cog
         if not self.bot:
-            log.debug("DJ access resolve music cog: bot missing")
+            log.debug(tag("DJ", "resolve music cog: bot missing"))
             return None
         cog = getattr(self.bot, "cogs", {}).get("Music")
         if cog is not None:
             self._music_cog = cog
-            log.debug("DJ access resolve music cog: matched named cog Music")
+            log.debug(tag("DJ", "resolve music cog: matched named cog Music"))
             return cog
         for candidate in getattr(self.bot, "cogs", {}).values():
             if hasattr(candidate, "_players"):
                 self._music_cog = candidate
-                log.debug("DJ access resolve music cog: matched %s via _players", type(candidate).__name__)
+                log.debug(tag("DJ", f"resolve music cog: matched {type(candidate).__name__} via _players"))
                 return candidate
-        log.debug("DJ access resolve music cog: no candidate found")
+        log.debug(tag("DJ", "resolve music cog: no candidate found"))
         return None
 
     def _find_player(self, guild_id: int):
@@ -51,7 +52,7 @@ class DJAccessController:
         if music_cog and hasattr(music_cog, "_players"):
             player = music_cog._players.get(guild_id)
             if player:
-                log.debug("DJ access found player in bound cog [guild_id=%s]", guild_id)
+                log.debug(tag("DJ", f"found player in bound cog guild_id={guild_id}"))
                 return player
         for candidate in getattr(self.bot, "cogs", {}).values():
             players = getattr(candidate, "_players", None)
@@ -59,13 +60,10 @@ class DJAccessController:
                 player = players.get(guild_id)
                 if player:
                     self._music_cog = candidate
-                    log.debug(
-                        "DJ access found player by scanning cogs [guild_id=%s, cog=%s]",
-                        guild_id,
-                        type(candidate).__name__,
-                    )
+                    msg = f"found player by scan guild_id={guild_id} cog={type(candidate).__name__}"
+                    log.debug(tag("DJ", msg))
                     return player
-        log.debug("DJ access player not found [guild_id=%s]", guild_id)
+        log.debug(tag("DJ", f"player not found guild_id={guild_id}"))
         return None
 
     def subscribe(self, guild_id: int) -> queue.Queue[str]:
@@ -87,7 +85,7 @@ class DJAccessController:
         try:
             payload = json.dumps(self.get_player_snapshot(guild_id), separators=(",", ":"))
         except Exception:
-            log.exception("publish_player_update snapshot failed")
+            log.exception(tag("DJ", "publish_player_update snapshot failed"))
             return
         with self._lock:
             subscribers = list(self._subscribers.get(guild_id, ()))
@@ -103,23 +101,20 @@ class DJAccessController:
         voice_client = guild.voice_client if guild else None
         voice_name = getattr(getattr(voice_client, "channel", None), "name", "")
         if guild:
-            log.debug(
-                "DJ snapshot request [guild_id=%s, guild_name=%s, connected=%s, has_player=%s]",
-                guild_id,
-                guild.name,
-                bool(voice_client),
-                bool(player),
+            msg = (
+                f"snapshot request guild_id={guild_id} guild={guild.name} "
+                f"connected={bool(voice_client)} has_player={bool(player)}"
             )
+            log.debug(tag("DJ", msg))
         else:
-            log.warning("DJ snapshot guild missing [guild_id=%s]", guild_id)
+            log.warning(tag("DJ", f"snapshot guild missing guild_id={guild_id}"))
         if not player:
             if voice_client:
-                log.warning(
-                    "DJ snapshot without player [guild_id=%s, voice_channel=%s, has_music_cog=%s]",
-                    guild_id,
-                    voice_name,
-                    bool(self._resolve_music_cog()),
+                msg = (
+                    f"snapshot without player guild_id={guild_id} "
+                    f"voice={voice_name} has_music_cog={bool(self._resolve_music_cog())}"
                 )
+                log.warning(tag("DJ", msg))
             return {
                 "guild_id": guild_id,
                 "connected": bool(voice_client),
@@ -145,36 +140,34 @@ class DJAccessController:
             }
         snapshot = player.to_public_state()
         current = snapshot.get("current_track") or {}
-        log.debug(
-            "DJ snapshot ready [guild_id=%s, connected=%s, title=%s, paused=%s]",
-            guild_id,
-            snapshot.get("connected"),
-            current.get("title"),
-            snapshot.get("is_paused"),
+        msg = (
+            f"snapshot ready guild_id={guild_id} connected={snapshot.get('connected')} "
+            f"title={current.get('title')} paused={snapshot.get('is_paused')}"
         )
+        log.debug(tag("DJ", msg))
         return snapshot
 
     async def _resolve_member(self, guild_id: int, user_id: int, force_refresh: bool = False):
         if not self.bot or not getattr(self.bot, "is_ready", lambda: False)():
-            log.debug("DJ access bot not ready yet [guild_id=%s, user_id=%s]", guild_id, user_id)
+            log.debug(tag("DJ", f"bot not ready guild_id={guild_id} user_id={user_id}"))
             return None, "bot_not_ready"
         guild = self.bot.get_guild(guild_id)
         if not guild:
-            log.info("DJ access guild not found [guild_id=%s, user_id=%s]", guild_id, user_id)
+            log.info(tag("DJ", f"guild not found guild_id={guild_id} user_id={user_id}"))
             return None, "guild_not_found"
         member = None if force_refresh else guild.get_member(user_id)
         if member:
-            log.debug("DJ access member resolved from cache [guild_id=%s, user_id=%s]", guild_id, user_id)
+            log.debug(tag("DJ", f"member cache hit guild_id={guild_id} user_id={user_id}"))
             return member, None
         try:
             member = await guild.fetch_member(user_id)
         except discord.NotFound:
-            log.info("DJ access member not found [guild_id=%s, user_id=%s]", guild_id, user_id)
+            log.info(tag("DJ", f"member not found guild_id={guild_id} user_id={user_id}"))
             return None, "member_not_found"
         except discord.HTTPException:
-            log.warning("DJ access member lookup failed [guild_id=%s, user_id=%s]", guild_id, user_id, exc_info=True)
+            log.warning(tag("DJ", f"member lookup failed guild_id={guild_id} user_id={user_id}"), exc_info=True)
             return None, "member_lookup_failed"
-        log.debug("DJ access member fetched remotely [guild_id=%s, user_id=%s]", guild_id, user_id)
+        log.debug(tag("DJ", f"member fetched remotely guild_id={guild_id} user_id={user_id}"))
         return member, None
 
     @staticmethod
@@ -184,47 +177,40 @@ class DJAccessController:
     async def _check_access_async(self, guild_id: int, user_id: int) -> tuple[bool, str | None]:
         role_id = get_dj_role(guild_id)
         if not role_id:
-            log.info("DJ access denied: role not configured [guild_id=%s, user_id=%s]", guild_id, user_id)
+            log.info(tag("DJ", f"denied role not configured guild_id={guild_id} user_id={user_id}"))
             return False, "dj_role_not_configured"
         member, err = await self._resolve_member(guild_id, user_id)
         if not member:
             level = logging.DEBUG if err == "bot_not_ready" else logging.INFO
             log.log(
                 level,
-                "DJ access denied: member unresolved [guild_id=%s, user_id=%s, role_id=%s, error=%s]",
-                guild_id,
-                user_id,
-                role_id,
-                err,
+                tag(
+                    "DJ",
+                    f"denied member unresolved guild_id={guild_id} "
+                    f"user_id={user_id} role_id={role_id} error={err}",
+                ),
             )
             return False, err
         if self._member_has_role(member, role_id):
-            log.debug("DJ access granted [guild_id=%s, user_id=%s, role_id=%s]", guild_id, user_id, role_id)
+            log.debug(tag("DJ", f"granted guild_id={guild_id} user_id={user_id} role_id={role_id}"))
             return True, None
         refreshed_member, refresh_err = await self._resolve_member(guild_id, user_id, force_refresh=True)
         if refreshed_member and self._member_has_role(refreshed_member, role_id):
-            log.info(
-                "DJ access granted after member refresh [guild_id=%s, user_id=%s, role_id=%s]",
-                guild_id,
-                user_id,
-                role_id,
-            )
+            msg = f"granted after refresh guild_id={guild_id} user_id={user_id} role_id={role_id}"
+            log.info(tag("DJ", msg))
             return True, None
         if refresh_err and refresh_err != "member_lookup_failed":
-            log.info(
-                "DJ access deny refresh unresolved [guild_id=%s, user_id=%s, role_id=%s, error=%s]",
-                guild_id,
-                user_id,
-                role_id,
-                refresh_err,
+            msg = (
+                f"refresh unresolved guild_id={guild_id} user_id={user_id} "
+                f"role_id={role_id} error={refresh_err}"
             )
-        log.info(
-            "DJ access denied: missing role [guild_id=%s, user_id=%s, role_id=%s, roles=%s]",
-            guild_id,
-            user_id,
-            role_id,
-            [getattr(role, "id", None) for role in getattr((refreshed_member or member), "roles", ())],
+            log.info(tag("DJ", msg))
+        roles = [getattr(role, "id", None) for role in getattr((refreshed_member or member), "roles", ())]
+        msg = (
+            f"denied missing role guild_id={guild_id} user_id={user_id} "
+            f"role_id={role_id} roles={roles}"
         )
+        log.info(tag("DJ", msg))
         return False, "missing_dj_role"
 
     def check_access(self, guild_id: int, user_id: int, timeout: float = 8.0) -> tuple[bool, str | None]:
@@ -235,10 +221,10 @@ class DJAccessController:
             )
             return future.result(timeout=timeout)
         except FuturesTimeoutError:
-            log.warning("DJ access timeout [guild_id=%s, user_id=%s, timeout=%s]", guild_id, user_id, timeout)
+            log.warning(tag("DJ", f"access timeout guild_id={guild_id} user_id={user_id} timeout={timeout}"))
             return False, "bot_timeout"
         except Exception:
-            log.exception("check_access failed [guild_id=%s, user_id=%s]", guild_id, user_id)
+            log.exception(tag("DJ", f"check_access failed guild_id={guild_id} user_id={user_id}"))
             return False, "internal_error"
 
     def build_oauth_state(self, guild_id: int) -> str:
@@ -312,7 +298,7 @@ class DJAccessController:
         except FuturesTimeoutError:
             return {"ok": False, "error": "bot_timeout"}
         except Exception:
-            log.exception("perform_action failed")
+            log.exception(tag("DJ", "perform_action failed"))
             return {"ok": False, "error": "internal_error"}
 
 

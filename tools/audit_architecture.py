@@ -166,7 +166,7 @@ def main() -> None:
     dupes = find_duplicate_logic(min_lines=max(1, args.min_lines))
 
     print("\n============================================================")
-    print("  🧭  Pitonazz — Architecture Audit (signal-driven)")
+    print("  Pitonazz - Architecture Audit (signal-driven)")
     print("============================================================")
     print(f"  Cog coupling findings : {len(couplings)}")
     print(f"  Duplicate groups      : {len(dupes)}")

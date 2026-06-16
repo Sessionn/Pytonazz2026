@@ -24,6 +24,7 @@ BACKUP_FILES = [
 ]
 
 MAX_RESTORE_BYTES = 10 * 1024 * 1024  # 10 MB
+log = logging.getLogger("pitonazz.backup")
 
 
 def build_backup_archive(*, bot_label: str, guild_count: int, log: logging.Logger) -> tuple[io.BytesIO, str, list[str]]:

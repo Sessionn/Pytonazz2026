@@ -8,6 +8,8 @@ import discord
 from core.moderation.isolation_registry import save_quarantine_groups
 from core.log_colors import tag
 
+log = logging.getLogger("pitonazz.state")
+
 
 def save_quarantine_state(quarantine_groups: dict[int, dict[int, dict]], log: logging.Logger) -> None:
     try:

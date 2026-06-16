@@ -13,11 +13,11 @@ ensure_runtime_dirs()
 
 def _load() -> dict:
     if not _PATH.exists():
-        log.debug("dj_role_store load: path missing [%s]", _PATH)
+        log.debug(tag("DJ", f"dj_role_store load: path missing {_PATH}"))
         return {}
     try:
         data = json.loads(_PATH.read_text(encoding="utf-8"))
-        log.debug("dj_role_store load: loaded %s guild entries from %s", len(data), _PATH)
+        log.debug(tag("DJ", f"dj_role_store load: loaded {len(data)} guild entries from {_PATH}"))
         return data
     except json.JSONDecodeError as exc:
         log.error(tag("ERR", f"dj_role_store: JSON corrotto ({_PATH}): {exc}"))
@@ -35,7 +35,7 @@ def get_dj_role(guild_id: int) -> int | None:
     data = _load()
     raw = data.get(str(guild_id), {}).get("role_id")
     role_id = int(raw) if isinstance(raw, int) else None
-    log.debug("dj_role_store get: guild_id=%s role_id=%s path=%s", guild_id, role_id, _PATH)
+    log.debug(tag("DJ", f"dj_role_store get guild_id={guild_id} role_id={role_id} path={_PATH}"))
     return role_id
 
 
@@ -46,4 +46,4 @@ def set_dj_role(guild_id: int, role_id: int | None) -> None:
         data[key] = {}
     data[key]["role_id"] = role_id
     _save(data)
-    log.info("dj_role_store set: guild_id=%s role_id=%s path=%s", guild_id, role_id, _PATH)
+    log.info(tag("DJ", f"dj_role_store set guild_id={guild_id} role_id={role_id} path={_PATH}"))

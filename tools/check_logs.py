@@ -197,17 +197,17 @@ def print_results(results: list[FileResult], show_fix: bool) -> int:
 
     print()
     print(bold("=" * 60))
-    print(bold("  🔍  Pitonazz — Log Audit"))
+    print(bold("  Pitonazz - Log Audit"))
     print(bold("=" * 60))
 
     for r in results:
         rel = r.path.relative_to(ROOT)
         if r.ok:
             ok_files += 1
-            print(f"  {grn('✅')} {gry(str(rel))}")
+            print(f"  {grn('OK')} {gry(str(rel))}")
             continue
 
-        print(f"  {red('❌')} {bold(str(rel))}  —  {red(str(len(r.violations)))} violazioni")
+        print(f"  {red('FAIL')} {bold(str(rel))}  -  {red(str(len(r.violations)))} violazioni")
         for v in r.violations:
             total_v += 1
             code_str = yel(f"[{v.code}]")
@@ -216,7 +216,7 @@ def print_results(results: list[FileResult], show_fix: bool) -> int:
             if v.snippet:
                 print(f"             {gry('>')} {v.snippet}")
             if show_fix and v.fix_hint:
-                print(f"             {grn('→')} {v.fix_hint}")
+                print(f"             {grn('->')} {v.fix_hint}")
 
     print()
     print(bold("-" * 60))

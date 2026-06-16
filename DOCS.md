@@ -1,6 +1,6 @@
 # Pytonazz2026 Developer Manual
 
-Questo documento e' il manuale tecnico del bot. Il README resta la panoramica; questo file spiega architettura, flussi runtime, moduli, configurazione, comandi, test e manutenzione.
+Questo documento e' il manuale tecnico storico del bot. Per il manuale sviluppatore unico e aggiornato usa [DEVELOPER_MANUAL.md](DEVELOPER_MANUAL.md), che raccoglie flussi runtime, aggiunta comandi custom, resolver, test, logging e deploy.
 
 ## 1. Architettura generale
 

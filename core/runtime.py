@@ -8,6 +8,8 @@ from threading import Thread
 from config import Config
 from core.log_colors import _BGRN, _BRED, b, dim, hi, tag
 
+log = logging.getLogger("pitonazz.runtime")
+
 DEFAULT_COGS = [
     "cogs.ai",
     "cogs.birthdays",
@@ -92,12 +94,8 @@ def start_dashboard_thread(bot_getter, log: logging.Logger) -> None:
             log.exception(tag("CACHE_DB", "Dashboard OFF  bootstrap fallito"))
 
     Thread(target=_run_dashboard, daemon=True, name="dashboard-server").start()
-    log.info(
-        tag(
-            "CACHE_DB",
-            f"Dashboard {hi('ON', _BGRN)}  {dim(f'{Config.DASHBOARD_HOST}:{Config.DASHBOARD_PORT}')}",
-        )
-    )
+    endpoint = f"{Config.DASHBOARD_HOST}:{Config.DASHBOARD_PORT}"
+    log.info(tag("CACHE_DB", f"Dashboard {hi('ON', _BGRN)}  {dim(endpoint)}"))
 
 
 def log_runtime_paths(log: logging.Logger) -> None:
@@ -105,27 +103,21 @@ def log_runtime_paths(log: logging.Logger) -> None:
     ffmpeg_path = Config.FFMPEG_PATH
     cookie_file = Config.COOKIE_FILE
 
-    log.info(
-        tag(
-            "PROXY",
-            f"ytdlp   {hi('ON', _BGRN)}  {b(ytdlp_path)}"
-            if ytdlp_path
-            else f"ytdlp   {hi('OFF', _BRED)}  {dim('(non configurata in env)')}",
-        )
+    ytdlp_msg = (
+        f"ytdlp   {hi('ON', _BGRN)}  {b(ytdlp_path)}"
+        if ytdlp_path
+        else f"ytdlp   {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"
     )
-    log.info(
-        tag(
-            "PROXY",
-            f"ffmpeg  {hi('ON', _BGRN)}  {b(ffmpeg_path)}"
-            if ffmpeg_path
-            else f"ffmpeg  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}",
-        )
+    ffmpeg_msg = (
+        f"ffmpeg  {hi('ON', _BGRN)}  {b(ffmpeg_path)}"
+        if ffmpeg_path
+        else f"ffmpeg  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"
     )
-    log.info(
-        tag(
-            "COOKIE",
-            f"cookie  {hi('ON', _BGRN)}  {b(cookie_file)}"
-            if cookie_file
-            else f"cookie  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}",
-        )
+    cookie_msg = (
+        f"cookie  {hi('ON', _BGRN)}  {b(cookie_file)}"
+        if cookie_file
+        else f"cookie  {hi('OFF', _BRED)}  {dim('(non configurata in env)')}"
     )
+    log.info(tag("PROXY", ytdlp_msg))
+    log.info(tag("PROXY", ffmpeg_msg))
+    log.info(tag("COOKIE", cookie_msg))

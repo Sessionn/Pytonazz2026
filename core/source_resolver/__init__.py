@@ -736,6 +736,8 @@ class SourceResolver:
     _cache_lock = threading.Lock()
     _ytdlp_query_cache: dict[str, tuple[float, list["TrackInfo"]]] = {}
     _stream_url_cache: dict[str, tuple[float, str]] = {}
+    _ytdlp_query_inflight: dict[str, threading.Event] = {}
+    _stream_url_inflight: dict[str, threading.Event] = {}
 
     @staticmethod
     def _apply_spotify_meta(track: "TrackInfo", meta: dict, score: dict) -> None:
@@ -1787,58 +1789,76 @@ class SourceResolver:
         if cached is not None:
             log.debug(tag("RESOLVE", f"cache hit ytdlp  {b(query)}"))
             return cached
+        with cls._cache_lock:
+            inflight = cls._ytdlp_query_inflight.get(cache_key)
+            if inflight is None:
+                inflight = threading.Event()
+                cls._ytdlp_query_inflight[cache_key] = inflight
+                owns_inflight = True
+            else:
+                owns_inflight = False
+        if not owns_inflight:
+            inflight.wait()
+            cached = cls._get_cached_ytdlp_results(cache_key, requester, requester_id)
+            return cached if cached is not None else []
         normalized_query = query.strip()
         origin_query = re.sub(r"^ytsearch\d*:", "", normalized_query, count=1).strip() or normalized_query
         try:
-            with yt_dlp.YoutubeDL(_make_opts()) as ydl:
-                info = ydl.extract_info(query, download=False)
-        except yt_dlp.utils.ExtractorError as e:
-            err_str = str(e).lower()
-            # Video non disponibile (rimosso, geo-bloccato, privato, ecc.)
-            if any(kw in err_str for kw in ("video unavailable", "private video",
-                                             "this video is not available",
-                                             "has been removed", "geo")):
-                log.warning(tag("WARN", f"video non disponibile, fallback search: {b(query)}"))
-                # Se era un URL diretto, proviamo una ricerca testuale con il titolo
-                if query.startswith("http"):
-                    return []  # per URL diretti non c'Ã¨ fallback sicuro
-                # Per query ytsearch, logghiamo e restituiamo vuoto
+            try:
+                with yt_dlp.YoutubeDL(_make_opts()) as ydl:
+                    info = ydl.extract_info(query, download=False)
+            except yt_dlp.utils.ExtractorError as e:
+                err_str = str(e).lower()
+                # Video non disponibile (rimosso, geo-bloccato, privato, ecc.)
+                if any(kw in err_str for kw in ("video unavailable", "private video",
+                                                 "this video is not available",
+                                                 "has been removed", "geo")):
+                    log.warning(tag("WARN", f"video non disponibile, fallback search: {b(query)}"))
+                    # Se era un URL diretto, proviamo una ricerca testuale con il titolo
+                    if query.startswith("http"):
+                        return []  # per URL diretti non c'Ã¨ fallback sicuro
+                    # Per query ytsearch, logghiamo e restituiamo vuoto
+                    return []
+                log.error(tag("ERR", f"yt-dlp ExtractorError: {e}"))
                 return []
-            log.error(tag("ERR", f"yt-dlp ExtractorError: {e}"))
-            return []
-        except Exception as e:
-            log.error(tag("ERR", f"yt-dlp: {e}"))
-            return []
-        if not info:
-            return []
-        raw_entries = info.get("entries")
-        entries = raw_entries if raw_entries is not None else [info]
-        results = []
-        for e in entries:
-            if not e or cls._is_drm(e):
-                continue
-            url = cls._best_audio_url(e)
-            if not url:
-                continue
-            webpage_url = e.get("webpage_url", "")
-            src    = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
-            artist = e.get("artist") or e.get("creator") or e.get("uploader", "")
-            results.append(TrackInfo(
-                title        = e.get("title", "Senza titolo"),
-                webpage_url  = webpage_url,
-                duration     = int(e.get("duration") or 0),
-                thumbnail    = e.get("thumbnail", ""),
-                requester    = requester,
-                requester_id = requester_id,
-                source       = src,
-                stream_url   = url,
-                artist       = artist,
-                origin_query = origin_query,
-                thumbnail_source = src,
-                thumbnail_confidence = 0.45,
-            ))
-        cls._set_cached_ytdlp_results(cache_key, results)
-        return results
+            except Exception as e:
+                log.error(tag("ERR", f"yt-dlp: {e}"))
+                return []
+            if not info:
+                return []
+            raw_entries = info.get("entries")
+            entries = raw_entries if raw_entries is not None else [info]
+            results = []
+            for e in entries:
+                if not e or cls._is_drm(e):
+                    continue
+                url = cls._best_audio_url(e)
+                if not url:
+                    continue
+                webpage_url = e.get("webpage_url", "")
+                src    = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
+                artist = e.get("artist") or e.get("creator") or e.get("uploader", "")
+                results.append(TrackInfo(
+                    title        = e.get("title", "Senza titolo"),
+                    webpage_url  = webpage_url,
+                    duration     = int(e.get("duration") or 0),
+                    thumbnail    = e.get("thumbnail", ""),
+                    requester    = requester,
+                    requester_id = requester_id,
+                    source       = src,
+                    stream_url   = url,
+                    artist       = artist,
+                    origin_query = origin_query,
+                    thumbnail_source = src,
+                    thumbnail_confidence = 0.45,
+                ))
+            cls._set_cached_ytdlp_results(cache_key, results)
+            return results
+        finally:
+            with cls._cache_lock:
+                done = cls._ytdlp_query_inflight.pop(cache_key, None)
+                if done is not None:
+                    done.set()
 
     @classmethod
     def _fetch_stream_url(cls, webpage_url: str) -> str:
@@ -1849,32 +1869,49 @@ class SourceResolver:
         if cached is not None:
             log.debug(tag("STREAM", f"cache hit stream_url  {b(normalized_webpage_url)}"))
             return cached
-        try:
-            with yt_dlp.YoutubeDL(_make_opts({"noplaylist": True})) as ydl:
-                info = ydl.extract_info(normalized_webpage_url, download=False)
-        except yt_dlp.utils.ExtractorError as e:
-            cls.invalidate_stream_cache(normalized_webpage_url)
-            err_str = str(e).lower()
-            if any(kw in err_str for kw in ("video unavailable", "private video",
-                                             "this video is not available",
-                                             "has been removed")):
-                log.warning(tag("WARN", f"video non disponibile (rimosso/privato): {b(normalized_webpage_url)}"))
+        with cls._cache_lock:
+            inflight = cls._stream_url_inflight.get(normalized_webpage_url)
+            if inflight is None:
+                inflight = threading.Event()
+                cls._stream_url_inflight[normalized_webpage_url] = inflight
+                owns_inflight = True
             else:
-                log.error(tag("ERR", f"fetch_stream_url ExtractorError: {e}"))
-            return ""
-        except Exception as e:
-            cls.invalidate_stream_cache(normalized_webpage_url)
-            log.error(tag("ERR", f"fetch_stream_url: {e}"))
-            return ""
-        if not info or cls._is_drm(info):
-            cls.invalidate_stream_cache(normalized_webpage_url)
-            return ""
-        stream_url = cls._best_audio_url(info) or ""
-        if stream_url:
-            cls._set_cached_stream_url(normalized_webpage_url, stream_url)
-        else:
-            cls.invalidate_stream_cache(normalized_webpage_url)
-        return stream_url
+                owns_inflight = False
+        if not owns_inflight:
+            inflight.wait()
+            return cls._get_cached_stream_url(normalized_webpage_url) or ""
+        try:
+            try:
+                with yt_dlp.YoutubeDL(_make_opts({"noplaylist": True})) as ydl:
+                    info = ydl.extract_info(normalized_webpage_url, download=False)
+            except yt_dlp.utils.ExtractorError as e:
+                cls.invalidate_stream_cache(normalized_webpage_url)
+                err_str = str(e).lower()
+                if any(kw in err_str for kw in ("video unavailable", "private video",
+                                                 "this video is not available",
+                                                 "has been removed")):
+                    log.warning(tag("WARN", f"video non disponibile (rimosso/privato): {b(normalized_webpage_url)}"))
+                else:
+                    log.error(tag("ERR", f"fetch_stream_url ExtractorError: {e}"))
+                return ""
+            except Exception as e:
+                cls.invalidate_stream_cache(normalized_webpage_url)
+                log.error(tag("ERR", f"fetch_stream_url: {e}"))
+                return ""
+            if not info or cls._is_drm(info):
+                cls.invalidate_stream_cache(normalized_webpage_url)
+                return ""
+            stream_url = cls._best_audio_url(info) or ""
+            if stream_url:
+                cls._set_cached_stream_url(normalized_webpage_url, stream_url)
+            else:
+                cls.invalidate_stream_cache(normalized_webpage_url)
+            return stream_url
+        finally:
+            with cls._cache_lock:
+                done = cls._stream_url_inflight.pop(normalized_webpage_url, None)
+                if done is not None:
+                    done.set()
 
     @staticmethod
     def _is_drm(info: dict) -> bool:

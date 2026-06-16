@@ -7,6 +7,7 @@ Pytonazz2026 e' un bot Discord modulare scritto in Python, costruito su `discord
 Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
 
 - [DOCS.md](DOCS.md): manuale tecnico e operativo per sviluppatori.
+- [DEVELOPER_MANUAL.md](DEVELOPER_MANUAL.md): manuale sviluppatore unico con flussi, comandi custom, resolver, test e deploy.
 - [CACHE_DB.md](CACHE_DB.md): schema, algoritmo e manutenzione del cache DB musicale.
 - [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md): installazione e deploy su VM Ubuntu.
 
