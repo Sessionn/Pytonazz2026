@@ -142,6 +142,8 @@ class Config:
               "-reconnect_on_network_error 1 "
               "-reconnect_on_http_error 429,5xx "
               "-reconnect_delay_max 5 "
+              "-analyzeduration 0 "
+              "-probesize 32k "
               "-protocol_whitelist file,http,https,tcp,tls,crypto,httpproxy "
               "-nostdin"
         ),

@@ -235,6 +235,11 @@ usa un DB temporaneo, misura prima resolve cold e poi resolve warm/cache immedia
 frame PCM. Il cold path verso YouTube non puo' essere garantito sotto una soglia fissa se
 yt-dlp viene rallentato da rete, rate limit, cookie scaduti o challenge anti-bot.
 
+Per ridurre la latenza cold su query YouTube, il resolver usa un percorso `ytsearch1`
+flat-first: prima trova rapidamente il `webpage_url`, poi estrae lo stream dal link diretto
+con manifest HLS/DASH disabilitati e preferenza audio `m4a`. Se il percorso rapido fallisce,
+torna automaticamente al comportamento yt-dlp completo.
+
 ## 12. Test su VM
 
 Non sporcare `~/Pytonazz2026` in produzione per prove non ancora mergeate.
@@ -252,8 +257,18 @@ rm -rf "$tmp"
 ```
 
 Se la VM restituisce errori yt-dlp come `Sign in to confirm you're not a bot`, aggiorna prima
-cookie/proxy o usa un provider audio esterno. Sharding e thread aiutano la concorrenza tra
-richieste, ma non eliminano una challenge remota su una singola risoluzione cold.
+cookie/proxy o usa un provider audio esterno. Su `sessionn@pytonazz.duckdns.org` il path
+cookie deve essere assoluto:
+
+```env
+COOKIE_FILE=/home/sessionn/cookies.txt
+COOKIES_ENABLED=true
+```
+
+`config.py` normalizza anche path relativi e `~/...`, ma in produzione VM e systemd e'
+preferibile il path assoluto per evitare differenze di working directory. Sharding e thread
+aiutano la concorrenza tra richieste, ma non eliminano una challenge remota o una risposta
+lenta di YouTube su una singola risoluzione cold.
 
 Per deploy reale:
 

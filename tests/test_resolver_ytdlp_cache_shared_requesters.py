@@ -75,7 +75,10 @@ finally:
     yt_dlp.YoutubeDL = original_youtubedl
     SourceResolver._ytdlp_query_cache.clear()
 
-assert extract_calls == ["ytsearch1:shared cache song"], extract_calls
+assert extract_calls == [
+    "ytsearch1:shared cache song",
+    "https://www.youtube.com/watch?v=shared",
+], extract_calls
 assert len(first) == 1 and len(second) == 1, (first, second)
 assert first[0].requester == "alpha", first[0]
 assert first[0].requester_id == 1, first[0]
@@ -105,6 +108,7 @@ finally:
     SourceResolver._ytdlp_query_cache.clear()
 
 assert extract_calls.count("ytsearch1:shared inflight song") == 1, extract_calls
+assert extract_calls.count("https://www.youtube.com/watch?v=shared") == 1, extract_calls
 assert len(results) == 2, results
 assert sorted(track[0].requester for track in results) == ["alpha", "beta"], results
 

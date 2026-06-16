@@ -666,6 +666,12 @@ def _spotify_enrich_mode(score: dict) -> str:
 # â”€â”€ Query Cache singleton (lazy init) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
+_FAST_STREAM_EXTRACT_OPTS = {
+    "noplaylist": True,
+    "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio",
+    "youtube_include_dash_manifest": False,
+    "youtube_include_hls_manifest": False,
+}
 
 
 def _get_query_cache():
@@ -1864,7 +1870,7 @@ class SourceResolver:
             direct_url = cls._first_ytdlp_webpage_url(info or {})
             if not direct_url:
                 return None
-            with yt_dlp.YoutubeDL(_make_opts({"noplaylist": True})) as ydl:
+            with yt_dlp.YoutubeDL(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
                 direct_info = ydl.extract_info(direct_url, download=False)
             results = cls._tracks_from_ytdlp_info(direct_info or {}, requester, requester_id, origin_query)
             return results if results else None
@@ -1935,7 +1941,7 @@ class SourceResolver:
             return cls._get_cached_stream_url(normalized_webpage_url) or ""
         try:
             try:
-                with yt_dlp.YoutubeDL(_make_opts({"noplaylist": True})) as ydl:
+                with yt_dlp.YoutubeDL(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
                     info = ydl.extract_info(normalized_webpage_url, download=False)
             except yt_dlp.utils.ExtractorError as e:
                 cls.invalidate_stream_cache(normalized_webpage_url)

@@ -69,6 +69,21 @@ def main() -> None:
     direct_url = flat_url or normal_url
     if direct_url:
         _run("direct_fetch", direct_url, {"noplaylist": True})
+        for label, extra in (
+            ("direct_skip_hls_dash", {"noplaylist": True, "youtube_include_dash_manifest": False, "youtube_include_hls_manifest": False}),
+            ("direct_m4a_skip_hls_dash", {
+                "noplaylist": True,
+                "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio",
+                "youtube_include_dash_manifest": False,
+                "youtube_include_hls_manifest": False,
+            }),
+            ("direct_player_skip", {"noplaylist": True, "extractor_args": {"youtube": {"player_skip": ["webpage", "configs"]}}}),
+            ("direct_no_check_formats", {"noplaylist": True, "check_formats": False}),
+        ):
+            try:
+                _run(label, direct_url, extra)
+            except Exception as exc:
+                print(f"{label}_error={type(exc).__name__}: {exc}")
 
 
 if __name__ == "__main__":
