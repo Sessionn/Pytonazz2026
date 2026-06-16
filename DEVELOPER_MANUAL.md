@@ -240,6 +240,12 @@ flat-first: prima trova rapidamente il `webpage_url`, poi estrae lo stream dal l
 con manifest HLS/DASH disabilitati e preferenza audio `m4a`. Se il percorso rapido fallisce,
 torna automaticamente al comportamento yt-dlp completo.
 
+Il resolver espone anche uno SLA hard-timeout: `RESOLVE_HARD_TIMEOUT_SECONDS`, default `4.75`.
+Le API pubbliche `SourceResolver.resolve()` e `SourceResolver.resolve_choices()` non restano
+bloccate oltre questo budget; se una fonte esterna non risponde in tempo, tornano lista vuota
+e il comando puo' rispondere/fallire in modo controllato sotto 5 secondi. Questo garantisce il
+tempo massimo del bot, non la disponibilita' universale di ogni fonte remota.
+
 ## 12. Test su VM
 
 Non sporcare `~/Pytonazz2026` in produzione per prove non ancora mergeate.
@@ -269,6 +275,37 @@ COOKIES_ENABLED=true
 preferibile il path assoluto per evitare differenze di working directory. Sharding e thread
 aiutano la concorrenza tra richieste, ma non eliminano una challenge remota o una risposta
 lenta di YouTube su una singola risoluzione cold.
+
+## 13. Modello mentale degli altri bot musicali
+
+I bot musicali robusti separano tre responsabilita':
+
+- Discord bot: comandi, permessi, queue, messaggi e UX.
+- Resolver/source manager: traduce query/link in tracce riproducibili.
+- Audio node/player: mantiene connessione voice, stream e retry.
+
+Lavalink segue questo modello in modo esplicito: e' un nodo audio standalone basato su
+Lavaplayer, con REST API, WebSocket, statistiche e supporto plugin. Il bot Discord non fa
+estrazioni pesanti nel processo principale: delega al nodo.
+
+LavaSrc aggiunge il concetto di mirroring: prende metadati da una fonte non direttamente
+riproducibile, per esempio Spotify, e usa provider diretti o ricerche come `ytsearch:%ISRC%`
+e `ytsearch:%QUERY%` per ottenere una traccia audio. La logica di Pitonazz ora segue lo stesso
+principio: Spotify e' metadato/cover/canonical query, YouTube o SoundCloud sono sorgenti audio.
+
+Red DiscordBot Audio e JMusicBot seguono la stessa idea di base: il comando utente deve restare
+reattivo, mentre ricerca, stream e riproduzione sono componenti separati e cacheabili. Nessun
+bot serio garantisce che YouTube cold miss risponda sempre in meno di 5 secondi se l'estrazione
+avviene on-demand nello stesso processo; la garanzia si ottiene con timeout, cache, prefetch o
+un nodo audio dedicato.
+
+La regola architetturale per Pitonazz e':
+
+- Cache/warm path: deve essere immediato.
+- Link diretto: deve avere percorso diretto e timeout.
+- Query cold: deve tentare fast path, ma rispettare `RESOLVE_HARD_TIMEOUT_SECONDS`.
+- Per successo garantito sotto 5 secondi anche su cold miss, serve pre-cache o backend audio
+  dedicato tipo Lavalink/LavaSrc con sorgenti dirette e pool gia' caldo.
 
 Per deploy reale:
 

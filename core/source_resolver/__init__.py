@@ -746,6 +746,13 @@ class SourceResolver:
     _stream_url_inflight: dict[str, threading.Event] = {}
 
     @staticmethod
+    def _resolve_timeout_seconds() -> float:
+        try:
+            return max(0.5, float(Config.RESOLVE_HARD_TIMEOUT_SECONDS))
+        except (TypeError, ValueError):
+            return 4.75
+
+    @staticmethod
     def _apply_spotify_meta(track: "TrackInfo", meta: dict, score: dict) -> None:
         decision = score["decision"]
         enrich_mode = _spotify_enrich_mode(score)
@@ -1035,6 +1042,18 @@ class SourceResolver:
 
     @classmethod
     async def resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
+        timeout = cls._resolve_timeout_seconds()
+        try:
+            return await asyncio.wait_for(
+                cls._resolve_impl(query, requester, requester_id),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            log.warning(tag("RESOLVE", f"timeout  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
+            return []
+
+    @classmethod
+    async def _resolve_impl(cls, query: str, requester: str, requester_id: int = 0) -> list:
         loop = asyncio.get_running_loop()
 
         if _is_url_like_query(query):
@@ -1094,6 +1113,20 @@ class SourceResolver:
 
     @classmethod
     async def resolve_choices(
+        cls, query: str, requester: str, requester_id: int, n: int = 7
+    ) -> list:
+        timeout = cls._resolve_timeout_seconds()
+        try:
+            return await asyncio.wait_for(
+                cls._resolve_choices_impl(query, requester, requester_id, n=n),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            log.warning(tag("RESOLVE", f"timeout choices  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
+            return []
+
+    @classmethod
+    async def _resolve_choices_impl(
         cls, query: str, requester: str, requester_id: int, n: int = 7
     ) -> list:
         loop = asyncio.get_running_loop()
