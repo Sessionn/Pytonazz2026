@@ -1333,7 +1333,15 @@ class SourceResolver:
 
             if sp_meta_hint and results and not used_spotify_hint:
                 score = _compute_enrich_confidence(query, results[0], sp_meta_hint)
-                if _should_try_track_derived_spotify_enrich(query, results[0], sp_meta_hint, score):
+                raw_beats_hint = _raw_result_beats_weak_spotify_hint(query, results[0], sp_meta_hint)
+                if raw_beats_hint:
+                    log.debug(tag(
+                        "SPOTIFY",
+                        f"raw risultato preferito a hint debole  {b(query)}"
+                        f"  keep={b(results[0].title)}"
+                        f"  spotify={b((sp_meta_hint.get('title') or '').strip())}",
+                    ))
+                elif _should_try_track_derived_spotify_enrich(query, results[0], sp_meta_hint, score):
                     try:
                         alt_meta, alt_score = await loop.run_in_executor(
                             None, cls._sp_search_track_meta_for_track, query, results[0]
@@ -1350,9 +1358,10 @@ class SourceResolver:
                         ))
                         sp_meta_hint = alt_meta
                         score = alt_score
-                yt_title_before = results[0].title
-                cls._apply_spotify_meta(results[0], sp_meta_hint, score)
-                cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, score)
+                if not raw_beats_hint and _spotify_enrich_mode(score) != "skip":
+                    yt_title_before = results[0].title
+                    cls._apply_spotify_meta(results[0], sp_meta_hint, score)
+                    cls._log_spotify_enrich(1, query, yt_title_before, sp_meta_hint, score)
             elif fast_path and not sp_meta_hint and results and _looks_like_lyric_phrase_query(query):
                 try:
                     alt_meta, alt_score = await loop.run_in_executor(

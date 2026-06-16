@@ -219,6 +219,22 @@ Test mirati dopo resolver/player:
 & 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tests\test_stream_expiry.py
 ```
 
+Benchmark resolver e primo frame:
+
+```powershell
+& 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tools\benchmark_resolve.py "Espresso Sabrina Carpenter"
+& 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tools\benchmark_cache_roundtrip.py "Espresso Sabrina Carpenter"
+$env:DB_PATH = 'C:\tmp\pytonazz_e2e_bench.db'
+$env:CACHE_ENABLED = 'true'
+& 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tools\benchmark_end_to_end.py "Espresso Sabrina Carpenter"
+```
+
+`benchmark_resolve.py` disabilita la cache e misura il cold path. `benchmark_cache_roundtrip.py`
+usa un DB temporaneo, misura prima resolve cold e poi resolve warm/cache immediato.
+`benchmark_end_to_end.py` misura resolve, eventuale refresh stream, bootstrap FFmpeg e primo
+frame PCM. Il cold path verso YouTube non puo' essere garantito sotto una soglia fissa se
+yt-dlp viene rallentato da rete, rate limit, cookie scaduti o challenge anti-bot.
+
 ## 12. Test su VM
 
 Non sporcare `~/Pytonazz2026` in produzione per prove non ancora mergeate.
@@ -231,8 +247,13 @@ cd "$tmp/repo"
 ~/Pytonazz2026/venv/bin/python -m py_compile core/source_resolver/__init__.py
 ~/Pytonazz2026/venv/bin/python tests/test_resolver_ytdlp_cache_shared_requesters.py
 ~/Pytonazz2026/venv/bin/python tools/check_logs.py --strict
+DB_PATH=/tmp/pytonazz_e2e_bench_vm.db CACHE_ENABLED=true ~/Pytonazz2026/venv/bin/python tools/benchmark_end_to_end.py "Espresso Sabrina Carpenter"
 rm -rf "$tmp"
 ```
+
+Se la VM restituisce errori yt-dlp come `Sign in to confirm you're not a bot`, aggiorna prima
+cookie/proxy o usa un provider audio esterno. Sharding e thread aiutano la concorrenza tra
+richieste, ma non eliminano una challenge remota su una singola risoluzione cold.
 
 Per deploy reale:
 
