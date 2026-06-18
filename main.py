@@ -102,7 +102,7 @@ async def _is_dev_user(discord_user) -> bool:
 
 
 @bot.tree.interaction_check
-async def channel_control_interaction_check(inter: discord.Interaction) -> bool:
+async def global_interaction_check(inter: discord.Interaction) -> bool:
     command_name = _interaction_command_slug(inter)
     if (
         command_name

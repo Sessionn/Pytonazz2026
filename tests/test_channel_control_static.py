@@ -15,7 +15,7 @@ cog_py = (root / "cogs" / "channel_control.py").read_text(encoding="utf-8")
 
 assert '"cogs.channel_control"' in runtime_py
 assert "@bot.tree.interaction_check" in main_py
-assert "async def channel_control_interaction_check" in main_py
+assert "async def global_interaction_check" in main_py
 assert 'control != "no_bot_commands"' in main_py
 assert "async def on_message" in main_py
 assert 'control != "bot_commands_only"' in main_py

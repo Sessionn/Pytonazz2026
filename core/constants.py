@@ -37,7 +37,7 @@ STATUS_LABEL: dict[str, str] = {
 # Fonte unica: importata sia da main.py che da cogs/dev.py
 UNDISABLEABLE: frozenset[str] = frozenset({
     "disable command", "enable command", "command list", "sync", "restart",
-    "maintenance", "cog list", "help", "help dev",
+    "maintenance", "cog list", "help", "devhelp",
 })
 
 
