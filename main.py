@@ -27,6 +27,7 @@ from core.runtime import (
 )
 from monitoring.cookie_watchdog import start_cookie_watchdog
 from assets.status_messages import STATUS_CYCLE
+from core.constants import UNDISABLEABLE, command_slug
 
 print_banner()           # <-- banner prima di qualsiasi log
 log_level = getattr(logging, Config.LOG_LEVEL, logging.INFO)
@@ -75,6 +76,25 @@ _CHANNEL_CONTROL_LABELS = {
 }
 
 
+def _interaction_command_slug(inter: discord.Interaction) -> str:
+    command = getattr(inter, "command", None)
+    qualified_name = getattr(command, "qualified_name", None) or getattr(command, "name", "")
+    if qualified_name:
+        return command_slug(qualified_name)
+
+    data = getattr(inter, "data", None) or {}
+    names = [data.get("name", "")]
+    options = data.get("options") or []
+    while options:
+        current = options[0] or {}
+        # Discord option types: 1=subcommand, 2=subcommand group.
+        if current.get("type") not in (1, 2):
+            break
+        names.append(current.get("name", ""))
+        options = current.get("options") or []
+    return command_slug(" ".join(name for name in names if name))
+
+
 async def _is_dev_user(discord_user) -> bool:
     if discord_user.id in Config.DEV_IDS:
         return True
@@ -83,6 +103,20 @@ async def _is_dev_user(discord_user) -> bool:
 
 @bot.tree.interaction_check
 async def channel_control_interaction_check(inter: discord.Interaction) -> bool:
+    command_name = _interaction_command_slug(inter)
+    if (
+        command_name
+        and command_name not in UNDISABLEABLE
+        and cfg.is_command_disabled(command_name)
+    ):
+        log.warning(tag("WARN", f"comando disabilitato  {b(command_name)}  user={inter.user}"))
+        if not inter.response.is_done():
+            await inter.response.send_message(
+                f"\u26d4 Il comando `/{command_name}` e' disabilitato al momento.",
+                ephemeral=True,
+            )
+        raise app_commands.CheckFailure("command disabled")
+
     if not inter.guild_id or not inter.channel_id:
         return True
     if await _is_dev_user(inter.user):
