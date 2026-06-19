@@ -96,6 +96,7 @@ _YT_CHANNEL  = re.compile(
 )
 
 _YT_CANDIDATES = 3
+_YOUTUBE_VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,}$")
 
 _T = TypeVar("_T")
 
@@ -186,6 +187,46 @@ def _drop_unrequested_variants(
 
 def _is_yt_channel_url(url: str) -> bool:
     return bool(_YT_CHANNEL.match(url))
+
+
+def _youtube_video_id(entry: dict, webpage_url: str) -> str:
+    candidate = str(entry.get("id") or "").strip()
+    if _YOUTUBE_VIDEO_ID.fullmatch(candidate):
+        return candidate
+
+    parsed = urllib.parse.urlparse(webpage_url or "")
+    host = (parsed.hostname or "").lower()
+    if host.endswith("youtu.be"):
+        candidate = parsed.path.strip("/").split("/")[0]
+    elif host.endswith("youtube.com"):
+        if parsed.path == "/watch":
+            candidate = urllib.parse.parse_qs(parsed.query).get("v", [""])[0]
+        else:
+            parts = [part for part in parsed.path.split("/") if part]
+            candidate = parts[1] if len(parts) >= 2 and parts[0] in {"shorts", "embed", "live"} else ""
+    return candidate if _YOUTUBE_VIDEO_ID.fullmatch(candidate) else ""
+
+
+def _entry_thumbnail(entry: dict, webpage_url: str, source: str) -> str:
+    direct = str(entry.get("thumbnail") or "").strip()
+    if direct:
+        return direct
+
+    thumbnails = [item for item in (entry.get("thumbnails") or []) if isinstance(item, dict)]
+    urls = [str(item.get("url") or "").strip() for item in thumbnails]
+    urls = [url for url in urls if url]
+    if urls:
+        return urls[-1]
+
+    artwork = str(entry.get("artwork_url") or "").strip()
+    if artwork:
+        return artwork
+
+    if source == "youtube":
+        video_id = _youtube_video_id(entry, webpage_url)
+        if video_id:
+            return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+    return ""
 
 
 def _extract_spotify_entity_id(url: str, entity: str) -> Optional[str]:
@@ -1009,6 +1050,7 @@ class SourceResolver:
         except asyncio.TimeoutError:
             fallback = await cls._finish_fallback(fallback_task, timeout - full_timeout, query, requester, requester_id)
             if fallback is not None:
+                cls._store_resolved_fallback(query, fallback)
                 log.warning(tag("RESOLVE", f"timeout fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
                 return [fallback]
             log.warning(tag("RESOLVE", f"timeout emergency fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
@@ -1091,6 +1133,8 @@ class SourceResolver:
         except asyncio.TimeoutError:
             fallback = await cls._finish_fallback(fallback_task, timeout - full_timeout, query, requester, requester_id)
             if fallback is not None:
+                if n == 1:
+                    cls._store_resolved_fallback(query, fallback)
                 log.warning(tag("RESOLVE", f"timeout choices fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
                 return [fallback]
             log.warning(tag("RESOLVE", f"timeout choices emergency fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
@@ -1110,6 +1154,19 @@ class SourceResolver:
             return await asyncio.wait_for(fallback_task, timeout=max(0.05, timeout))
         except Exception:
             return None
+
+    @staticmethod
+    def _store_resolved_fallback(query: str, track: "TrackInfo") -> None:
+        webpage_url = (getattr(track, "webpage_url", "") or "").strip()
+        if not query or not webpage_url.startswith(("https://", "http://")):
+            return
+        try:
+            qc = _get_query_cache()
+            if qc is not None:
+                qc.store(query, track)
+                log.info(tag("CACHE", f"fallback salvato  {b(query)}  ->  {b(track.title)}"))
+        except Exception as exc:
+            log.debug(tag("CACHE", f"fallback write path ignorato: {exc}"))
 
     @classmethod
     async def _resolve_fallback_track(cls, query: str, requester: str, requester_id: int):
@@ -1175,6 +1232,7 @@ class SourceResolver:
         src = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
         title_value = item.get("title") or item.get("fulltitle") or query.strip()
         artist = item.get("artist") or item.get("creator") or item.get("uploader") or ""
+        thumbnail = _entry_thumbnail(item, webpage_url, src)
         try:
             duration = int(item.get("duration") or 0)
         except (TypeError, ValueError):
@@ -1183,14 +1241,14 @@ class SourceResolver:
             title=title_value,
             webpage_url=webpage_url,
             duration=duration,
-            thumbnail=item.get("thumbnail") or "",
+            thumbnail=thumbnail,
             requester=requester,
             requester_id=requester_id,
             source=src,
             artist=artist,
             origin_query=query.strip(),
-            thumbnail_source=src,
-            thumbnail_confidence=0.25,
+            thumbnail_source=src if thumbnail else "",
+            thumbnail_confidence=0.25 if thumbnail else 0.0,
         )
 
     @staticmethod
@@ -1929,6 +1987,15 @@ class SourceResolver:
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
         url  = await loop.run_in_executor(None, cls._fetch_stream_url, track.webpage_url)
+        if url:
+            webpage_url = (getattr(track, "webpage_url", "") or "").strip()
+            if webpage_url.startswith(("https://", "http://")):
+                try:
+                    qc = _get_query_cache()
+                    if qc is not None:
+                        qc.update_stream_url(webpage_url, url)
+                except Exception as exc:
+                    log.debug(tag("CACHE", f"stream write path ignorato: {exc}"))
         elapsed = (time.perf_counter() - t0) * 1000
         status  = hi("OK", _BGRN) if url else hi("FAIL", _BRED)
         log.info(tag("STREAM", f"{title(track.title)}  {ms(elapsed)}  {status}"))
@@ -2053,19 +2120,20 @@ class SourceResolver:
             webpage_url = e.get("webpage_url", "")
             src    = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
             artist = e.get("artist") or e.get("creator") or e.get("uploader", "")
+            thumbnail = _entry_thumbnail(e, webpage_url, src)
             results.append(TrackInfo(
                 title        = e.get("title", "Senza titolo"),
                 webpage_url  = webpage_url,
                 duration     = int(e.get("duration") or 0),
-                thumbnail    = e.get("thumbnail", ""),
+                thumbnail    = thumbnail,
                 requester    = requester,
                 requester_id = requester_id,
                 source       = src,
                 stream_url   = url,
                 artist       = artist,
                 origin_query = origin_query,
-                thumbnail_source = src,
-                thumbnail_confidence = 0.45,
+                thumbnail_source = src if thumbnail else "",
+                thumbnail_confidence = 0.45 if thumbnail else 0.0,
             ))
         return results
 
