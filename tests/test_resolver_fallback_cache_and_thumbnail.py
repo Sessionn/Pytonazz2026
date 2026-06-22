@@ -194,9 +194,15 @@ def test_spotify_url_is_never_cached_as_fallback() -> None:
     assert not stored, stored
 
 
+def test_spotify_emergency_fallback_is_not_queued_as_a_stream() -> None:
+    spotify_url = "https://open.spotify.com/track/55SQ7OsKtNX274q3dyZQsQ"
+    assert SourceResolver._emergency_fallback_track(spotify_url, "tester", 1) is None
+
+
 test_youtube_thumbnail_is_derived_when_ytdlp_omits_it()
 asyncio.run(test_timeout_fallback_is_stored_when_it_has_a_real_url())
 asyncio.run(test_fresh_stream_updates_persisted_source())
 test_spotify_timeout_fallback_uses_youtube_mirror()
 test_spotify_url_is_never_cached_as_fallback()
+test_spotify_emergency_fallback_is_not_queued_as_a_stream()
 print("OK: timeout fallbacks are cached and YouTube thumbnails are derived")

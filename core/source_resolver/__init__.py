@@ -1054,7 +1054,8 @@ class SourceResolver:
                 log.warning(tag("RESOLVE", f"timeout fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
                 return [fallback]
             log.warning(tag("RESOLVE", f"timeout emergency fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
-            return [cls._emergency_fallback_track(query, requester, requester_id)]
+            emergency = cls._emergency_fallback_track(query, requester, requester_id)
+            return [emergency] if emergency is not None else []
         finally:
             if not fallback_task.done():
                 fallback_task.cancel()
@@ -1138,7 +1139,8 @@ class SourceResolver:
                 log.warning(tag("RESOLVE", f"timeout choices fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
                 return [fallback]
             log.warning(tag("RESOLVE", f"timeout choices emergency fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
-            return [cls._emergency_fallback_track(query, requester, requester_id)]
+            emergency = cls._emergency_fallback_track(query, requester, requester_id)
+            return [emergency] if emergency is not None else []
         finally:
             if not fallback_task.done():
                 fallback_task.cancel()
@@ -1310,6 +1312,8 @@ class SourceResolver:
     @staticmethod
     def _emergency_fallback_track(query: str, requester: str, requester_id: int):
         raw = (query or "").strip()
+        if extract_spotify_track_id(raw):
+            return None
         is_url = _is_url_like_query(raw)
         webpage_url = raw if is_url else f"ytsearch1:{raw}"
         source = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
