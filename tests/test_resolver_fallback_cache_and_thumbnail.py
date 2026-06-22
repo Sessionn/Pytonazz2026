@@ -120,7 +120,83 @@ async def test_fresh_stream_updates_persisted_source() -> None:
     ], updated
 
 
+def test_spotify_timeout_fallback_uses_youtube_mirror() -> None:
+    original_sp_client = SourceResolver._sp_client
+    original_flat_fallback = SourceResolver._fallback_from_flat_ytdlp
+    spotify_url = "https://open.spotify.com/intl-it/track/55SQ7OsKtNX274q3dyZQsQ?si=test"
+
+    class FakeSpotify:
+        def track(self, track_id):
+            assert track_id == "55SQ7OsKtNX274q3dyZQsQ", track_id
+            return {
+                "name": "It Can't Come Quickly Enough",
+                "duration_ms": 237000,
+                "artists": [{"name": "Scissor Sisters"}],
+                "album": {"images": [{"url": "https://i.scdn.co/image/cover"}]},
+                "external_urls": {"spotify": "https://open.spotify.com/track/55SQ7OsKtNX274q3dyZQsQ"},
+            }
+
+    def fake_flat_fallback(cls, query, requester, requester_id):
+        assert query == "It Can't Come Quickly Enough Scissor Sisters", query
+        return TrackInfo(
+            title="YouTube title",
+            webpage_url="https://www.youtube.com/watch?v=mirror123",
+            duration=240,
+            thumbnail="https://i.ytimg.com/vi/mirror123/hqdefault.jpg",
+            requester=requester,
+            requester_id=requester_id,
+            source="youtube",
+            artist="YouTube artist",
+        )
+
+    try:
+        SourceResolver._sp_client = classmethod(lambda cls: FakeSpotify())
+        SourceResolver._fallback_from_flat_ytdlp = classmethod(fake_flat_fallback)
+        track = SourceResolver._fallback_track_sync(spotify_url, "tester", 1)
+    finally:
+        SourceResolver._sp_client = original_sp_client
+        SourceResolver._fallback_from_flat_ytdlp = original_flat_fallback
+
+    assert track.webpage_url == "https://www.youtube.com/watch?v=mirror123", track
+    assert track.title == "It Can't Come Quickly Enough", track
+    assert track.artist == "Scissor Sisters", track
+    assert track.thumbnail == "https://i.scdn.co/image/cover", track
+    assert track.source == "spotify", track
+    assert track.spotify_url == "https://open.spotify.com/track/55SQ7OsKtNX274q3dyZQsQ", track
+
+
+def test_spotify_url_is_never_cached_as_fallback() -> None:
+    original_get_cache = resolver_module._get_query_cache
+    stored = []
+    spotify_url = "https://open.spotify.com/track/55SQ7OsKtNX274q3dyZQsQ"
+
+    class FakeCache:
+        def store(self, query, track):
+            stored.append((query, track.webpage_url))
+
+    try:
+        resolver_module._get_query_cache = lambda: FakeCache()
+        SourceResolver._store_resolved_fallback(
+            spotify_url,
+            TrackInfo(
+                title=spotify_url,
+                webpage_url=spotify_url,
+                duration=0,
+                thumbnail="",
+                requester="tester",
+                requester_id=1,
+                source="spotify",
+            ),
+        )
+    finally:
+        resolver_module._get_query_cache = original_get_cache
+
+    assert not stored, stored
+
+
 test_youtube_thumbnail_is_derived_when_ytdlp_omits_it()
 asyncio.run(test_timeout_fallback_is_stored_when_it_has_a_real_url())
 asyncio.run(test_fresh_stream_updates_persisted_source())
+test_spotify_timeout_fallback_uses_youtube_mirror()
+test_spotify_url_is_never_cached_as_fallback()
 print("OK: timeout fallbacks are cached and YouTube thumbnails are derived")

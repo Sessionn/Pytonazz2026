@@ -1158,7 +1158,14 @@ class SourceResolver:
     @staticmethod
     def _store_resolved_fallback(query: str, track: "TrackInfo") -> None:
         webpage_url = (getattr(track, "webpage_url", "") or "").strip()
-        if not query or not webpage_url.startswith(("https://", "http://")):
+        if (
+            not query
+            or not webpage_url.startswith(("https://", "http://"))
+            or extract_spotify_track_id(webpage_url)
+            or extract_spotify_playlist_id(webpage_url)
+            or extract_spotify_album_id(webpage_url)
+            or extract_spotify_artist_id(webpage_url)
+        ):
             return
         try:
             qc = _get_query_cache()
@@ -1191,11 +1198,60 @@ class SourceResolver:
 
     @classmethod
     def _fallback_track_sync(cls, query: str, requester: str, requester_id: int):
+        if spotify_track_id := extract_spotify_track_id(query):
+            return cls._fallback_spotify_track_sync(query, spotify_track_id, requester, requester_id)
         if not _is_url_like_query(query):
             cached = cls._fallback_from_cache(query, requester, requester_id)
             if cached is not None:
                 return cached
         return cls._fallback_from_flat_ytdlp(query, requester, requester_id)
+
+    @classmethod
+    def _fallback_spotify_track_sync(
+        cls, query: str, track_id: str, requester: str, requester_id: int
+    ):
+        """Resolve a Spotify track fallback to a playable YouTube page, never the Spotify page."""
+        sp = cls._sp_client()
+        if sp is None:
+            return None
+        try:
+            item = sp.track(track_id)
+        except Exception as exc:
+            log.debug(tag("SPOTIFY", f"fallback metadata non disponibile  {b(track_id)}  {exc}"))
+            return None
+
+        title = (item.get("name") or "").strip()
+        artist = ", ".join(
+            str(entry.get("name") or "").strip()
+            for entry in (item.get("artists") or [])
+            if entry.get("name")
+        )
+        search_query = " ".join(part for part in (title, artist) if part).strip()
+        if not search_query:
+            return None
+
+        images = (item.get("album") or {}).get("images") or []
+        thumbnail = next((image.get("url") for image in images if image.get("url")), "")
+        spotify_url = (item.get("external_urls") or {}).get("spotify") or query
+        try:
+            duration = int((item.get("duration_ms") or 0) / 1000)
+        except (TypeError, ValueError):
+            duration = 0
+
+        mirror = cls._fallback_from_flat_ytdlp(search_query, requester, requester_id)
+        if mirror is None:
+            return None
+        mirror.title = title or mirror.title
+        mirror.artist = artist or mirror.artist
+        mirror.duration = duration or mirror.duration
+        mirror.source = "spotify"
+        mirror.origin_query = query
+        mirror.spotify_url = spotify_url
+        if thumbnail:
+            mirror.thumbnail = thumbnail
+            mirror.thumbnail_source = "spotify"
+            mirror.thumbnail_confidence = 0.95
+        return mirror
 
     @classmethod
     def _fallback_from_cache(cls, query: str, requester: str, requester_id: int):
