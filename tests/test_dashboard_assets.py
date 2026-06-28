@@ -39,4 +39,14 @@ assert ".badge.ok" in style_css and ".badge.err" in style_css, (
 )
 assert ".del-btn" in style_css, "FAIL: manca la stilizzazione della X di cancellazione"
 
+delete_block_start = dashboard_js.index("function deleteSong(")
+delete_block_end = dashboard_js.index("function openModal(", delete_block_start)
+delete_block = dashboard_js[delete_block_start:delete_block_end]
+assert "refreshLoadedSections()" not in delete_block, (
+    "FAIL: le delete dashboard non devono ricaricare tutte le sezioni e perdere scroll/posizione"
+)
+assert "removeDashboardRow" in delete_block, (
+    "FAIL: le delete dashboard devono rimuovere la riga localmente senza refresh globale"
+)
+
 print("OK: dashboard assets soundcloud/arrows/svg")

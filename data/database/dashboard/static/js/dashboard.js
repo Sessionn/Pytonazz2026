@@ -587,16 +587,34 @@ function refreshLoadedSections() {
   }
 }
 
+function removeDashboardRow(section, id) {
+  if (section === "cache") {
+    const row = document.querySelector(`#songs-body tr[data-id="${id}"]`);
+    lastSongIds.delete(id);
+    lastSongUrls.delete(id);
+    if (row) {
+      row.style.transition = "opacity .2s, transform .2s";
+      row.style.opacity = "0";
+      row.style.transform = "translateX(16px)";
+      setTimeout(() => row.remove(), 220);
+    }
+    return;
+  }
+
+  if (tableData[section]) {
+    tableData[section] = tableData[section].filter(row => Number(row.id) !== Number(id));
+    renderStoredTable(section);
+  }
+}
+
 function deleteSong(id) {
   fetch("/api/delete/" + id, { method: "DELETE" })
     .then(r => r.json())
     .then(data => {
       if (!data.ok) throw new Error("delete failed");
-      lastSongIds.delete(id);
-      lastSongUrls.delete(id);
+      removeDashboardRow("cache", id);
       showToast("Entry eliminata", "success");
       closeModal();
-      refreshLoadedSections();
       setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
@@ -608,7 +626,7 @@ function deleteTrack(id) {
     .then(data => {
       if (!data.ok) throw new Error("delete track failed");
       showToast("Traccia canonica eliminata", "success");
-      refreshLoadedSections();
+      removeDashboardRow("tracks", id);
       setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione traccia", "error"));
@@ -620,7 +638,7 @@ function deleteSource(id) {
     .then(data => {
       if (!data.ok) throw new Error("delete source failed");
       showToast("Sorgente eliminata", "success");
-      refreshLoadedSections();
+      removeDashboardRow("sources", id);
       setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione sorgente", "error"));
@@ -632,7 +650,7 @@ function deleteAlias(id) {
     .then(data => {
       if (!data.ok) throw new Error("delete alias failed");
       showToast("Alias eliminato", "success");
-      refreshLoadedSections();
+      removeDashboardRow("aliases", id);
       setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione alias", "error"));
@@ -644,7 +662,7 @@ function deleteQuery(id) {
     .then(data => {
       if (!data.ok) throw new Error("delete query failed");
       showToast("Query eliminata", "success");
-      refreshLoadedSections();
+      removeDashboardRow("queries", id);
       setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione query", "error"));
