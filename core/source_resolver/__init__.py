@@ -1969,10 +1969,16 @@ class SourceResolver:
         first = entries[0] if entries else info
         if not first:
             return ""
-        url = first.get("webpage_url") or first.get("url") or ""
-        if url and not url.startswith(("http://", "https://")):
-            url = f"https://www.youtube.com/watch?v={url}"
-        return url
+        url = (first.get("webpage_url") or first.get("url") or "").strip()
+        if not url:
+            return ""
+        if url.startswith(("http://", "https://")):
+            return url
+        if re.match(r"^ytsearch\d*:", url, re.IGNORECASE):
+            return ""
+        if re.fullmatch(r"[A-Za-z0-9_-]{11}", url):
+            return f"https://www.youtube.com/watch?v={url}"
+        return ""
 
     @classmethod
     def _tracks_from_ytdlp_info(cls, info: dict, requester: str, requester_id: int, origin_query: str) -> list:
