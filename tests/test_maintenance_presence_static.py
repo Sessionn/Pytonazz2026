@@ -22,4 +22,8 @@ assert "remember_normal_presence(status=status, activity=activity)" in dev_py
 assert "hi(state_label, state_color)" in dev_py
 assert 'discord.Game(name="⚠️MANUTENZIONE⚠️")' in main_py
 
+assert "rotate_status.change_interval(seconds=cfg.status_interval)" in main_py
+assert "if cfg.maintenance:" in main_py
+assert "await bot.apply_maintenance_presence()" in main_py
+
 print("OK: maintenance presence methods wired")

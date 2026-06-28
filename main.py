@@ -295,11 +295,20 @@ async def on_ready():
     log.info(tag("WATCHDOG", "Hot-reload attivo su cogs"))
     if not watchdog.is_running():
         watchdog.start()
+    try:
+        rotate_status.change_interval(seconds=cfg.status_interval)
+    except Exception as e:
+        log.error(tag("STATUS", f"errore status_interval salvato  {e}"))
     if not rotate_status.is_running():
         rotate_status.start()
     start_cookie_watchdog(bot, logger=logging.getLogger("pitonazz.cookie_watchdog"))
 
-    if not cfg.maintenance:
+    if cfg.maintenance:
+        try:
+            await bot.apply_maintenance_presence()
+        except Exception as e:
+            log.error(tag("STATUS", f"errore apply_maintenance_presence  {e}"))
+    else:
         try:
             await asyncio.sleep(3)
             await bot.apply_next_status()
@@ -308,7 +317,11 @@ async def on_ready():
 
     try:
         synced = await bot.tree.sync()
-        log.info(tag("SYNC", f"{b(str(bot.guilds[0]))}  [{dim(str(bot.guilds[0].id))}]  -> {b(str(len(synced)))} comandi"))
+        if bot.guilds:
+            guild_info = f"{b(str(bot.guilds[0]))}  [{dim(str(bot.guilds[0].id))}]"
+        else:
+            guild_info = b("global")
+        log.info(tag("SYNC", f"{guild_info}  -> {b(str(len(synced)))} comandi"))
     except Exception as e:
         log.error(tag("SYNC", f"errore sync  {e}"))
 

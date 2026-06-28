@@ -51,6 +51,8 @@ class BotConfig:
     def __init__(self):
         self._write_lock = asyncio.Lock()
         self._data = _load()
+        if not _PATH.exists():
+            _save(self._data)
         keys = list(self._data.keys())
         log.debug(tag("BOOT", f"bot_config  {len(keys)} chiavi"))
 
@@ -91,7 +93,7 @@ class BotConfig:
     # ── Setters asincroni ─────────────────────────────────────────────────────
 
     async def set_status_interval(self, seconds: int) -> None:
-        self._data["status_interval"] = max(30, int(seconds))
+        self._data["status_interval"] = max(10, int(seconds))
         await self._persist()
 
     async def set_log_channel(self, channel_id: int | None) -> None:
