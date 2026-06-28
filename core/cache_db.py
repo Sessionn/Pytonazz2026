@@ -1759,10 +1759,13 @@ def compact_ids() -> dict:
             result = {
                 "track_rows": len(track_map),
                 "track_changed": sum(1 for old_id, new_id in track_map.items() if old_id != new_id),
+                "track_id_map": dict(track_map),
                 "source_rows": len(source_map),
                 "source_changed": sum(1 for old_id, new_id in source_map.items() if old_id != new_id),
+                "source_id_map": dict(source_map),
                 "query_rows": len(query_map),
                 "query_changed": sum(1 for old_id, new_id in query_map.items() if old_id != new_id),
+                "query_id_map": dict(query_map),
                 "applied": False,
             }
 
@@ -1792,7 +1795,6 @@ def delete_song_row(row_id: int) -> bool:
             return False
         cur.execute("DELETE FROM cache_sources WHERE id = ?", (int(row_id),))
         _cleanup_orphans(cur)
-    compact_ids()
     return True
 
 
@@ -1800,8 +1802,6 @@ def delete_track_row(track_id: int) -> bool:
     with _cursor() as cur:
         cur.execute("DELETE FROM cache_tracks WHERE id = ?", (int(track_id),))
         deleted = cur.rowcount > 0
-    if deleted:
-        compact_ids()
     return deleted
 
 
@@ -1813,8 +1813,6 @@ def delete_alias(alias_id: int) -> bool:
     with _cursor() as cur:
         cur.execute("DELETE FROM cache_queries WHERE id = ?", (int(alias_id),))
         deleted = cur.rowcount > 0
-    if deleted:
-        compact_ids()
     return deleted
 
 

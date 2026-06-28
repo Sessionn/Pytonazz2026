@@ -133,7 +133,7 @@ Flusso per query testuale:
 1. `cogs/music.py` riceve `/play query`.
 2. `SourceResolver.resolve_choices(query, ..., n=1)` prova cache DB se attiva.
 3. Se cache hit e stream URL temporaneo valido: ritorna subito.
-4. Se cache miss: per query corte/ambigue prova Spotify-first con finestra breve.
+4. Se cache miss: per query testuali usa `ytsearch1` e allarga a piu' candidati solo quando il primo risultato e' sospetto.
 5. Costruisce query YouTube, spesso canonicalizzata da Spotify.
 6. Esegue `ytsearch1` per il direct play.
 7. Applica scoring Spotify/YouTube:

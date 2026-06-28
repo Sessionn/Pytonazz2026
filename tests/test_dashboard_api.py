@@ -111,7 +111,10 @@ assert row and row[0] == "spotify"
 
 deleted = client.delete("/api/delete/2")
 assert deleted.status_code == 200, deleted.data
-assert deleted.get_json()["ok"] is True
+delete_payload = deleted.get_json()
+assert delete_payload["ok"] is True
+assert delete_payload["compact"]["source_id_map"]["3"] == 2, delete_payload
+assert delete_payload["compact"]["track_id_map"]["3"] == 2, delete_payload
 
 tracks_after_delete = client.get("/api/tracks?sort=id&order=ASC")
 assert tracks_after_delete.status_code == 200, tracks_after_delete.data
@@ -171,7 +174,8 @@ conn.close()
 
 assert final_tracks == [(1, "Song Four")], final_tracks
 assert final_sources == [(1, 1)], final_sources
-assert final_queries == [(1, 1, 1)], final_queries
+assert final_queries, final_queries
+assert all(row == (row[0], 1, 1) for row in final_queries), final_queries
 
 try:
     os.unlink(tmp.name)

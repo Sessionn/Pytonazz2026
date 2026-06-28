@@ -78,6 +78,9 @@ class Music(commands.Cog):
         self._empty_ch_tasks: dict[int, asyncio.Task] = {}
         self._batch_cancel:   dict[int, asyncio.Event] = {}
         self._play_debounce:  dict[tuple[int, str], float] = {}
+        self._play_next_ticket: dict[int, int] = {}
+        self._play_commit_ticket: dict[int, int] = {}
+        self._play_turn_conditions: dict[int, asyncio.Condition] = {}
         self._play_debounce_gc_counter: int = 0
         self._warmup_sem = asyncio.Semaphore(3)
         controller = get_dj_access_controller()
@@ -93,6 +96,36 @@ class Music(commands.Cog):
                 on_state_change=self._notify_dj_state_change,
             )
         return self._players[gid]
+
+    def _play_turn_condition(self, guild_id: int) -> asyncio.Condition:
+        condition = self._play_turn_conditions.get(guild_id)
+        if condition is None:
+            condition = asyncio.Condition()
+            self._play_turn_conditions[guild_id] = condition
+        return condition
+
+    def _reserve_play_turn(self, guild_id: int) -> int:
+        ticket = self._play_next_ticket.get(guild_id, 0) + 1
+        self._play_next_ticket[guild_id] = ticket
+        self._play_commit_ticket.setdefault(guild_id, 1)
+        self._play_turn_condition(guild_id)
+        return ticket
+
+    async def _wait_play_turn(self, guild_id: int, ticket: int) -> None:
+        condition = self._play_turn_condition(guild_id)
+        async with condition:
+            while self._play_commit_ticket.get(guild_id, 1) != ticket:
+                await condition.wait()
+
+    async def _finish_play_turn(self, guild_id: int) -> None:
+        condition = self._play_turn_condition(guild_id)
+        async with condition:
+            self._play_commit_ticket[guild_id] = self._play_commit_ticket.get(guild_id, 1) + 1
+            if self._play_commit_ticket[guild_id] > self._play_next_ticket.get(guild_id, 0):
+                self._play_next_ticket.pop(guild_id, None)
+                self._play_commit_ticket.pop(guild_id, None)
+                self._play_turn_conditions.pop(guild_id, None)
+            condition.notify_all()
 
     def _notify_dj_state_change(self, guild_id: int) -> None:
         controller = get_dj_access_controller()
@@ -216,18 +249,25 @@ class Music(commands.Cog):
         *,
         nome: str,
         total: int,
+        ticket: int,
         do_spotify_shuffle: bool = False,
     ):
         cancel_event = self._get_cancel_event(inter.guild_id)
         cancel_view = CancelBatchView(cancel_event, inter.user.id)
 
-        await inter.edit_original_response(
-            embed=batch_loading_embed(nome, inter.user, current=0, total=total),
-            view=cancel_view,
-        )
+        try:
+            await inter.edit_original_response(
+                embed=batch_loading_embed(nome, inter.user, current=0, total=total),
+                view=cancel_view,
+            )
+        except Exception:
+            await self._wait_play_turn(inter.guild_id, ticket)
+            await self._finish_play_turn(inter.guild_id)
+            raise
         await self._load_batch(
             inter, vc, gen,
             nome=nome, total=total,
+            ticket=ticket,
             cancel_event=cancel_event,
             do_spotify_shuffle=do_spotify_shuffle,
             keep_loading_embed=True,
@@ -241,31 +281,48 @@ class Music(commands.Cog):
         gen,
         nome: str,
         total: int,
+        ticket: int,
         cancel_event: asyncio.Event,
         do_spotify_shuffle: bool = False,
         keep_loading_embed: bool = False,
         cancel_view: Optional["CancelBatchView"] = None,
     ):
         player = self._player(inter.guild_id, inter.channel)
+        turn_started = False
 
         try:
             first = await gen.__anext__()
         except StopAsyncIteration:
-            return await inter.edit_original_response(
-                embed=error_embed(f"Nessuna traccia trovata per: **{nome}**"), view=None
-            )
+            await self._wait_play_turn(inter.guild_id, ticket)
+            try:
+                return await inter.edit_original_response(
+                    embed=error_embed(f"Nessuna traccia trovata per: **{nome}**"), view=None
+                )
+            finally:
+                await self._finish_play_turn(inter.guild_id)
         except Exception as e:
             log.exception("_load_batch: errore prima traccia")
-            return await inter.edit_original_response(embed=error_embed("Errore: " + str(e)), view=None)
+            await self._wait_play_turn(inter.guild_id, ticket)
+            try:
+                return await inter.edit_original_response(embed=error_embed("Errore: " + str(e)), view=None)
+            finally:
+                await self._finish_play_turn(inter.guild_id)
 
+        await self._wait_play_turn(inter.guild_id, ticket)
+        turn_started = True
         was_empty = not player.queue and not player.current
         position = 0 if was_empty else (len(player.queue) + 1)
         if not player.queue.put(first):
+            await self._finish_play_turn(inter.guild_id)
+            turn_started = False
             return await inter.edit_original_response(
                 embed=error_embed(f"Coda piena (max {Config.MAX_QUEUE} tracce)."),
                 view=None,
             )
         log.info(tag("QUEUE", f"[001] {b(first.title)}  —  {first.source}  (prima traccia)"))
+        if turn_started:
+            await self._finish_play_turn(inter.guild_id)
+        turn_started = False
         if not was_empty:
             asyncio.create_task(self._warmup_track_stream_url(first))
 
@@ -314,6 +371,8 @@ class Music(commands.Cog):
             cancel_event=cancel_event,
             cancel_view=cancel_view,
         ))
+        if turn_started:
+            await self._finish_play_turn(inter.guild_id)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -443,25 +502,35 @@ class Music(commands.Cog):
             )
 
         is_multi = is_multi_url(query)
+        ticket = self._reserve_play_turn(inter.guild_id)
 
         if is_multi:
-            vc, meta = await asyncio.gather(
-                self._ensure_voice_client(inter, vc_ch),
-                fetch_playlist_meta(query),
-            )
+            try:
+                vc, meta = await asyncio.gather(
+                    self._ensure_voice_client(inter, vc_ch),
+                    fetch_playlist_meta(query),
+                )
+            except Exception as e:
+                log.exception("Playlist resolve error")
+                await self._wait_play_turn(inter.guild_id, ticket)
+                try:
+                    return await inter.edit_original_response(embed=error_embed("Errore: " + str(e)))
+                finally:
+                    await self._finish_play_turn(inter.guild_id)
             nome, total = meta
             log.info(tag("CMD", f"/play playlist  {b(nome)}  total={total}  ({b(query)})"))
 
             gen    = SourceResolver.resolve_stream(query, inter.user.display_name, inter.user.id)
             await self._start_batch_stream(
                 inter, vc, gen,
-                nome=nome, total=total,
+                nome=nome, total=total, ticket=ticket,
             )
             return
 
         player = self._player(inter.guild_id, inter.channel)
 
         if is_text_search(query):
+            turn_started = False
             t0 = time.perf_counter()
             try:
                 vc, results = await asyncio.gather(
@@ -472,36 +541,47 @@ class Music(commands.Cog):
                 )
             except Exception as e:
                 log.exception("resolve_choices error")
-                return await inter.edit_original_response(embed=error_embed(str(e)))
-            log.info(tag("CMD", f"/play direct  {b(query)}  {ms((time.perf_counter()-t0)*1000)}"))
-            if not results:
-                return await inter.edit_original_response(
-                    embed=error_embed(f"Nessuna traccia trovata per: **{query}**")
-                )
-            track     = results[0]
-            was_empty = not player.queue and not player.current
-            position  = 0 if was_empty else (len(player.queue) + 1)
-            if not player.enqueue(track):
-                return await inter.edit_original_response(
-                    embed=error_embed(f"Coda piena (max {Config.MAX_QUEUE} tracce).")
-                )
-            t_after_resolve = time.perf_counter()
-            response_task = asyncio.create_task(inter.edit_original_response(
-                embed=queue_notification_embed(track, position, inter.user)
-            ))
-            if was_empty:
-                t_playback = time.perf_counter()
-                await start_if_idle(player, vc, was_empty)
-                log.debug(tag("PERF", f"/play direct autostart  {ms((time.perf_counter()-t_playback)*1000)}"))
-            await response_task
-            if not was_empty:
-                t_playback = time.perf_counter()
-                await start_if_idle(player, vc, was_empty)
-                log.debug(tag("PERF", f"/play direct autostart  {ms((time.perf_counter()-t_playback)*1000)}"))
-            log.debug(tag("PERF", f"/play direct post-resolve  {ms((time.perf_counter()-t_after_resolve)*1000)}"))
-            log.info(tag("PERF", f"/play direct total={ms((time.perf_counter()-t_cmd)*1000)}"))
+                await self._wait_play_turn(inter.guild_id, ticket)
+                try:
+                    return await inter.edit_original_response(embed=error_embed(str(e)))
+                finally:
+                    await self._finish_play_turn(inter.guild_id)
+            try:
+                await self._wait_play_turn(inter.guild_id, ticket)
+                turn_started = True
+                log.info(tag("CMD", f"/play direct  {b(query)}  {ms((time.perf_counter()-t0)*1000)}"))
+                if not results:
+                    return await inter.edit_original_response(
+                        embed=error_embed(f"Nessuna traccia trovata per: **{query}**")
+                    )
+                track     = results[0]
+                was_empty = not player.queue and not player.current
+                position  = 0 if was_empty else (len(player.queue) + 1)
+                if not player.enqueue(track):
+                    return await inter.edit_original_response(
+                        embed=error_embed(f"Coda piena (max {Config.MAX_QUEUE} tracce).")
+                    )
+                t_after_resolve = time.perf_counter()
+                response_task = asyncio.create_task(inter.edit_original_response(
+                    embed=queue_notification_embed(track, position, inter.user)
+                ))
+                if was_empty:
+                    t_playback = time.perf_counter()
+                    await start_if_idle(player, vc, was_empty)
+                    log.debug(tag("PERF", f"/play direct autostart  {ms((time.perf_counter()-t_playback)*1000)}"))
+                await response_task
+                if not was_empty:
+                    t_playback = time.perf_counter()
+                    await start_if_idle(player, vc, was_empty)
+                    log.debug(tag("PERF", f"/play direct autostart  {ms((time.perf_counter()-t_playback)*1000)}"))
+                log.debug(tag("PERF", f"/play direct post-resolve  {ms((time.perf_counter()-t_after_resolve)*1000)}"))
+                log.info(tag("PERF", f"/play direct total={ms((time.perf_counter()-t_cmd)*1000)}"))
+            finally:
+                if turn_started:
+                    await self._finish_play_turn(inter.guild_id)
 
         else:
+            turn_started = False
             t0 = time.perf_counter()
             try:
                 vc, tracks = await asyncio.gather(
@@ -512,23 +592,33 @@ class Music(commands.Cog):
                 )
             except Exception as e:
                 log.exception("Resolve error")
-                return await inter.edit_original_response(embed=error_embed("Errore: " + str(e)))
+                await self._wait_play_turn(inter.guild_id, ticket)
+                try:
+                    return await inter.edit_original_response(embed=error_embed("Errore: " + str(e)))
+                finally:
+                    await self._finish_play_turn(inter.guild_id)
+            try:
+                await self._wait_play_turn(inter.guild_id, ticket)
+                turn_started = True
 
-            if not tracks:
-                return await inter.edit_original_response(
-                    embed=error_embed(f"Nessuna traccia trovata per: **{query}**")
-                )
-            was_empty = not player.queue and not player.current
-            position  = 0 if was_empty else (len(player.queue) + 1)
-            added     = player.enqueue_many(tracks)
-            if added == 1:
-                await inter.edit_original_response(
-                    embed=queue_notification_embed(tracks[0], position, inter.user)
-                )
-            else:
-                await inter.edit_original_response(embed=batch_added_embed(added, inter.user))
-            await start_if_idle(player, vc, was_empty)
-            log.info(tag("PERF", f"/play resolve total={ms((time.perf_counter()-t_cmd)*1000)}"))
+                if not tracks:
+                    return await inter.edit_original_response(
+                        embed=error_embed(f"Nessuna traccia trovata per: **{query}**")
+                    )
+                was_empty = not player.queue and not player.current
+                position  = 0 if was_empty else (len(player.queue) + 1)
+                added     = player.enqueue_many(tracks)
+                if added == 1:
+                    await inter.edit_original_response(
+                        embed=queue_notification_embed(tracks[0], position, inter.user)
+                    )
+                else:
+                    await inter.edit_original_response(embed=batch_added_embed(added, inter.user))
+                await start_if_idle(player, vc, was_empty)
+                log.info(tag("PERF", f"/play resolve total={ms((time.perf_counter()-t_cmd)*1000)}"))
+            finally:
+                if turn_started:
+                    await self._finish_play_turn(inter.guild_id)
 
     @app_commands.command(name="search", description="Cerca una canzone e scegli la versione giusta tra i risultati")
     @app_commands.describe(query="Titolo o artista da cercare")

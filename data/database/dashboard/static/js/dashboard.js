@@ -587,12 +587,82 @@ function refreshLoadedSections() {
   }
 }
 
+function markSectionsStaleAfterDelete(activeSection) {
+  Object.keys(sectionLoaders).forEach(section => {
+    if (section === activeSection || section === "schema") return;
+    loadedSections.delete(section);
+  });
+}
+
+function remapId(value, map) {
+  const key = String(value);
+  return Object.prototype.hasOwnProperty.call(map || {}, key) ? Number(map[key]) : value;
+}
+
+function applyCompactMaps(compact) {
+  const trackMap = compact?.track_id_map || {};
+  const sourceMap = compact?.source_id_map || {};
+  const queryMap = compact?.query_id_map || {};
+
+  tableData.tracks = tableData.tracks.map(row => ({ ...row, id: remapId(row.id, trackMap) }));
+  tableData.sources = tableData.sources.map(row => ({
+    ...row,
+    id: remapId(row.id, sourceMap),
+    track_id: remapId(row.track_id, trackMap),
+  }));
+  tableData.queries = tableData.queries.map(row => ({
+    ...row,
+    id: remapId(row.id, queryMap),
+    track_id: remapId(row.track_id, trackMap),
+    source_id: remapId(row.source_id, sourceMap),
+  }));
+  tableData.aliases = tableData.aliases.map(row => ({
+    ...row,
+    id: remapId(row.id, queryMap),
+    cache_id: remapId(row.cache_id, sourceMap),
+  }));
+
+  if (tableData[currentSection]) {
+    renderStoredTable(currentSection);
+  }
+
+  const remappedSongIds = new Set();
+  const remappedSongUrls = new Map();
+  lastSongUrls.forEach((value, id) => {
+    const nextId = remapId(id, sourceMap);
+    remappedSongIds.add(nextId);
+    remappedSongUrls.set(nextId, value);
+  });
+  lastSongIds = remappedSongIds;
+  lastSongUrls = remappedSongUrls;
+
+  document.querySelectorAll("#songs-body tr[data-id]").forEach(tr => {
+    if (tr.dataset.deleting === "1") return;
+    const oldId = Number(tr.dataset.id);
+    const newId = remapId(oldId, sourceMap);
+    if (Number(newId) === oldId) return;
+    tr.dataset.id = String(newId);
+    const idCell = tr.querySelector(".id-col");
+    if (idCell) {
+      idCell.textContent = String(newId);
+      idCell.classList.remove("flash");
+      void idCell.offsetWidth;
+      idCell.classList.add("flash");
+      idCell.addEventListener("animationend", () => idCell.classList.remove("flash"), { once: true });
+    }
+    const delBtn = tr.querySelector(".del-btn");
+    if (delBtn) delBtn.setAttribute("onclick", `deleteSong(${newId})`);
+  });
+}
+
 function removeDashboardRow(section, id) {
   if (section === "cache") {
     const row = document.querySelector(`#songs-body tr[data-id="${id}"]`);
     lastSongIds.delete(id);
     lastSongUrls.delete(id);
     if (row) {
+      row.dataset.deleting = "1";
+      row.dataset.id = `deleted-${id}`;
       row.style.transition = "opacity .2s, transform .2s";
       row.style.opacity = "0";
       row.style.transform = "translateX(16px)";
@@ -613,9 +683,10 @@ function deleteSong(id) {
     .then(data => {
       if (!data.ok) throw new Error("delete failed");
       removeDashboardRow("cache", id);
+      applyCompactMaps(data.compact);
+      markSectionsStaleAfterDelete("cache");
       showToast("Entry eliminata", "success");
       closeModal();
-      setTimeout(() => refreshStats(false), 350);
     })
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
 }
@@ -627,7 +698,8 @@ function deleteTrack(id) {
       if (!data.ok) throw new Error("delete track failed");
       showToast("Traccia canonica eliminata", "success");
       removeDashboardRow("tracks", id);
-      setTimeout(() => refreshStats(false), 350);
+      applyCompactMaps(data.compact);
+      markSectionsStaleAfterDelete("tracks");
     })
     .catch(() => showToast("Errore durante l'eliminazione traccia", "error"));
 }
@@ -639,7 +711,8 @@ function deleteSource(id) {
       if (!data.ok) throw new Error("delete source failed");
       showToast("Sorgente eliminata", "success");
       removeDashboardRow("sources", id);
-      setTimeout(() => refreshStats(false), 350);
+      applyCompactMaps(data.compact);
+      markSectionsStaleAfterDelete("sources");
     })
     .catch(() => showToast("Errore durante l'eliminazione sorgente", "error"));
 }
@@ -651,7 +724,8 @@ function deleteAlias(id) {
       if (!data.ok) throw new Error("delete alias failed");
       showToast("Alias eliminato", "success");
       removeDashboardRow("aliases", id);
-      setTimeout(() => refreshStats(false), 350);
+      applyCompactMaps(data.compact);
+      markSectionsStaleAfterDelete("aliases");
     })
     .catch(() => showToast("Errore durante l'eliminazione alias", "error"));
 }
@@ -663,7 +737,8 @@ function deleteQuery(id) {
       if (!data.ok) throw new Error("delete query failed");
       showToast("Query eliminata", "success");
       removeDashboardRow("queries", id);
-      setTimeout(() => refreshStats(false), 350);
+      applyCompactMaps(data.compact);
+      markSectionsStaleAfterDelete("queries");
     })
     .catch(() => showToast("Errore durante l'eliminazione query", "error"));
 }

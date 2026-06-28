@@ -45,8 +45,17 @@ delete_block = dashboard_js[delete_block_start:delete_block_end]
 assert "refreshLoadedSections()" not in delete_block, (
     "FAIL: le delete dashboard non devono ricaricare tutte le sezioni e perdere scroll/posizione"
 )
+assert "setTimeout(() => refreshStats" not in delete_block, (
+    "FAIL: le delete dashboard non devono fare refresh automatici temporizzati dopo la cancellazione"
+)
 assert "removeDashboardRow" in delete_block, (
     "FAIL: le delete dashboard devono rimuovere la riga localmente senza refresh globale"
+)
+assert "applyCompactMaps(data.compact)" in delete_block, (
+    "FAIL: le delete dashboard devono applicare localmente la mappa ID della compattazione"
+)
+assert "markSectionsStaleAfterDelete" in delete_block, (
+    "FAIL: le delete dashboard devono marcare le altre sezioni stale senza ricaricarle subito"
 )
 
 print("OK: dashboard assets soundcloud/arrows/svg")
