@@ -274,17 +274,12 @@ torna automaticamente al comportamento yt-dlp completo.
 
 Il resolver espone anche uno SLA hard-timeout: `RESOLVE_HARD_TIMEOUT_SECONDS`, default `4.75`.
 Le API pubbliche `SourceResolver.resolve()` e `SourceResolver.resolve_choices()` non restano
-bloccate oltre questo budget. Se una fonte esterna non risponde in tempo, non tornano vuote:
-ritornano un fallback coerente secondo questa priorita':
+bloccate oltre questo budget. Se una fonte esterna non risponde in tempo, tornano lista vuota:
+il bot deve rispondere con errore controllato invece di accodare un fallback `ytsearch1:<query>`
+creato solo per rispettare la latenza.
 
-1. cache valida/stale compatibile con la query;
-2. metadata-only da `ytsearch1` flat, con `webpage_url` reale se disponibile;
-3. emergency fallback deterministico, titolo uguale alla query e `webpage_url=ytsearch1:<query>`.
-
-`RESOLVE_FALLBACK_DELAY_SECONDS`, default `2.0`, evita di far partire il fallback sulle risposte
-veloci: cache/link risolti rapidamente non duplicano lavoro yt-dlp, mentre i cold miss lenti
-ricevono comunque un candidato entro il budget. Il player puo' poi completare lo stream con
-`resolve_fresh_url()`, che gestisce anche `ytsearch1:<query>` e seleziona la prima entry valida.
+`resolve_fresh_url()` continua a gestire `ytsearch1:<query>` per vecchie entry gia' persistite
+o oggetti legacy, selezionando la prima entry valida prima di estrarre lo stream.
 
 ## 12. Test su VM
 

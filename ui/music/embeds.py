@@ -19,13 +19,22 @@ def _fmt_dur(seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
 
 
+def _safe_http_url(url: str) -> str:
+    url = (url or "").strip()
+    return url if url.startswith(("http://", "https://")) else ""
+
+
+def _track_web_url(track) -> str:
+    return _safe_http_url(getattr(track, "webpage_url", "") or "")
+
+
 def now_playing_embed(player: "MusicPlayer") -> discord.Embed:
     track = player.current
     if not track:
         return discord.Embed(description="Niente in riproduzione.", color=0x5865F2)
 
     status = "In pausa" if player.is_paused else "In riproduzione"
-    embed = discord.Embed(title=track.title, url=track.webpage_url, color=0x5865F2)
+    embed = discord.Embed(title=track.title, url=_track_web_url(track) or None, color=0x5865F2)
     embed.set_author(name=f"Musica | {status}")
     if track.thumbnail:
         embed.set_thumbnail(url=track.thumbnail)
@@ -49,7 +58,7 @@ def queue_notification_embed(
 ) -> discord.Embed:
     dur = _fmt_dur(track.duration) if track.duration else "?"
     context_label = collection_name.strip() if collection_name else (getattr(track, "artist", "") or "").strip()
-    url = getattr(track, "webpage_url", "") or ""
+    url = _track_web_url(track)
     track_line = f"[{track.title}]({url})" if url else f"**{track.title}**"
 
     if context_label:
@@ -70,7 +79,7 @@ def queue_notification_embed(
 def _queue_line(idx: int, track) -> str:
     requester = f"<@{track.requester_id}>" if track.requester_id else track.requester
     short_title = track.title[:60] + ("..." if len(track.title) > 60 else "")
-    url = track.webpage_url or ""
+    url = _track_web_url(track)
     dur = _fmt_dur(track.duration)
     if url:
         return f"`{idx}.` [{short_title}]({url}) - `{dur}` | {requester}"
@@ -90,7 +99,7 @@ def queue_embed(player: "MusicPlayer", page: int = 0) -> discord.Embed:
         track = player.current
         requester = f"<@{track.requester_id}>" if track.requester_id else track.requester
         short_title = track.title[:60] + ("..." if len(track.title) > 60 else "")
-        url = track.webpage_url or ""
+        url = _track_web_url(track)
         value = (
             f"[{short_title}]({url}) - `{_fmt_dur(track.duration)}` | {requester}"
             if url
@@ -161,7 +170,9 @@ def versions_embed(track_title: str) -> discord.Embed:
 
 def history_embed(tracks: list) -> discord.Embed:
     lines = [
-        f"`{i + 1}.` [{track.title}]({track.webpage_url})" if track.webpage_url else f"`{i + 1}.` {track.title}"
+        f"`{i + 1}.` [{track.title}]({_track_web_url(track)})"
+        if _track_web_url(track)
+        else f"`{i + 1}.` {track.title}"
         for i, track in enumerate(tracks)
     ]
     return discord.Embed(

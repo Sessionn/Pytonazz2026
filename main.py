@@ -255,7 +255,7 @@ async def apply_maintenance_presence():
     bot._maintenance_presence_saved = True
     await bot.change_presence(
         status=discord.Status.dnd,
-        activity=discord.Game(name="Maintenance Mode"),
+        activity=discord.Game(name="⚠️MANUTENZIONE⚠️"),
     )
 
 
