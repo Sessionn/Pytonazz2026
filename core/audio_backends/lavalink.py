@@ -154,7 +154,7 @@ class LavalinkAudioBackend:
                 ok=False,
                 tracks_count=0,
                 load_ms=elapsed,
-                error="no tracks",
+                error=_payload_error(payload) or "no tracks",
             )
 
         track = _select_track(normalized, tracks, apply_ranking=is_text_search(normalized))
