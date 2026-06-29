@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 import time
 from urllib.parse import quote
 
@@ -40,6 +41,10 @@ def _payload_error(payload: dict) -> str:
         return ""
     message = str(data.get("message") or "").strip()
     cause = str(data.get("cause") or "").strip()
+    stack = str(data.get("causeStackTrace") or "")
+    caused_by = re.findall(r"Caused by: [^:\n]+: ([^\n]+)", stack)
+    if caused_by:
+        return caused_by[-1].strip()
     if message and cause:
         return f"{message}: {cause}"
     return message or cause

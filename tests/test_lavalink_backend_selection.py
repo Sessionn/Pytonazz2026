@@ -11,7 +11,7 @@ import asyncio
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.audio_backends.lavalink import LavalinkAudioBackend, _select_track
+from core.audio_backends.lavalink import LavalinkAudioBackend, _payload_error, _select_track
 from config import Config
 from core.source_resolver import SourceResolver
 from core.source_resolver.models import TrackInfo
@@ -50,6 +50,25 @@ def test_lavalink_selection_keeps_first_for_direct_urls() -> None:
     selected = _select_track("https://www.youtube.com/watch?v=abc", tracks, apply_ranking=False)
 
     assert selected["info"]["title"] == "First direct result", selected
+
+
+def test_lavalink_payload_error_prefers_root_cause() -> None:
+    payload = {
+        "loadType": "error",
+        "data": {
+            "message": "Something went wrong while looking up the track.",
+            "cause": "com.sedmelluq.discord.lavaplayer.tools.FriendlyException",
+            "causeStackTrace": (
+                "com.sedmelluq.discord.lavaplayer.tools.FriendlyException: wrapper\n"
+                "Caused by: com.sedmelluq.discord.lavaplayer.tools.FriendlyException: "
+                "Spotify generated playlists are no longer accessible via anonymous tokens.\n"
+            ),
+        },
+    }
+
+    assert _payload_error(payload) == (
+        "Spotify generated playlists are no longer accessible via anonymous tokens."
+    )
 
 
 async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
@@ -130,6 +149,7 @@ async def test_lavalink_spotify_track_prefers_native_lavasrc() -> None:
 
 test_lavalink_selection_uses_resolver_ranking()
 test_lavalink_selection_keeps_first_for_direct_urls()
+test_lavalink_payload_error_prefers_root_cause()
 asyncio.run(test_lavalink_spotify_track_uses_resolver_bridge())
 asyncio.run(test_lavalink_spotify_track_prefers_native_lavasrc())
 print("OK: lavalink backend ranks search candidates and preserves direct URL order")
