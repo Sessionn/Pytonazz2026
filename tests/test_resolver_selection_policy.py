@@ -82,6 +82,21 @@ def test_selection_penalizes_unrequested_extra_variant() -> None:
     )
 
 
+def test_quality_fallback_keeps_weak_but_coherent_match() -> None:
+    candidate = _track("SESSONLINE", "TonyPitony", 137, "sessonline")
+
+    assert not needs_quality_fallback("sessonline tony pitony", candidate)
+
+
+def test_quality_fallback_rejects_low_confidence_mismatch() -> None:
+    candidate = _track("Brahms Lullaby for Babies, Hours of Soft Music", "Baby Sleep Music", 7200, "brahms")
+
+    assert needs_quality_fallback(
+        "𝘄𝗵𝗶𝘁𝗲 𝗴𝗶𝗿𝗹 𝗺𝘂𝘀𝗶𝗰 𝗳𝗼𝗿 𝘁𝗵𝗲 𝗯𝗼𝘆𝘀 | 𝗽𝗹𝗮𝘆𝗹𝗶𝘀𝘁 🗿🔥 𝕣𝕒𝕚𝕫𝕫𝕪",
+        candidate,
+    )
+
+
 async def test_resolver_widens_only_for_suspicious_first_result() -> None:
     original_cache_enabled = Config.CACHE_ENABLED
     original_spotify_id = Config.SPOTIFY_CLIENT_ID
@@ -157,5 +172,7 @@ async def test_resolver_widens_only_for_suspicious_first_result() -> None:
 test_selection_prefers_query_coherent_audio()
 test_selection_keeps_requested_variant()
 test_selection_penalizes_unrequested_extra_variant()
+test_quality_fallback_keeps_weak_but_coherent_match()
+test_quality_fallback_rejects_low_confidence_mismatch()
 asyncio.run(test_resolver_widens_only_for_suspicious_first_result())
 print("OK: resolver selection policy ranks coherent candidates and widens suspicious fast results")
