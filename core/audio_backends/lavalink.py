@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import re
 import time
@@ -8,7 +9,7 @@ from urllib.parse import quote, urlparse
 from config import Config
 from core.audio_backends.base import AudioLoadResult
 from core.music.input import is_text_search, normalize_url_like, spotify_kind
-from core.source_resolver import SourceResolver
+from core.source_resolver import SourceResolver, TrackInfo
 from core.source_resolver.selection import needs_quality_fallback, rank_tracks
 
 
@@ -111,6 +112,10 @@ def _is_youtube_url(query: str) -> bool:
 def _clean_info_value(value: object, unknown: str) -> str:
     text = str(value or "").strip()
     return "" if text.lower() == unknown else text
+
+
+def _is_http_url(query: str) -> bool:
+    return (query or "").strip().lower().startswith(("http://", "https://"))
 
 
 class LavalinkAudioBackend:
@@ -416,3 +421,154 @@ class LavalinkAudioBackend:
         if self._session is not None:
             await self._session.close()
             self._session = None
+
+    async def resolve_track_info(
+        self,
+        query: str,
+        *,
+        requester: str = "bench",
+        requester_id: int = 1,
+    ) -> TrackInfo | None:
+        normalized = normalize_url_like(query)
+        if spotify_kind(normalized) == "track":
+            return await self._resolve_spotify_track_info(normalized, requester, requester_id)
+
+        try:
+            payload = await self._request_loadtracks(self._identifier(normalized))
+            tracks = _tracks_from_payload(payload)
+        except Exception:
+            tracks = []
+
+        if not tracks:
+            return await self._current_track_info(normalized, requester, requester_id)
+
+        track = _select_track(normalized, tracks, apply_ranking=is_text_search(normalized))
+        if is_text_search(normalized) and needs_quality_fallback(normalized, _candidate_from_track(track)):
+            return await self._current_track_info(normalized, requester, requester_id)
+
+        info = _track_info(track)
+        webpage_url = str(info.get("uri") or "").strip()
+        if not _is_http_url(webpage_url):
+            return await self._current_track_info(normalized, requester, requester_id)
+
+        stream_url = await self._fetch_stream_url(webpage_url)
+        if not stream_url:
+            return await self._current_track_info(normalized, requester, requester_id)
+
+        return self._track_info_from_lavalink(
+            normalized,
+            info,
+            webpage_url,
+            stream_url,
+            requester,
+            requester_id,
+            source=str(info.get("sourceName") or "lavalink"),
+        )
+
+    async def _resolve_spotify_track_info(
+        self,
+        query: str,
+        requester: str,
+        requester_id: int,
+    ) -> TrackInfo | None:
+        try:
+            native_payload = await self._request_loadtracks(query)
+            native_tracks = _tracks_from_payload(native_payload)
+        except Exception:
+            native_tracks = []
+
+        if not native_tracks:
+            return await self._current_track_info(query, requester, requester_id)
+
+        native_info = _track_info(native_tracks[0])
+        search_query = " ".join(
+            part
+            for part in (
+                str(native_info.get("title") or "").strip(),
+                str(native_info.get("author") or "").strip(),
+            )
+            if part
+        )
+        if not search_query:
+            return await self._current_track_info(query, requester, requester_id)
+
+        try:
+            search_payload = await self._request_loadtracks(f"{_search_prefix()}:{search_query}")
+            search_tracks = _tracks_from_payload(search_payload)
+        except Exception:
+            search_tracks = []
+
+        if not search_tracks:
+            return await self._current_track_info(query, requester, requester_id)
+
+        spotify_meta = {
+            "title": native_info.get("title") or "",
+            "artist": native_info.get("author") or "",
+            "duration": int(int(native_info.get("length") or 0) / 1000),
+        }
+        track = _select_track(search_query, search_tracks, apply_ranking=True, spotify_meta=spotify_meta)
+        info = _track_info(track)
+        webpage_url = str(info.get("uri") or "").strip()
+        if not _is_http_url(webpage_url):
+            return await self._current_track_info(query, requester, requester_id)
+
+        stream_url = await self._fetch_stream_url(webpage_url)
+        if not stream_url:
+            return await self._current_track_info(query, requester, requester_id)
+
+        return self._track_info_from_lavalink(
+            query,
+            info,
+            webpage_url,
+            stream_url,
+            requester,
+            requester_id,
+            source="spotify",
+            spotify_url=query,
+            title_fallback=str(native_info.get("title") or ""),
+            artist_fallback=str(native_info.get("author") or ""),
+            duration_fallback=int(int(native_info.get("length") or 0) / 1000),
+            thumbnail_fallback=str(native_info.get("artworkUrl") or ""),
+        )
+
+    async def _fetch_stream_url(self, webpage_url: str) -> str:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, SourceResolver._fetch_stream_url, webpage_url)
+
+    async def _current_track_info(self, query: str, requester: str, requester_id: int) -> TrackInfo | None:
+        if is_text_search(query):
+            tracks = await SourceResolver.resolve_choices(query, requester, requester_id, n=1)
+        else:
+            tracks = await SourceResolver.resolve(query, requester, requester_id)
+        return tracks[0] if tracks else None
+
+    def _track_info_from_lavalink(
+        self,
+        query: str,
+        info: dict,
+        webpage_url: str,
+        stream_url: str,
+        requester: str,
+        requester_id: int,
+        *,
+        source: str,
+        spotify_url: str = "",
+        title_fallback: str = "",
+        artist_fallback: str = "",
+        duration_fallback: int = 0,
+        thumbnail_fallback: str = "",
+    ) -> TrackInfo:
+        return TrackInfo(
+            title=str(info.get("title") or title_fallback or webpage_url),
+            webpage_url=webpage_url,
+            duration=max(0, int(int(info.get("length") or 0) / 1000)) or int(duration_fallback or 0),
+            thumbnail=str(info.get("artworkUrl") or thumbnail_fallback or ""),
+            requester=requester,
+            requester_id=requester_id,
+            source=source,
+            stream_url=stream_url,
+            artist=str(info.get("author") or artist_fallback or ""),
+            origin_query=query,
+            spotify_url=spotify_url,
+            thumbnail_source="spotify" if spotify_url and (info.get("artworkUrl") or thumbnail_fallback) else "",
+        )

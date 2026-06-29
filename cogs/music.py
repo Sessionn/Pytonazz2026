@@ -9,6 +9,8 @@ from discord.ext import commands
 
 from config import Config
 import core.cache_db as cache_db
+from core.audio_backends import create_audio_backend
+from core.audio_backends.lavalink import LavalinkAudioBackend
 from core.dj_access import get_dj_access_controller
 from core.music.input import (
     fetch_playlist_meta,
@@ -124,8 +126,26 @@ class Music(commands.Cog):
             if self._play_commit_ticket[guild_id] > self._play_next_ticket.get(guild_id, 0):
                 self._play_next_ticket.pop(guild_id, None)
                 self._play_commit_ticket.pop(guild_id, None)
-                self._play_turn_conditions.pop(guild_id, None)
+            self._play_turn_conditions.pop(guild_id, None)
             condition.notify_all()
+
+    async def _resolve_play_track(self, query: str, requester: str, requester_id: int):
+        if Config.AUDIO_BACKEND in {"lavalink", "wavelink"}:
+            backend = create_audio_backend("lavalink")
+            try:
+                if isinstance(backend, LavalinkAudioBackend):
+                    track = await backend.resolve_track_info(
+                        query,
+                        requester=requester,
+                        requester_id=requester_id,
+                    )
+                    if track:
+                        return [track]
+            finally:
+                await backend.close()
+        if is_text_search(query):
+            return await SourceResolver.resolve_choices(query, requester, requester_id, n=1)
+        return await SourceResolver.resolve(query, requester, requester_id)
 
     def _notify_dj_state_change(self, guild_id: int) -> None:
         controller = get_dj_access_controller()
@@ -535,9 +555,7 @@ class Music(commands.Cog):
             try:
                 vc, results = await asyncio.gather(
                     self._ensure_voice_client(inter, vc_ch),
-                    SourceResolver.resolve_choices(
-                        query, inter.user.display_name, inter.user.id, n=1
-                    ),
+                    self._resolve_play_track(query, inter.user.display_name, inter.user.id),
                 )
             except Exception as e:
                 log.exception("resolve_choices error")
@@ -586,9 +604,7 @@ class Music(commands.Cog):
             try:
                 vc, tracks = await asyncio.gather(
                     self._ensure_voice_client(inter, vc_ch),
-                    SourceResolver.resolve(
-                        query, inter.user.display_name, inter.user.id
-                    ),
+                    self._resolve_play_track(query, inter.user.display_name, inter.user.id),
                 )
             except Exception as e:
                 log.exception("Resolve error")

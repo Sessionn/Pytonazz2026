@@ -23,5 +23,14 @@ assert "await self._wait_play_turn(inter.guild_id, ticket)" in music_py, (
 assert "async with self._play_lock" not in music_py, (
     "FAIL: /play non deve bloccare l'intera risoluzione dietro un lock completo"
 )
+assert "async def _resolve_play_track(" in music_py, (
+    "FAIL: /play deve passare da un resolver agganciabile al backend audio"
+)
+assert "self._resolve_play_track(query, inter.user.display_name, inter.user.id)" in music_py, (
+    "FAIL: /play singolo deve usare _resolve_play_track invece di chiamare direttamente SourceResolver"
+)
+assert "create_audio_backend(\"lavalink\")" in music_py, (
+    "FAIL: il backend lavalink deve essere agganciato al resolver di /play"
+)
 
 print("OK: /play direct usa prenotazione slot per guild")
