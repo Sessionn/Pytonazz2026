@@ -6,7 +6,8 @@ from urllib.parse import quote
 
 from config import Config
 from core.audio_backends.base import AudioLoadResult
-from core.music.input import is_text_search, normalize_url_like
+from core.music.input import is_text_search, normalize_url_like, spotify_kind
+from core.source_resolver import SourceResolver
 from core.source_resolver.selection import rank_tracks
 
 
@@ -93,6 +94,9 @@ class LavalinkAudioBackend:
     async def load(self, query: str, *, requester: str = "bench", requester_id: int = 1) -> AudioLoadResult:
         normalized = normalize_url_like(query)
         t0 = time.perf_counter()
+        if spotify_kind(normalized) == "track":
+            return await self._load_spotify_track(normalized, requester, requester_id, t0)
+
         try:
             payload = await self._request_loadtracks(self._identifier(normalized))
             tracks = _tracks_from_payload(payload)
@@ -126,6 +130,63 @@ class LavalinkAudioBackend:
             artist=info.get("author") or "",
             source=info.get("sourceName") or "lavalink",
             uri=info.get("uri") or "",
+            stream_ready=True,
+            tracks_count=len(tracks),
+            load_ms=elapsed,
+        )
+
+    async def _load_spotify_track(
+        self,
+        query: str,
+        requester: str,
+        requester_id: int,
+        t0: float,
+    ) -> AudioLoadResult:
+        try:
+            resolved = await SourceResolver.resolve(query, requester, requester_id)
+            source_track = resolved[0] if resolved else None
+            youtube_uri = (getattr(source_track, "webpage_url", "") or "").strip()
+            if not youtube_uri:
+                return AudioLoadResult(
+                    backend=self.name,
+                    query=query,
+                    ok=False,
+                    load_ms=(time.perf_counter() - t0) * 1000,
+                    error="spotify bridge returned no playable URL",
+                )
+
+            payload = await self._request_loadtracks(youtube_uri)
+            tracks = _tracks_from_payload(payload)
+        except Exception as exc:
+            return AudioLoadResult(
+                backend=self.name,
+                query=query,
+                ok=False,
+                load_ms=(time.perf_counter() - t0) * 1000,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+
+        elapsed = (time.perf_counter() - t0) * 1000
+        if not tracks:
+            return AudioLoadResult(
+                backend=self.name,
+                query=query,
+                ok=False,
+                tracks_count=0,
+                load_ms=elapsed,
+                error="spotify bridge produced no Lavalink tracks",
+            )
+
+        track = _select_track(query, tracks, apply_ranking=False)
+        info = _track_info(track)
+        return AudioLoadResult(
+            backend=self.name,
+            query=query,
+            ok=True,
+            title=info.get("title") or getattr(source_track, "title", "") or "",
+            artist=info.get("author") or getattr(source_track, "artist", "") or "",
+            source="spotify+lavalink",
+            uri=info.get("uri") or youtube_uri,
             stream_ready=True,
             tracks_count=len(tracks),
             load_ms=elapsed,

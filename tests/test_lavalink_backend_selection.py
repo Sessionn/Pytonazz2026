@@ -7,10 +7,13 @@ Run from project root:
 
 import os
 import sys
+import asyncio
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.audio_backends.lavalink import _select_track
+from core.audio_backends.lavalink import LavalinkAudioBackend, _select_track
+from core.source_resolver import SourceResolver
+from core.source_resolver.models import TrackInfo
 
 
 def _track(title: str, author: str = "h6itam", length: int = 97000) -> dict:
@@ -48,6 +51,52 @@ def test_lavalink_selection_keeps_first_for_direct_urls() -> None:
     assert selected["info"]["title"] == "First direct result", selected
 
 
+async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
+    original_resolve = SourceResolver.resolve
+    spotify_url = "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"
+    youtube_url = "https://www.youtube.com/watch?v=4NRXx6U8ABQ"
+    loaded_identifiers = []
+
+    async def fake_resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
+        assert query == spotify_url
+        return [
+            TrackInfo(
+                title="Blinding Lights",
+                webpage_url=youtube_url,
+                duration=200,
+                thumbnail="",
+                requester=requester,
+                requester_id=requester_id,
+                source="spotify",
+                stream_url="https://stream.test/blinding",
+                artist="The Weeknd",
+                spotify_url=spotify_url,
+            )
+        ]
+
+    async def fake_loadtracks(identifier: str) -> dict:
+        loaded_identifiers.append(identifier)
+        return {
+            "loadType": "track",
+            "data": _track("Blinding Lights", "The Weeknd", 200000),
+        }
+
+    backend = LavalinkAudioBackend()
+    backend._request_loadtracks = fake_loadtracks
+
+    try:
+        SourceResolver.resolve = classmethod(fake_resolve)
+        result = await backend.load(spotify_url, requester="tester", requester_id=7)
+    finally:
+        SourceResolver.resolve = original_resolve
+
+    assert result.ok, result
+    assert result.source == "spotify+lavalink", result
+    assert result.title == "Blinding Lights", result
+    assert loaded_identifiers == [youtube_url], loaded_identifiers
+
+
 test_lavalink_selection_uses_resolver_ranking()
 test_lavalink_selection_keeps_first_for_direct_urls()
+asyncio.run(test_lavalink_spotify_track_uses_resolver_bridge())
 print("OK: lavalink backend ranks search candidates and preserves direct URL order")
