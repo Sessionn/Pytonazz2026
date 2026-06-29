@@ -54,7 +54,6 @@ def test_lavalink_selection_keeps_first_for_direct_urls() -> None:
 async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
     original_resolve = SourceResolver.resolve
     spotify_url = "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"
-    youtube_url = "https://www.youtube.com/watch?v=4NRXx6U8ABQ"
     loaded_identifiers = []
 
     async def fake_resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
@@ -62,7 +61,7 @@ async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
         return [
             TrackInfo(
                 title="Blinding Lights",
-                webpage_url=youtube_url,
+                webpage_url="https://www.youtube.com/watch?v=4NRXx6U8ABQ",
                 duration=200,
                 thumbnail="",
                 requester=requester,
@@ -77,8 +76,11 @@ async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
     async def fake_loadtracks(identifier: str) -> dict:
         loaded_identifiers.append(identifier)
         return {
-            "loadType": "track",
-            "data": _track("Blinding Lights", "The Weeknd", 200000),
+            "loadType": "search",
+            "data": [
+                _track("Blinding Lights (Piano Karaoke Version)", "Sing2Piano", 178000),
+                _track("Blinding Lights", "The Weeknd", 200000),
+            ],
         }
 
     backend = LavalinkAudioBackend()
@@ -93,7 +95,7 @@ async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
     assert result.ok, result
     assert result.source == "spotify+lavalink", result
     assert result.title == "Blinding Lights", result
-    assert loaded_identifiers == [youtube_url], loaded_identifiers
+    assert loaded_identifiers == ["ytmsearch:Blinding Lights The Weeknd"], loaded_identifiers
 
 
 test_lavalink_selection_uses_resolver_ranking()
