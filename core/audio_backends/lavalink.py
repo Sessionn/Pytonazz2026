@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 from config import Config
 from core.audio_backends.base import AudioLoadResult
 from core.music.input import is_text_search, normalize_url_like, spotify_kind
-from core.source_resolver import SourceResolver, TrackInfo, extract_spotify_track_id
+from core.source_resolver import SourceResolver, TrackInfo, _get_query_cache, extract_spotify_track_id
 from core.source_resolver.selection import needs_quality_fallback, rank_tracks
 
 
@@ -437,10 +437,25 @@ class LavalinkAudioBackend:
         requester_id: int = 1,
     ) -> TrackInfo | None:
         normalized = normalize_url_like(query)
+        cached = await self._cached_track_info(normalized, requester, requester_id)
+        if cached is not None:
+            return cached
+
         if spotify_kind(normalized) == "track":
-            return await self._resolve_spotify_track_info(
-                _canonical_spotify_track_url(normalized), requester, requester_id
+            canonical = _canonical_spotify_track_url(normalized)
+            if canonical != normalized:
+                cached = await self._cached_track_info(canonical, requester, requester_id)
+                if cached is not None:
+                    self._store_track_info(normalized, cached)
+                    return cached
+            track = await self._resolve_spotify_track_info(
+                canonical, requester, requester_id
             )
+            if track is not None:
+                self._store_track_info(canonical, track)
+                if canonical != normalized:
+                    self._store_track_info(normalized, track)
+            return track
 
         try:
             payload = await self._request_loadtracks(self._identifier(normalized))
@@ -449,22 +464,22 @@ class LavalinkAudioBackend:
             tracks = []
 
         if not tracks:
-            return await self._current_track_info(normalized, requester, requester_id)
+            return await self._current_track_info_and_store(normalized, requester, requester_id)
 
         track = _select_track(normalized, tracks, apply_ranking=is_text_search(normalized))
         if is_text_search(normalized) and needs_quality_fallback(normalized, _candidate_from_track(track)):
-            return await self._current_track_info(normalized, requester, requester_id)
+            return await self._current_track_info_and_store(normalized, requester, requester_id)
 
         info = _track_info(track)
         webpage_url = str(info.get("uri") or "").strip()
         if not _is_http_url(webpage_url):
-            return await self._current_track_info(normalized, requester, requester_id)
+            return await self._current_track_info_and_store(normalized, requester, requester_id)
 
         stream_url = await self._fetch_stream_url(webpage_url)
         if not stream_url:
-            return await self._current_track_info(normalized, requester, requester_id)
+            return await self._current_track_info_and_store(normalized, requester, requester_id)
 
-        return self._track_info_from_lavalink(
+        resolved = self._track_info_from_lavalink(
             normalized,
             info,
             webpage_url,
@@ -473,6 +488,8 @@ class LavalinkAudioBackend:
             requester_id,
             source=str(info.get("sourceName") or "lavalink"),
         )
+        self._store_track_info(normalized, resolved)
+        return resolved
 
     async def _resolve_spotify_track_info(
         self,
@@ -487,7 +504,7 @@ class LavalinkAudioBackend:
             native_tracks = []
 
         if not native_tracks:
-            return await self._current_track_info(query, requester, requester_id)
+            return await self._current_track_info_and_store(query, requester, requester_id)
 
         native_info = _track_info(native_tracks[0])
         search_query = " ".join(
@@ -499,7 +516,7 @@ class LavalinkAudioBackend:
             if part
         )
         if not search_query:
-            return await self._current_track_info(query, requester, requester_id)
+            return await self._current_track_info_and_store(query, requester, requester_id)
 
         try:
             search_payload = await self._request_loadtracks(f"{_search_prefix()}:{search_query}")
@@ -519,13 +536,13 @@ class LavalinkAudioBackend:
         info = _track_info(track)
         webpage_url = str(info.get("uri") or "").strip()
         if not _is_http_url(webpage_url):
-            return await self._current_track_info(query, requester, requester_id)
+            return await self._current_track_info_and_store(query, requester, requester_id)
 
         stream_url = await self._fetch_stream_url(webpage_url)
         if not stream_url:
-            return await self._current_track_info(query, requester, requester_id)
+            return await self._current_track_info_and_store(query, requester, requester_id)
 
-        return self._track_info_from_lavalink(
+        resolved = self._track_info_from_lavalink(
             query,
             info,
             webpage_url,
@@ -539,6 +556,33 @@ class LavalinkAudioBackend:
             duration_fallback=int(int(native_info.get("length") or 0) / 1000),
             thumbnail_fallback=str(native_info.get("artworkUrl") or ""),
         )
+        self._store_track_info(query, resolved)
+        return resolved
+
+    async def _cached_track_info(self, query: str, requester: str, requester_id: int) -> TrackInfo | None:
+        try:
+            return await SourceResolver._resolve_cached_track(query, requester, requester_id)
+        except Exception:
+            return None
+
+    async def _current_track_info_and_store(
+        self,
+        query: str,
+        requester: str,
+        requester_id: int,
+    ) -> TrackInfo | None:
+        track = await self._current_track_info(query, requester, requester_id)
+        if track is not None:
+            self._store_track_info(query, track)
+        return track
+
+    def _store_track_info(self, query: str, track: TrackInfo) -> None:
+        try:
+            qc = _get_query_cache()
+            if qc is not None:
+                qc.store(query, track)
+        except Exception:
+            return
 
     async def _fetch_stream_url(self, webpage_url: str) -> str:
         loop = asyncio.get_running_loop()
