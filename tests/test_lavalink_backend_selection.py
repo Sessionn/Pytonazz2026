@@ -192,7 +192,65 @@ async def test_lavalink_youtube_url_falls_back_to_stream_bridge() -> None:
 
     assert result.ok, result
     assert result.source == "youtube+lavalink-http", result
+    assert result.title == "MONTAGEM ALQUIMIA", result
     assert loaded_identifiers == [youtube_url, stream_url], loaded_identifiers
+
+
+async def test_lavalink_text_search_falls_back_for_suspicious_variant() -> None:
+    original_resolve_choices = SourceResolver.resolve_choices
+    query = "DONNE RICCHE - Acoustic Version TonyPitony"
+    stream_url = "https://stream.test/donne-ricche-acoustic"
+    loaded_identifiers = []
+
+    async def fake_resolve_choices(
+        cls,
+        requested_query: str,
+        requester: str,
+        requester_id: int,
+        n: int = 1,
+    ) -> list:
+        assert requested_query == query
+        return [
+            TrackInfo(
+                title="DONNE RICCHE - Acoustic Version",
+                webpage_url="https://www.youtube.com/watch?v=acoustic",
+                duration=190,
+                thumbnail="",
+                requester=requester,
+                requester_id=requester_id,
+                source="youtube",
+                stream_url=stream_url,
+                artist="TonyPitony",
+            )
+        ]
+
+    async def fake_loadtracks(identifier: str) -> dict:
+        loaded_identifiers.append(identifier)
+        if identifier.startswith("ytmsearch:"):
+            return {
+                "loadType": "search",
+                "data": [
+                    _track("DONNE RICCHE (Acoustic Version - Slowed)", "adamxyz", 190000),
+                ],
+            }
+        return {
+            "loadType": "track",
+            "data": _track("Unknown title", "Unknown artist", 190000),
+        }
+
+    backend = LavalinkAudioBackend()
+    backend._request_loadtracks = fake_loadtracks
+
+    try:
+        SourceResolver.resolve_choices = classmethod(fake_resolve_choices)
+        result = await backend.load(query, requester="tester", requester_id=7)
+    finally:
+        SourceResolver.resolve_choices = original_resolve_choices
+
+    assert result.ok, result
+    assert result.source == "quality+lavalink-http", result
+    assert result.title == "DONNE RICCHE - Acoustic Version", result
+    assert loaded_identifiers == [f"ytmsearch:{query}", stream_url], loaded_identifiers
 
 
 test_lavalink_selection_uses_resolver_ranking()
@@ -201,4 +259,5 @@ test_lavalink_payload_error_prefers_root_cause()
 asyncio.run(test_lavalink_spotify_track_uses_resolver_bridge())
 asyncio.run(test_lavalink_spotify_track_prefers_native_lavasrc())
 asyncio.run(test_lavalink_youtube_url_falls_back_to_stream_bridge())
+asyncio.run(test_lavalink_text_search_falls_back_for_suspicious_variant())
 print("OK: lavalink backend ranks search candidates and preserves direct URL order")

@@ -194,6 +194,28 @@ def select_best_track(
     return ranked[0].track if ranked else None
 
 
+def has_unrequested_extra_variant(query: str, candidate) -> bool:
+    if not candidate:
+        return False
+    requested = _variant_tags(query or "")
+    if not requested:
+        return False
+    title = getattr(candidate, "title", "") or ""
+    candidate_tags = _variant_tags(title)
+    return bool(candidate_tags - requested)
+
+
+def needs_quality_fallback(query: str, candidate, spotify_meta: dict | None = None) -> bool:
+    if not candidate:
+        return False
+    score = score_candidate(query, candidate, spotify_meta)
+    if score.severe_mismatch:
+        return True
+    if has_unrequested_extra_variant(query, candidate):
+        return True
+    return bool((query or "").strip() and score.total < 0.34)
+
+
 def needs_wider_search(query: str, candidate, spotify_meta: dict | None = None) -> bool:
     if not candidate:
         return False

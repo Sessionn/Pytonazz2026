@@ -9,7 +9,7 @@ from config import Config
 from core.audio_backends.base import AudioLoadResult
 from core.music.input import is_text_search, normalize_url_like, spotify_kind
 from core.source_resolver import SourceResolver
-from core.source_resolver.selection import rank_tracks
+from core.source_resolver.selection import needs_quality_fallback, rank_tracks
 
 
 def _search_prefix() -> str:
@@ -108,6 +108,11 @@ def _is_youtube_url(query: str) -> bool:
     return host.endswith("youtube.com") or host.endswith("youtu.be")
 
 
+def _clean_info_value(value: object, unknown: str) -> str:
+    text = str(value or "").strip()
+    return "" if text.lower() == unknown else text
+
+
 class LavalinkAudioBackend:
     name = "lavalink"
 
@@ -167,6 +172,12 @@ class LavalinkAudioBackend:
             )
 
         track = _select_track(normalized, tracks, apply_ranking=is_text_search(normalized))
+        if is_text_search(normalized):
+            candidate = _candidate_from_track(track)
+            if needs_quality_fallback(normalized, candidate):
+                fallback = await self._load_current_stream_bridge(normalized, requester, requester_id, t0)
+                if fallback.ok:
+                    return fallback
         info = _track_info(track)
         return AudioLoadResult(
             backend=self.name,
@@ -176,6 +187,66 @@ class LavalinkAudioBackend:
             artist=info.get("author") or "",
             source=info.get("sourceName") or "lavalink",
             uri=info.get("uri") or "",
+            stream_ready=True,
+            tracks_count=len(tracks),
+            load_ms=elapsed,
+        )
+
+    async def _load_current_stream_bridge(
+        self,
+        query: str,
+        requester: str,
+        requester_id: int,
+        t0: float,
+    ) -> AudioLoadResult:
+        try:
+            if is_text_search(query):
+                resolved = await SourceResolver.resolve_choices(query, requester, requester_id, n=1)
+            else:
+                resolved = await SourceResolver.resolve(query, requester, requester_id)
+            source_track = resolved[0] if resolved else None
+            stream_url = (getattr(source_track, "stream_url", "") or "").strip()
+            if not stream_url:
+                return AudioLoadResult(
+                    backend=self.name,
+                    query=query,
+                    ok=False,
+                    load_ms=(time.perf_counter() - t0) * 1000,
+                    error="quality bridge returned no stream URL",
+                )
+
+            payload = await self._request_loadtracks(stream_url)
+            tracks = _tracks_from_payload(payload)
+        except Exception as exc:
+            return AudioLoadResult(
+                backend=self.name,
+                query=query,
+                ok=False,
+                load_ms=(time.perf_counter() - t0) * 1000,
+                error=f"quality bridge: {type(exc).__name__}: {exc}",
+            )
+
+        elapsed = (time.perf_counter() - t0) * 1000
+        if not tracks:
+            return AudioLoadResult(
+                backend=self.name,
+                query=query,
+                ok=False,
+                tracks_count=0,
+                load_ms=elapsed,
+                error=f"quality bridge: {_payload_error(payload) or 'no tracks'}",
+            )
+
+        track = _select_track(query, tracks, apply_ranking=False)
+        info = _track_info(track)
+        return AudioLoadResult(
+            backend=self.name,
+            query=query,
+            ok=True,
+            title=_clean_info_value(info.get("title"), "unknown title") or getattr(source_track, "title", "") or "",
+            artist=_clean_info_value(info.get("author"), "unknown artist") or getattr(source_track, "artist", "") or "",
+            source="quality+lavalink-http",
+            uri=info.get("uri") or getattr(source_track, "webpage_url", "") or query,
             stream_ready=True,
             tracks_count=len(tracks),
             load_ms=elapsed,
@@ -229,8 +300,8 @@ class LavalinkAudioBackend:
             backend=self.name,
             query=query,
             ok=True,
-            title=info.get("title") or getattr(source_track, "title", "") or "",
-            artist=info.get("author") or getattr(source_track, "artist", "") or "",
+            title=_clean_info_value(info.get("title"), "unknown title") or getattr(source_track, "title", "") or "",
+            artist=_clean_info_value(info.get("author"), "unknown artist") or getattr(source_track, "artist", "") or "",
             source="youtube+lavalink-http",
             uri=info.get("uri") or query,
             stream_ready=True,

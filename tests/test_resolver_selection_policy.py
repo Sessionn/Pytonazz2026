@@ -14,7 +14,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import Config
 from core.source_resolver import SourceResolver
 from core.source_resolver.models import TrackInfo
-from core.source_resolver.selection import needs_wider_search, rank_tracks, select_best_track
+from core.source_resolver.selection import (
+    has_unrequested_extra_variant,
+    needs_quality_fallback,
+    needs_wider_search,
+    rank_tracks,
+    select_best_track,
+)
 
 
 def _track(title: str, artist: str = "", duration: int = 180, url: str = "x") -> TrackInfo:
@@ -66,6 +72,14 @@ def test_selection_penalizes_unrequested_extra_variant() -> None:
     chosen = select_best_track("DONNE RICCHE - Acoustic Version TonyPitony", candidates)
 
     assert chosen.webpage_url.endswith("acoustic"), chosen
+    assert has_unrequested_extra_variant(
+        "DONNE RICCHE - Acoustic Version TonyPitony",
+        candidates[0],
+    )
+    assert needs_quality_fallback(
+        "DONNE RICCHE - Acoustic Version TonyPitony",
+        candidates[0],
+    )
 
 
 async def test_resolver_widens_only_for_suspicious_first_result() -> None:
