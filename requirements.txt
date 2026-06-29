@@ -14,6 +14,9 @@ python-dotenv>=1.0.1
 # Crittografia voice Discord
 PyNaCl>=1.5.0
 
+# Backend audio sperimentale Lavalink
+wavelink>=3.5.2
+
 # AI — Groq API (free tier, modelli llama) — provider primario
 groq>=0.13.0
 

@@ -1,0 +1,9 @@
+services:
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    container_name: pytonazz-lavalink
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2333:2333"
+    volumes:
+      - ./application.yml:/opt/Lavalink/application.yml:ro
