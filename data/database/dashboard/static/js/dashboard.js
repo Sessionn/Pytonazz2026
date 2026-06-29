@@ -126,7 +126,7 @@ function refreshStats(refreshData = true) {
       return r.json();
     })
     .then(data => {
-      if (applyStatsPayload(data) && refreshData) refreshCurrentData(true);
+      applyStatsPayload(data);
     })
     .catch(() => {});
 }
@@ -161,7 +161,7 @@ function startRealtimeStats() {
   statsEventSource = new EventSource("/api/events");
   statsEventSource.addEventListener("stats", event => {
     try {
-      if (applyStatsPayload(JSON.parse(event.data))) refreshCurrentData(true);
+      applyStatsPayload(JSON.parse(event.data));
     } catch (_) {}
   });
   statsEventSource.onerror = () => {
@@ -594,6 +594,16 @@ function markSectionsStaleAfterDelete(activeSection) {
   });
 }
 
+function preserveScrollDuring(callback) {
+  const x = window.scrollX;
+  const y = window.scrollY;
+  const restore = () => window.scrollTo(x, y);
+  const result = callback();
+  requestAnimationFrame(restore);
+  setTimeout(restore, 260);
+  return result;
+}
+
 function remapId(value, map) {
   const key = String(value);
   return Object.prototype.hasOwnProperty.call(map || {}, key) ? Number(map[key]) : value;
@@ -682,11 +692,13 @@ function deleteSong(id) {
     .then(r => r.json())
     .then(data => {
       if (!data.ok) throw new Error("delete failed");
-      removeDashboardRow("cache", id);
-      applyCompactMaps(data.compact);
-      markSectionsStaleAfterDelete("cache");
-      showToast("Entry eliminata", "success");
-      closeModal();
+      preserveScrollDuring(() => {
+        removeDashboardRow("cache", id);
+        applyCompactMaps(data.compact);
+        markSectionsStaleAfterDelete("cache");
+        showToast("Entry eliminata", "success");
+        closeModal();
+      });
     })
     .catch(() => showToast("Errore durante l'eliminazione", "error"));
 }
@@ -696,10 +708,12 @@ function deleteTrack(id) {
     .then(r => r.json())
     .then(data => {
       if (!data.ok) throw new Error("delete track failed");
-      showToast("Traccia canonica eliminata", "success");
-      removeDashboardRow("tracks", id);
-      applyCompactMaps(data.compact);
-      markSectionsStaleAfterDelete("tracks");
+      preserveScrollDuring(() => {
+        showToast("Traccia canonica eliminata", "success");
+        removeDashboardRow("tracks", id);
+        applyCompactMaps(data.compact);
+        markSectionsStaleAfterDelete("tracks");
+      });
     })
     .catch(() => showToast("Errore durante l'eliminazione traccia", "error"));
 }
@@ -709,10 +723,12 @@ function deleteSource(id) {
     .then(r => r.json())
     .then(data => {
       if (!data.ok) throw new Error("delete source failed");
-      showToast("Sorgente eliminata", "success");
-      removeDashboardRow("sources", id);
-      applyCompactMaps(data.compact);
-      markSectionsStaleAfterDelete("sources");
+      preserveScrollDuring(() => {
+        showToast("Sorgente eliminata", "success");
+        removeDashboardRow("sources", id);
+        applyCompactMaps(data.compact);
+        markSectionsStaleAfterDelete("sources");
+      });
     })
     .catch(() => showToast("Errore durante l'eliminazione sorgente", "error"));
 }
@@ -722,10 +738,12 @@ function deleteAlias(id) {
     .then(r => r.json())
     .then(data => {
       if (!data.ok) throw new Error("delete alias failed");
-      showToast("Alias eliminato", "success");
-      removeDashboardRow("aliases", id);
-      applyCompactMaps(data.compact);
-      markSectionsStaleAfterDelete("aliases");
+      preserveScrollDuring(() => {
+        showToast("Alias eliminato", "success");
+        removeDashboardRow("aliases", id);
+        applyCompactMaps(data.compact);
+        markSectionsStaleAfterDelete("aliases");
+      });
     })
     .catch(() => showToast("Errore durante l'eliminazione alias", "error"));
 }
@@ -735,10 +753,12 @@ function deleteQuery(id) {
     .then(r => r.json())
     .then(data => {
       if (!data.ok) throw new Error("delete query failed");
-      showToast("Query eliminata", "success");
-      removeDashboardRow("queries", id);
-      applyCompactMaps(data.compact);
-      markSectionsStaleAfterDelete("queries");
+      preserveScrollDuring(() => {
+        showToast("Query eliminata", "success");
+        removeDashboardRow("queries", id);
+        applyCompactMaps(data.compact);
+        markSectionsStaleAfterDelete("queries");
+      });
     })
     .catch(() => showToast("Errore durante l'eliminazione query", "error"));
 }

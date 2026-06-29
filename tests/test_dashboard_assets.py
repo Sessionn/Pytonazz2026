@@ -57,5 +57,22 @@ assert "applyCompactMaps(data.compact)" in delete_block, (
 assert "markSectionsStaleAfterDelete" in delete_block, (
     "FAIL: le delete dashboard devono marcare le altre sezioni stale senza ricaricarle subito"
 )
+assert "preserveScrollDuring" in delete_block, (
+    "FAIL: le delete dashboard devono preservare la posizione scroll durante cancellazione/renumber"
+)
+
+stats_block_start = dashboard_js.index("function refreshStats(")
+stats_block_end = dashboard_js.index("function startRealtimeStats(", stats_block_start)
+stats_block = dashboard_js[stats_block_start:stats_block_end]
+assert "refreshCurrentData(true)" not in stats_block, (
+    "FAIL: il polling stats non deve refreshare automaticamente la tabella corrente"
+)
+
+events_block_start = dashboard_js.index("function startRealtimeStats(")
+events_block_end = dashboard_js.index("function startStatsRefresh(", events_block_start)
+events_block = dashboard_js[events_block_start:events_block_end]
+assert "refreshCurrentData(true)" not in events_block, (
+    "FAIL: gli eventi stats non devono refreshare automaticamente la tabella corrente"
+)
 
 print("OK: dashboard assets soundcloud/arrows/svg")

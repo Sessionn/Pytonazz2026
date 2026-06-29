@@ -746,6 +746,47 @@ class SourceResolver:
             return 4.75
 
     @staticmethod
+    def _resolve_max_wait_seconds(soft_timeout: float) -> float:
+        try:
+            configured = float(Config.RESOLVE_MAX_WAIT_SECONDS)
+        except (AttributeError, TypeError, ValueError):
+            configured = 20.0
+        return max(soft_timeout, configured)
+
+    @classmethod
+    async def _await_resolve_with_soft_budget(cls, coro, query: str, label: str) -> list:
+        soft_timeout = cls._resolve_timeout_seconds()
+        max_wait = cls._resolve_max_wait_seconds(soft_timeout)
+        task = asyncio.create_task(coro)
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=soft_timeout)
+        except asyncio.TimeoutError:
+            log.warning(
+                tag(
+                    "RESOLVE",
+                    f"soft budget {label} no fallback  {b(query)}  "
+                    f"budget={b(f'{soft_timeout:.2f}s')}  waiting",
+                )
+            )
+
+        remaining = max_wait - soft_timeout
+        if remaining <= 0:
+            task.cancel()
+            return []
+        try:
+            return await asyncio.wait_for(task, timeout=remaining)
+        except asyncio.TimeoutError:
+            task.cancel()
+            log.warning(
+                tag(
+                    "RESOLVE",
+                    f"max wait {label} no fallback  {b(query)}  "
+                    f"max={b(f'{max_wait:.2f}s')}",
+                )
+            )
+            return []
+
+    @staticmethod
     def _apply_spotify_meta(track: "TrackInfo", meta: dict, score: dict) -> None:
         decision = score["decision"]
         enrich_mode = _spotify_enrich_mode(score)
@@ -1035,15 +1076,11 @@ class SourceResolver:
 
     @classmethod
     async def resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
-        timeout = cls._resolve_timeout_seconds()
-        try:
-            return await asyncio.wait_for(
-                cls._resolve_impl(query, requester, requester_id),
-                timeout=timeout,
-            )
-        except asyncio.TimeoutError:
-            log.warning(tag("RESOLVE", f"timeout no fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
-            return []
+        return await cls._await_resolve_with_soft_budget(
+            cls._resolve_impl(query, requester, requester_id),
+            query,
+            "stream",
+        )
 
     @classmethod
     async def _resolve_impl(cls, query: str, requester: str, requester_id: int = 0) -> list:
@@ -1108,15 +1145,11 @@ class SourceResolver:
     async def resolve_choices(
         cls, query: str, requester: str, requester_id: int, n: int = 7
     ) -> list:
-        timeout = cls._resolve_timeout_seconds()
-        try:
-            return await asyncio.wait_for(
-                cls._resolve_choices_impl(query, requester, requester_id, n=n),
-                timeout=timeout,
-            )
-        except asyncio.TimeoutError:
-            log.warning(tag("RESOLVE", f"timeout choices no fallback  {b(query)}  budget={b(f'{timeout:.2f}s')}"))
-            return []
+        return await cls._await_resolve_with_soft_budget(
+            cls._resolve_choices_impl(query, requester, requester_id, n=n),
+            query,
+            "choices",
+        )
 
     @staticmethod
     def _store_resolved_fallback(query: str, track: "TrackInfo") -> None:
