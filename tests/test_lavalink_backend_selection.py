@@ -147,9 +147,58 @@ async def test_lavalink_spotify_track_prefers_native_lavasrc() -> None:
     assert loaded_identifiers == [spotify_url], loaded_identifiers
 
 
+async def test_lavalink_youtube_url_falls_back_to_stream_bridge() -> None:
+    original_resolve = SourceResolver.resolve
+    youtube_url = "https://www.youtube.com/watch?v=kX2b9l26faU"
+    stream_url = "https://stream.test/montagem"
+    loaded_identifiers = []
+
+    async def fake_resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
+        assert query == youtube_url
+        return [
+            TrackInfo(
+                title="MONTAGEM ALQUIMIA",
+                webpage_url=youtube_url,
+                duration=97,
+                thumbnail="",
+                requester=requester,
+                requester_id=requester_id,
+                source="youtube",
+                stream_url=stream_url,
+                artist="h6itam",
+            )
+        ]
+
+    async def fake_loadtracks(identifier: str) -> dict:
+        loaded_identifiers.append(identifier)
+        if identifier == youtube_url:
+            return {
+                "loadType": "error",
+                "data": {"message": "All clients failed to load the item."},
+            }
+        return {
+            "loadType": "track",
+            "data": _track("MONTAGEM ALQUIMIA", "h6itam", 97000),
+        }
+
+    backend = LavalinkAudioBackend()
+    backend._request_loadtracks = fake_loadtracks
+
+    try:
+        SourceResolver.resolve = classmethod(fake_resolve)
+        result = await backend.load(youtube_url, requester="tester", requester_id=7)
+    finally:
+        SourceResolver.resolve = original_resolve
+
+    assert result.ok, result
+    assert result.source == "youtube+lavalink-http", result
+    assert loaded_identifiers == [youtube_url, stream_url], loaded_identifiers
+
+
 test_lavalink_selection_uses_resolver_ranking()
 test_lavalink_selection_keeps_first_for_direct_urls()
 test_lavalink_payload_error_prefers_root_cause()
 asyncio.run(test_lavalink_spotify_track_uses_resolver_bridge())
 asyncio.run(test_lavalink_spotify_track_prefers_native_lavasrc())
+asyncio.run(test_lavalink_youtube_url_falls_back_to_stream_bridge())
 print("OK: lavalink backend ranks search candidates and preserves direct URL order")

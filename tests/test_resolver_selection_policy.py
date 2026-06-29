@@ -57,6 +57,17 @@ def test_selection_keeps_requested_variant() -> None:
     assert not needs_wider_search("hello adele live", chosen)
 
 
+def test_selection_penalizes_unrequested_extra_variant() -> None:
+    candidates = [
+        _track("DONNE RICCHE (Acoustic Version - Slowed)", "TonyPitony", 190, "slowed"),
+        _track("DONNE RICCHE - Acoustic Version", "TonyPitony", 190, "acoustic"),
+    ]
+
+    chosen = select_best_track("DONNE RICCHE - Acoustic Version TonyPitony", candidates)
+
+    assert chosen.webpage_url.endswith("acoustic"), chosen
+
+
 async def test_resolver_widens_only_for_suspicious_first_result() -> None:
     original_cache_enabled = Config.CACHE_ENABLED
     original_spotify_id = Config.SPOTIFY_CLIENT_ID
@@ -131,5 +142,6 @@ async def test_resolver_widens_only_for_suspicious_first_result() -> None:
 
 test_selection_prefers_query_coherent_audio()
 test_selection_keeps_requested_variant()
+test_selection_penalizes_unrequested_extra_variant()
 asyncio.run(test_resolver_widens_only_for_suspicious_first_result())
 print("OK: resolver selection policy ranks coherent candidates and widens suspicious fast results")

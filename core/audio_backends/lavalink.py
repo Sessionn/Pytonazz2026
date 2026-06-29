@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from config import Config
 from core.audio_backends.base import AudioLoadResult
@@ -103,6 +103,11 @@ def _spotify_meta(track) -> dict:
     }
 
 
+def _is_youtube_url(query: str) -> bool:
+    host = urlparse(query or "").netloc.lower()
+    return host.endswith("youtube.com") or host.endswith("youtu.be")
+
+
 class LavalinkAudioBackend:
     name = "lavalink"
 
@@ -148,6 +153,10 @@ class LavalinkAudioBackend:
 
         elapsed = (time.perf_counter() - t0) * 1000
         if not tracks:
+            if _is_youtube_url(normalized):
+                fallback = await self._load_youtube_stream_bridge(normalized, requester, requester_id, t0)
+                if fallback.ok:
+                    return fallback
             return AudioLoadResult(
                 backend=self.name,
                 query=query,
@@ -167,6 +176,63 @@ class LavalinkAudioBackend:
             artist=info.get("author") or "",
             source=info.get("sourceName") or "lavalink",
             uri=info.get("uri") or "",
+            stream_ready=True,
+            tracks_count=len(tracks),
+            load_ms=elapsed,
+        )
+
+    async def _load_youtube_stream_bridge(
+        self,
+        query: str,
+        requester: str,
+        requester_id: int,
+        t0: float,
+    ) -> AudioLoadResult:
+        try:
+            resolved = await SourceResolver.resolve(query, requester, requester_id)
+            source_track = resolved[0] if resolved else None
+            stream_url = (getattr(source_track, "stream_url", "") or "").strip()
+            if not stream_url:
+                return AudioLoadResult(
+                    backend=self.name,
+                    query=query,
+                    ok=False,
+                    load_ms=(time.perf_counter() - t0) * 1000,
+                    error="youtube bridge returned no stream URL",
+                )
+
+            payload = await self._request_loadtracks(stream_url)
+            tracks = _tracks_from_payload(payload)
+        except Exception as exc:
+            return AudioLoadResult(
+                backend=self.name,
+                query=query,
+                ok=False,
+                load_ms=(time.perf_counter() - t0) * 1000,
+                error=f"youtube bridge: {type(exc).__name__}: {exc}",
+            )
+
+        elapsed = (time.perf_counter() - t0) * 1000
+        if not tracks:
+            return AudioLoadResult(
+                backend=self.name,
+                query=query,
+                ok=False,
+                tracks_count=0,
+                load_ms=elapsed,
+                error=f"youtube bridge: {_payload_error(payload) or 'no tracks'}",
+            )
+
+        track = _select_track(query, tracks, apply_ranking=False)
+        info = _track_info(track)
+        return AudioLoadResult(
+            backend=self.name,
+            query=query,
+            ok=True,
+            title=info.get("title") or getattr(source_track, "title", "") or "",
+            artist=info.get("author") or getattr(source_track, "artist", "") or "",
+            source="youtube+lavalink-http",
+            uri=info.get("uri") or query,
             stream_ready=True,
             tracks_count=len(tracks),
             load_ms=elapsed,

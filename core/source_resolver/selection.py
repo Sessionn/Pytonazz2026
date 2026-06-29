@@ -98,6 +98,7 @@ def score_candidate(query: str, track, spotify_meta: dict | None = None) -> Cand
     penalty = spotify_penalty
     requested_variant_tags = _variant_tags(q)
     candidate_variant_tags = _variant_tags(title)
+    extra_variant_tags = candidate_variant_tags - requested_variant_tags
     unwanted_variant = _is_variant(title) and not _query_requests_variant(q)
     unwanted_video = _is_music_video(title, artist) and not query_requests_video(q)
     duration_penalty = _duration_penalty(q, duration, spotify_meta)
@@ -105,6 +106,8 @@ def score_candidate(query: str, track, spotify_meta: dict | None = None) -> Cand
     if requested_variant_tags:
         if requested_variant_tags & candidate_variant_tags:
             official_bonus += 0.25
+            if extra_variant_tags:
+                penalty += min(0.28, 0.14 * len(extra_variant_tags))
         elif not candidate_variant_tags:
             penalty += 0.25
     if unwanted_variant:
