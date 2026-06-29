@@ -5,6 +5,7 @@ let debounceTimer;
 let tableDebounceTimer;
 let statsRefreshInterval = null;
 let statsEventSource = null;
+let cacheChangeTimer = null;
 let lastStatsSignature = "";
 let lastSongIds = new Set();
 let lastSongUrls = new Map();
@@ -164,6 +165,11 @@ function startRealtimeStats() {
       applyStatsPayload(JSON.parse(event.data));
     } catch (_) {}
   });
+  statsEventSource.addEventListener("cache_change", event => {
+    try {
+      handleCacheChange(JSON.parse(event.data));
+    } catch (_) {}
+  });
   statsEventSource.onerror = () => {
     if (statsEventSource) {
       statsEventSource.close();
@@ -172,6 +178,12 @@ function startRealtimeStats() {
     startStatsRefresh(8);
   };
   stopStatsRefresh();
+}
+
+function handleCacheChange(_payload) {
+  clearTimeout(cacheChangeTimer);
+  ["aliases", "tracks", "sources", "queries", "schema"].forEach(section => loadedSections.delete(section));
+  cacheChangeTimer = setTimeout(() => refreshCurrentData(true), 180);
 }
 
 function startStatsRefresh(seconds = 8) {
@@ -191,6 +203,7 @@ function fetchSongs(silent = false) {
   const source = document.getElementById("filter-source")?.value || "";
   const valid = document.getElementById("filter-valid")?.value || "";
   const params = new URLSearchParams({ q, source, valid, sort: currentSort, order: currentOrder });
+  const scrollSnapshot = silent ? captureScrollSnapshot() : null;
 
   if (!silent) showSkeleton();
 
@@ -205,10 +218,12 @@ function fetchSongs(silent = false) {
         }
         lastSongIds = new Set();
         lastSongUrls = new Map();
+        restoreScrollSnapshot(scrollSnapshot);
         return;
       }
       if (silent) {
         renderSongsDiff(data);
+        restoreScrollSnapshot(scrollSnapshot);
       } else {
         renderSongs(data);
       }
@@ -602,6 +617,17 @@ function preserveScrollDuring(callback) {
   requestAnimationFrame(restore);
   setTimeout(restore, 260);
   return result;
+}
+
+function captureScrollSnapshot() {
+  return { x: window.scrollX, y: window.scrollY };
+}
+
+function restoreScrollSnapshot(snapshot) {
+  if (!snapshot) return;
+  const restore = () => window.scrollTo(snapshot.x, snapshot.y);
+  requestAnimationFrame(restore);
+  setTimeout(restore, 260);
 }
 
 function remapId(value, map) {

@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import queue
 import re
 import secrets
 import sqlite3
@@ -621,16 +622,29 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
     def api_events():
         @stream_with_context
         def events():
-            last = None
-            while True:
+            sub = cache_db.subscribe_changes()
+            last_stats = None
+            try:
                 payload = _stats_payload()
-                encoded = json.dumps(payload, separators=(",", ":"))
-                if encoded != last:
-                    yield f"event: stats\ndata: {encoded}\n\n"
-                    last = encoded
-                else:
-                    yield ": keepalive\n\n"
-                time.sleep(5)
+                last_stats = json.dumps(payload, separators=(",", ":"))
+                yield f"event: stats\ndata: {last_stats}\n\n"
+                while True:
+                    try:
+                        change = sub.get(timeout=15.0)
+                    except queue.Empty:
+                        yield ": keepalive\n\n"
+                        continue
+
+                    encoded_change = json.dumps(change, separators=(",", ":"))
+                    yield f"event: cache_change\ndata: {encoded_change}\n\n"
+
+                    payload = _stats_payload()
+                    encoded_stats = json.dumps(payload, separators=(",", ":"))
+                    if encoded_stats != last_stats:
+                        yield f"event: stats\ndata: {encoded_stats}\n\n"
+                        last_stats = encoded_stats
+            finally:
+                cache_db.unsubscribe_changes(sub)
 
         return Response(events(), mimetype="text/event-stream")
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import queue
 import re
 import sqlite3
 import threading
@@ -39,6 +40,9 @@ _STREAM_URL_DB_TTL_SECONDS = 30 * 60
 _lock = threading.Lock()
 _conn: Optional[sqlite3.Connection] = None
 _enabled: bool = False
+_change_lock = threading.Lock()
+_change_seq = 0
+_change_subscribers: set[queue.Queue] = set()
 
 _RE_SPOTIFY = re.compile(
     r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album|playlist)/([A-Za-z0-9]+)",
@@ -73,6 +77,38 @@ def _normalize_key(value: str) -> str:
     text = (value or "").strip().lower()
     text = re.sub(r"[^\w\s:/.-]+", " ", text, flags=re.UNICODE)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def subscribe_changes() -> queue.Queue:
+    q: queue.Queue = queue.Queue(maxsize=100)
+    with _change_lock:
+        _change_subscribers.add(q)
+    return q
+
+
+def unsubscribe_changes(q: queue.Queue) -> None:
+    with _change_lock:
+        _change_subscribers.discard(q)
+
+
+def _notify_change(action: str, **fields) -> None:
+    global _change_seq
+    with _change_lock:
+        _change_seq += 1
+        payload = {"seq": _change_seq, "action": action, "ts": int(time.time()), **fields}
+        subscribers = list(_change_subscribers)
+    for sub in subscribers:
+        try:
+            sub.put_nowait(payload)
+        except queue.Full:
+            try:
+                sub.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                sub.put_nowait(payload)
+            except queue.Full:
+                pass
 
 
 def _music_norm(value: str) -> str:
@@ -1226,6 +1262,7 @@ def put(query: str, track) -> None:
             _upsert_query(cur, spotify_url, track_id, source_id, "spotify", "spotify_url", 1.0)
 
     _maybe_trim()
+    _notify_change("put", source_id=source_id, track_id=track_id)
 
 
 def add_alias(alias: str, canonical_query: str, alias_type: str = "text") -> None:
@@ -1245,6 +1282,7 @@ def add_alias(alias: str, canonical_query: str, alias_type: str = "text") -> Non
             1.0,
         )
     log.debug(tag("CACHE_DB", f"\U0001f517 {hi('ALIAS', _GRY)}  {alias_type or 'text'}  \u2192 {b(canonical_query)}"))
+    _notify_change("alias", alias=alias.strip())
 
 
 def invalidate(query: str) -> bool:
@@ -1260,6 +1298,7 @@ def invalidate(query: str) -> bool:
         found = cur.rowcount > 0
     if found:
         log.info(tag("CACHE_DB", f"\U0001f6ab {hi('INVALIDATE', _BYEL)}  {b(query)}"))
+        _notify_change("invalidate", query=query)
     return found
 
 
@@ -1275,6 +1314,7 @@ def invalidate_webpage_url(webpage_url: str) -> int:
         count = cur.rowcount
     if count:
         log.info(tag("CACHE_DB", f"\U0001f6ab {hi('INVALIDATE', _BYEL)}  url  {b(str(count))} entry"))
+        _notify_change("invalidate_url", webpage_url=url, count=count)
     return count
 
 
@@ -1296,7 +1336,10 @@ def update_stream_url(webpage_url: str, stream_url: str, ttl_seconds: int = _STR
             """,
             (stream, expires_at, now, url),
         )
-        return cur.rowcount > 0
+        updated = cur.rowcount > 0
+    if updated:
+        _notify_change("stream_url", webpage_url=url)
+    return updated
 
 
 def stats() -> dict:
@@ -1795,6 +1838,7 @@ def delete_song_row(row_id: int) -> bool:
             return False
         cur.execute("DELETE FROM cache_sources WHERE id = ?", (int(row_id),))
         _cleanup_orphans(cur)
+    _notify_change("delete_source", source_id=int(row_id))
     return True
 
 
@@ -1802,6 +1846,8 @@ def delete_track_row(track_id: int) -> bool:
     with _cursor() as cur:
         cur.execute("DELETE FROM cache_tracks WHERE id = ?", (int(track_id),))
         deleted = cur.rowcount > 0
+    if deleted:
+        _notify_change("delete_track", track_id=int(track_id))
     return deleted
 
 
@@ -1813,6 +1859,8 @@ def delete_alias(alias_id: int) -> bool:
     with _cursor() as cur:
         cur.execute("DELETE FROM cache_queries WHERE id = ?", (int(alias_id),))
         deleted = cur.rowcount > 0
+    if deleted:
+        _notify_change("delete_alias", alias_id=int(alias_id))
     return deleted
 
 

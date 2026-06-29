@@ -20,7 +20,6 @@ before_options = Config.FFMPEG_OPTIONS["before_options"]
 for required in (
     "-reconnect 1",
     "-reconnect_streamed 1",
-    "-reconnect_at_eof 1",
     "-reconnect_on_network_error 1",
     "-reconnect_on_http_error 4xx,5xx",
     "-reconnect_delay_max 5",
@@ -31,7 +30,8 @@ for required in (
 for unsupported in (
     "-reconnect_max_retries",
     "-reconnect_delay_total_max",
+    "-reconnect_at_eof",
 ):
     assert unsupported not in before_options, f"Unsupported FFmpeg option still present: {unsupported}"
 
-print("OK: FFmpeg reconnect options cover transient TLS/HTTPS stream drops")
+print("OK: FFmpeg reconnect options cover transient TLS/HTTPS drops without EOF reconnect loops")
