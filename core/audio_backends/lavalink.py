@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 from config import Config
 from core.audio_backends.base import AudioLoadResult
 from core.music.input import is_text_search, normalize_url_like, spotify_kind
-from core.source_resolver import SourceResolver, TrackInfo
+from core.source_resolver import SourceResolver, TrackInfo, extract_spotify_track_id
 from core.source_resolver.selection import needs_quality_fallback, rank_tracks
 
 
@@ -118,6 +118,11 @@ def _is_http_url(query: str) -> bool:
     return (query or "").strip().lower().startswith(("http://", "https://"))
 
 
+def _canonical_spotify_track_url(query: str) -> str:
+    track_id = extract_spotify_track_id(query)
+    return f"https://open.spotify.com/track/{track_id}" if track_id else query
+
+
 class LavalinkAudioBackend:
     name = "lavalink"
 
@@ -147,7 +152,9 @@ class LavalinkAudioBackend:
         normalized = normalize_url_like(query)
         t0 = time.perf_counter()
         if spotify_kind(normalized) == "track":
-            return await self._load_spotify_track(normalized, requester, requester_id, t0)
+            return await self._load_spotify_track(
+                _canonical_spotify_track_url(normalized), requester, requester_id, t0
+            )
 
         try:
             payload = await self._request_loadtracks(self._identifier(normalized))
@@ -431,7 +438,9 @@ class LavalinkAudioBackend:
     ) -> TrackInfo | None:
         normalized = normalize_url_like(query)
         if spotify_kind(normalized) == "track":
-            return await self._resolve_spotify_track_info(normalized, requester, requester_id)
+            return await self._resolve_spotify_track_info(
+                _canonical_spotify_track_url(normalized), requester, requester_id
+            )
 
         try:
             payload = await self._request_loadtracks(self._identifier(normalized))

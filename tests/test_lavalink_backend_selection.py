@@ -123,7 +123,8 @@ async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
 
 async def test_lavalink_spotify_track_prefers_native_lavasrc() -> None:
     original_native = Config.LAVALINK_SPOTIFY_NATIVE
-    spotify_url = "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"
+    spotify_url = "https://open.spotify.com/intl-it/track/0VjIjW4GlUZAMYd2vXMi3b?si=test"
+    canonical_url = "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"
     loaded_identifiers = []
 
     async def fake_loadtracks(identifier: str) -> dict:
@@ -144,7 +145,7 @@ async def test_lavalink_spotify_track_prefers_native_lavasrc() -> None:
 
     assert result.ok, result
     assert result.title == "Blinding Lights", result
-    assert loaded_identifiers == [spotify_url], loaded_identifiers
+    assert loaded_identifiers == [canonical_url], loaded_identifiers
 
 
 async def test_lavalink_youtube_url_falls_back_to_stream_bridge() -> None:
