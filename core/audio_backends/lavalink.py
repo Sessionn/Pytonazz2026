@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import time
 from urllib.parse import quote
 
 from config import Config
 from core.audio_backends.base import AudioLoadResult
 from core.music.input import is_text_search, normalize_url_like
+from core.source_resolver.selection import rank_tracks
 
 
 def _search_prefix() -> str:
@@ -28,6 +30,39 @@ def _tracks_from_payload(payload: dict) -> list[dict]:
         tracks = data.get("tracks") or []
         return tracks if isinstance(tracks, list) else []
     return []
+
+
+@dataclass(frozen=True)
+class _LavalinkCandidate:
+    title: str
+    artist: str
+    duration: int
+    raw: dict
+
+
+def _track_info(track: dict) -> dict:
+    info = track.get("info") if isinstance(track, dict) else None
+    return info if isinstance(info, dict) else {}
+
+
+def _candidate_from_track(track: dict) -> _LavalinkCandidate:
+    info = _track_info(track)
+    length_ms = int(info.get("length") or 0)
+    return _LavalinkCandidate(
+        title=str(info.get("title") or ""),
+        artist=str(info.get("author") or ""),
+        duration=max(0, length_ms // 1000),
+        raw=track,
+    )
+
+
+def _select_track(query: str, tracks: list[dict], *, apply_ranking: bool) -> dict:
+    if not tracks or not apply_ranking:
+        return tracks[0] if tracks else {}
+
+    candidates = [_candidate_from_track(track) for track in tracks]
+    ranked = rank_tracks(query, candidates)
+    return ranked[0].track.raw if ranked else tracks[0]
 
 
 class LavalinkAudioBackend:
@@ -81,8 +116,8 @@ class LavalinkAudioBackend:
                 error="no tracks",
             )
 
-        track = tracks[0]
-        info = track.get("info") or {}
+        track = _select_track(normalized, tracks, apply_ranking=is_text_search(normalized))
+        info = _track_info(track)
         return AudioLoadResult(
             backend=self.name,
             query=query,
