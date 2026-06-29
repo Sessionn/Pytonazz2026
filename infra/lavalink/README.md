@@ -20,7 +20,13 @@ AUDIO_BACKEND=current
 LAVALINK_URI=http://127.0.0.1:2333
 LAVALINK_PASSWORD=youshallnotpass
 LAVALINK_SEARCH_SOURCE=youtube_music
+LAVALINK_SPOTIFY_NATIVE=true
 ```
+
+Il compose legge `../../.env` per passare a LavaSrc le stesse credenziali
+`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` gia' usate dal bot. Se LavaSrc non
+riesce a risolvere un link Spotify, il backend sperimentale ricade sul ponte
+Python `Spotify -> metadata -> Lavalink search`.
 
 Benchmark:
 

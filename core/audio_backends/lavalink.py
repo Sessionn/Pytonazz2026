@@ -33,6 +33,18 @@ def _tracks_from_payload(payload: dict) -> list[dict]:
     return []
 
 
+def _payload_error(payload: dict) -> str:
+    load_type = str(payload.get("loadType") or "").lower()
+    data = payload.get("data")
+    if load_type != "error" or not isinstance(data, dict):
+        return ""
+    message = str(data.get("message") or "").strip()
+    cause = str(data.get("cause") or "").strip()
+    if message and cause:
+        return f"{message}: {cause}"
+    return message or cause
+
+
 @dataclass(frozen=True)
 class _LavalinkCandidate:
     title: str
@@ -162,6 +174,11 @@ class LavalinkAudioBackend:
         requester_id: int,
         t0: float,
     ) -> AudioLoadResult:
+        if Config.LAVALINK_SPOTIFY_NATIVE:
+            native = await self._load_spotify_native(query, t0)
+            if native.ok:
+                return native
+
         try:
             resolved = await SourceResolver.resolve(query, requester, requester_id)
             source_track = resolved[0] if resolved else None
@@ -209,6 +226,45 @@ class LavalinkAudioBackend:
             artist=info.get("author") or getattr(source_track, "artist", "") or "",
             source="spotify+lavalink",
             uri=info.get("uri") or getattr(source_track, "webpage_url", "") or "",
+            stream_ready=True,
+            tracks_count=len(tracks),
+            load_ms=elapsed,
+        )
+
+    async def _load_spotify_native(self, query: str, t0: float) -> AudioLoadResult:
+        try:
+            payload = await self._request_loadtracks(query)
+            tracks = _tracks_from_payload(payload)
+        except Exception as exc:
+            return AudioLoadResult(
+                backend=self.name,
+                query=query,
+                ok=False,
+                load_ms=(time.perf_counter() - t0) * 1000,
+                error=f"native spotify: {type(exc).__name__}: {exc}",
+            )
+
+        elapsed = (time.perf_counter() - t0) * 1000
+        if not tracks:
+            return AudioLoadResult(
+                backend=self.name,
+                query=query,
+                ok=False,
+                tracks_count=0,
+                load_ms=elapsed,
+                error=f"native spotify: {_payload_error(payload) or 'no tracks'}",
+            )
+
+        track = _select_track(query, tracks, apply_ranking=False)
+        info = _track_info(track)
+        return AudioLoadResult(
+            backend=self.name,
+            query=query,
+            ok=True,
+            title=info.get("title") or "",
+            artist=info.get("author") or "",
+            source=info.get("sourceName") or "spotify+lavasrc",
+            uri=info.get("uri") or query,
             stream_ready=True,
             tracks_count=len(tracks),
             load_ms=elapsed,

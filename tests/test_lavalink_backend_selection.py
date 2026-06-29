@@ -12,6 +12,7 @@ import asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.audio_backends.lavalink import LavalinkAudioBackend, _select_track
+from config import Config
 from core.source_resolver import SourceResolver
 from core.source_resolver.models import TrackInfo
 
@@ -53,6 +54,7 @@ def test_lavalink_selection_keeps_first_for_direct_urls() -> None:
 
 async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
     original_resolve = SourceResolver.resolve
+    original_native = Config.LAVALINK_SPOTIFY_NATIVE
     spotify_url = "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"
     loaded_identifiers = []
 
@@ -87,9 +89,11 @@ async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
     backend._request_loadtracks = fake_loadtracks
 
     try:
+        Config.LAVALINK_SPOTIFY_NATIVE = False
         SourceResolver.resolve = classmethod(fake_resolve)
         result = await backend.load(spotify_url, requester="tester", requester_id=7)
     finally:
+        Config.LAVALINK_SPOTIFY_NATIVE = original_native
         SourceResolver.resolve = original_resolve
 
     assert result.ok, result
@@ -98,7 +102,34 @@ async def test_lavalink_spotify_track_uses_resolver_bridge() -> None:
     assert loaded_identifiers == ["ytmsearch:Blinding Lights The Weeknd"], loaded_identifiers
 
 
+async def test_lavalink_spotify_track_prefers_native_lavasrc() -> None:
+    original_native = Config.LAVALINK_SPOTIFY_NATIVE
+    spotify_url = "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"
+    loaded_identifiers = []
+
+    async def fake_loadtracks(identifier: str) -> dict:
+        loaded_identifiers.append(identifier)
+        return {
+            "loadType": "track",
+            "data": _track("Blinding Lights", "The Weeknd", 200000),
+        }
+
+    backend = LavalinkAudioBackend()
+    backend._request_loadtracks = fake_loadtracks
+
+    try:
+        Config.LAVALINK_SPOTIFY_NATIVE = True
+        result = await backend.load(spotify_url, requester="tester", requester_id=7)
+    finally:
+        Config.LAVALINK_SPOTIFY_NATIVE = original_native
+
+    assert result.ok, result
+    assert result.title == "Blinding Lights", result
+    assert loaded_identifiers == [spotify_url], loaded_identifiers
+
+
 test_lavalink_selection_uses_resolver_ranking()
 test_lavalink_selection_keeps_first_for_direct_urls()
 asyncio.run(test_lavalink_spotify_track_uses_resolver_bridge())
+asyncio.run(test_lavalink_spotify_track_prefers_native_lavasrc())
 print("OK: lavalink backend ranks search candidates and preserves direct URL order")
