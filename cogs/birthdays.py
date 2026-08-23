@@ -24,8 +24,9 @@ import asyncio
 import calendar
 import logging
 import random
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
@@ -50,6 +51,8 @@ from core.cmd_perm import perm
 from core.log_colors import tag, b, user
 
 log = logging.getLogger("pitonazz.birthdays")
+
+_BIRTHDAY_TIMEZONE = ZoneInfo("Europe/Rome")
 
 _CROWN = "👑"
 _MAX_REMOVED_PREVIEW = 120
@@ -255,7 +258,7 @@ class Birthdays(commands.Cog):
     @tasks.loop(minutes=1)
     async def _check_loop(self):
         global sent_cache_day
-        now = datetime.now(timezone.utc)
+        now = datetime.now(_BIRTHDAY_TIMEZONE)
         if now.hour != 0 or now.minute != 0:
             return
         if sent_cache_day != now.date():
@@ -302,7 +305,7 @@ class Birthdays(commands.Cog):
     @_check_loop.before_loop
     async def _before_check(self):
         await self.bot.wait_until_ready()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(_BIRTHDAY_TIMEZONE)
         secs = ((24 * 3600) - (now.hour * 3600 + now.minute * 60 + now.second)) % (24 * 3600)
         if secs > 60:
             await asyncio.sleep(secs - 60)
@@ -329,7 +332,7 @@ class Birthdays(commands.Cog):
             return await inter.response.send_message(
                 embed=self._err(f"Il mese {_MONTHS_IT[mese]} non ha {giorno} giorni."), ephemeral=True
             )
-        if anno and (anno < 1900 or anno > datetime.now(timezone.utc).year):
+        if anno and (anno < 1900 or anno > datetime.now(_BIRTHDAY_TIMEZONE).year):
             return await inter.response.send_message(
                 embed=self._err(f"Anno non valido ({anno})."), ephemeral=True
             )
@@ -364,7 +367,7 @@ class Birthdays(commands.Cog):
             return await inter.response.send_message(
                 embed=self._err(f"Il mese {_MONTHS_IT[mese]} non ha {giorno} giorni."), ephemeral=True
             )
-        if anno and (anno < 1900 or anno > datetime.now(timezone.utc).year):
+        if anno and (anno < 1900 or anno > datetime.now(_BIRTHDAY_TIMEZONE).year):
             return await inter.response.send_message(
                 embed=self._err(f"Anno non valido ({anno})."), ephemeral=True
             )
@@ -529,7 +532,7 @@ class Birthdays(commands.Cog):
         entry = get_birthday(inter.guild_id, inter.user.id)
         age: Optional[int] = None
         if entry and entry.get("year"):
-            age = datetime.now(timezone.utc).year - entry["year"]
+            age = datetime.now(_BIRTHDAY_TIMEZONE).year - entry["year"]
         wish = _pick_wish(inter.user, age, get_wish_messages(inter.guild_id))
         await inter.response.send_message(
             content=f"*(anteprima — solo tu la vedi)*\n{wish}",
