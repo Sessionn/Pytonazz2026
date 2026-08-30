@@ -3,7 +3,7 @@ discord.py>=2.3.2
 davey
 
 # Scaricatore audio — fork ATTIVO di youtube-dl
-yt-dlp>=2024.12.1
+yt-dlp>=2026.08.19
 
 # Spotify API — solo per risolvere metadati (non streaming diretto)
 spotipy>=2.24.0
