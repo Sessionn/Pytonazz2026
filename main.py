@@ -19,6 +19,7 @@ from core.banner import print_banner
 from core.paths import CUSTOM_STATUSES_PATH, ensure_runtime_dirs
 from core.runtime import (
     DEFAULT_COGS,
+    ensure_ytdlp_current,
     load_extensions,
     log_runtime_paths,
     reload_modified_extensions,
@@ -49,6 +50,7 @@ logging.getLogger("discord.http").setLevel(logging.WARNING)
 from core.log_colors import tag, b, hi, dim, _BGRN
 
 log_runtime_paths(log)
+ensure_ytdlp_current(log)
 
 # ── Cache DB ─────────────────────────────────────────────────────────────────
 init_db(enabled=Config.CACHE_ENABLED)

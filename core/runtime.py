@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import importlib.metadata
+import json
 import logging
+import re
+import subprocess
+import sys
 import time
+import urllib.request
 from pathlib import Path
 from threading import Thread
 
@@ -9,6 +15,9 @@ from config import Config
 from core.log_colors import _BGRN, _BRED, b, dim, hi, tag
 
 log = logging.getLogger("pitonazz.runtime")
+
+_YTDLP_PACKAGE = "yt-dlp"
+_YTDLP_VERSION_RE = re.compile(r"\d+")
 
 DEFAULT_COGS = [
     "cogs.ai",
@@ -26,6 +35,54 @@ DEFAULT_COGS = [
     "cogs.tts",
     "cogs.welcome",
 ]
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in _YTDLP_VERSION_RE.findall(version))
+
+
+def ensure_ytdlp_current(logger: logging.Logger) -> None:
+    """Check yt-dlp at startup and update it when a newer PyPI release exists."""
+    try:
+        current = importlib.metadata.version(_YTDLP_PACKAGE)
+    except importlib.metadata.PackageNotFoundError:
+        logger.error(tag("BOOT", "yt-dlp non installato: impossibile aggiornare automaticamente"))
+        return
+
+    logger.info(tag("BOOT", f"yt-dlp  versione attuale {hi(current)}"))
+    try:
+        request = urllib.request.Request(
+            "https://pypi.org/pypi/yt-dlp/json",
+            headers={"User-Agent": "Pytonazz/yt-dlp-startup-check"},
+        )
+        with urllib.request.urlopen(request, timeout=8) as response:
+            latest = str(json.load(response)["info"]["version"])
+    except Exception as exc:
+        logger.warning(tag("BOOT", f"yt-dlp  aggiornamento non verificabile  {dim(str(exc))}"))
+        return
+
+    if _version_key(current) >= _version_key(latest):
+        logger.info(tag("BOOT", f"yt-dlp  aggiornato ({hi(current)})"))
+        return
+
+    logger.info(tag("BOOT", f"yt-dlp  aggiornamento {b(current)} -> {hi(latest)} in corso"))
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", f"{_YTDLP_PACKAGE}>={latest}"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or "").strip().splitlines()[-1:] or ["errore sconosciuto"]
+            logger.error(tag("BOOT", f"yt-dlp  aggiornamento fallito  {dim(detail[0])}"))
+            return
+        updated = importlib.metadata.version(_YTDLP_PACKAGE)
+        logger.info(tag("BOOT", f"yt-dlp  aggiornamento completato  nuova versione {hi(updated)}"))
+    except Exception as exc:
+        logger.error(tag("BOOT", f"yt-dlp  errore aggiornamento  {dim(str(exc))}"))
 
 
 async def load_extensions(bot, cogs: list[str], log: logging.Logger) -> None:
