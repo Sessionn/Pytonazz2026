@@ -952,10 +952,10 @@ def init_db(
         "CACHE_DB",
         f"{hi('attiva', _BGRN)}  "
         f"{b(Config.DB_PATH)}  "
-        f"ttl={b(str(Config.CACHE_TTL_DAYS) + 'd')}  "
-        f"max={b(str(Config.CACHE_MAX_ENTRIES))}  "
-        f"schema=v{_SCHEMA_VERSION}"
     ))
+    log.info(tag("CACHE_DB", f"ttl={b(str(Config.CACHE_TTL_DAYS) + 'd')}"))
+    log.info(tag("CACHE_DB", f"max={b(str(Config.CACHE_MAX_ENTRIES))}"))
+    log.info(tag("CACHE_DB", f"schema={b('v' + str(_SCHEMA_VERSION))}"))
 
 
 def get(query: str) -> Optional[dict]:

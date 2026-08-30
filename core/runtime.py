@@ -62,9 +62,11 @@ def ensure_ytdlp_current(logger: logging.Logger) -> None:
         return
 
     if _version_key(current) >= _version_key(latest):
-        logger.info(tag("BOOT", f"yt-dlp  aggiornato ({hi(current)})"))
+        status = b(hi("AGGIORNATO", _BGRN))
+        logger.info(tag("BOOT", f"yt-dlp  {status}  ({hi(current)})"))
         return
 
+    logger.warning(tag("BOOT", f"yt-dlp  {b(hi('NON AGGIORNATO', _BRED))}  ({hi(current)})"))
     logger.info(tag("BOOT", f"yt-dlp  aggiornamento {b(current)} -> {hi(latest)} in corso"))
     try:
         result = subprocess.run(
@@ -80,7 +82,7 @@ def ensure_ytdlp_current(logger: logging.Logger) -> None:
             logger.error(tag("BOOT", f"yt-dlp  aggiornamento fallito  {dim(detail[0])}"))
             return
         updated = importlib.metadata.version(_YTDLP_PACKAGE)
-        logger.info(tag("BOOT", f"yt-dlp  aggiornamento completato  nuova versione {hi(updated)}"))
+        logger.info(tag("BOOT", f"yt-dlp  {b(hi('AGGIORNAMENTO COMPLETATO', _BGRN))}  nuova versione {hi(updated)}"))
     except Exception as exc:
         logger.error(tag("BOOT", f"yt-dlp  errore aggiornamento  {dim(str(exc))}"))
 
