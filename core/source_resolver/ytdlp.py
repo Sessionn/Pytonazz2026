@@ -49,9 +49,8 @@ class _YdlLogger:
         if "DRM" not in msg:
             # yt-dlp può inviare lo stesso avviso di compatibilità sia al
             # callback warning sia a quello error. Mantienilo visibile, ma
-            # evita di presentarlo come un errore operativo rosso.
+            # evita di presentarlo come un errore operativo duplicato.
             if self._is_python_deprecation(msg):
-                log.warning(tag("WARN", f"{msg}"))
                 return
             log.error(tag("ERR", f"{msg}"))
             try:
