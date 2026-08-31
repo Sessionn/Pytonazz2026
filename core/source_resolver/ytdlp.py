@@ -30,6 +30,10 @@ log = logging.getLogger("pitonazz.resolver")
 # ── yt-dlp logger ─────────────────────────────────────────────────────────────
 
 class _YdlLogger:
+    @staticmethod
+    def _is_python_deprecation(msg: str) -> bool:
+        return "Deprecated Feature" in msg and "Python version 3.10" in msg
+
     def debug(self, msg: str) -> None:
         if not msg.startswith("[debug]"):
             log.debug(tag("RESOLVE", f"{msg}"))
@@ -43,6 +47,12 @@ class _YdlLogger:
 
     def error(self, msg: str) -> None:
         if "DRM" not in msg:
+            # yt-dlp può inviare lo stesso avviso di compatibilità sia al
+            # callback warning sia a quello error. Mantienilo visibile, ma
+            # evita di presentarlo come un errore operativo rosso.
+            if self._is_python_deprecation(msg):
+                log.warning(tag("WARN", f"{msg}"))
+                return
             log.error(tag("ERR", f"{msg}"))
             try:
                 notify_ytdlp_cookie_error(msg)

@@ -148,7 +148,11 @@ class Config:
             + "-reconnect 1 "
               "-reconnect_streamed 1 "
               "-reconnect_on_network_error 1 "
-              "-reconnect_on_http_error 4xx,5xx "
+              # Non ritentare automaticamente i 4xx: gli URL audio firmati
+              # restituiscono spesso 403 quando scadono. Lasciando fallire
+              # subito FFmpeg, il callback del player invalida l'URL e ne
+              # richiede uno nuovo senza il ritardo del retry interno.
+              "-reconnect_on_http_error 5xx "
               "-reconnect_delay_max 5 "
               "-rw_timeout 15000000 "
               "-analyzeduration 0 "
