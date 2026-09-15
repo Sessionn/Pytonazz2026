@@ -4,7 +4,7 @@ Gruppo: /bday
   /bday set            <giorno> <mese> [anno]             — chiunque (solo il proprio)
   /bday adminset       <@utente> <giorno> <mese> [anno]  — 👑 admin
   /bday remove                                           — chiunque (solo il proprio)
-  /bday adminremove    <@utente>                          — 👑 admin
+  /bday adminremove    [@utente] [utente_id]              — 👑 admin (uno dei due)
   /bday check          [@utente]                         — chiunque
   /bday list                                             — chiunque
   /bday channel        [#canale]                         — 👑 admin
@@ -166,7 +166,7 @@ def _build_list_embeds(guild: discord.Guild, all_bdays: dict) -> list[discord.Em
     rows: list[tuple[int, int, int, str, Optional[int]]] = []
     for uid_str, e in all_bdays.items():
         member = guild.get_member(int(uid_str))
-        mention = member.mention if member else f"<@{uid_str}>"
+        mention = member.mention if member else f"Utente non disponibile · ID: `{uid_str}`"
         age_now = (now_year - e["year"]) if e.get("year") else None
         this_year_birthday_date = _safe_date(today.year, e["month"], e["day"])
         age_next = (age_now + 1) if age_now and this_year_birthday_date < today else age_now
@@ -229,8 +229,6 @@ async def _refresh_list_in_channel(guild: discord.Guild) -> None:
         return
     all_bdays = get_all_birthdays(guild.id)
     embeds = _build_list_embeds(guild, all_bdays)
-    if not embeds:
-        return
     old_msg_id = get_list_message_id(guild.id)
     if old_msg_id:
         try:
@@ -238,6 +236,9 @@ async def _refresh_list_in_channel(guild: discord.Guild) -> None:
             await old_msg.delete()
         except (discord.NotFound, discord.HTTPException):
             pass
+    if not embeds:
+        set_list_message_id(guild.id, None)
+        return
     new_msg = await channel.send(embed=embeds[0])
     set_list_message_id(guild.id, new_msg.id)
     log.info(tag("BDAY", f"Lista aggiornata  id={new_msg.id}  [{b(guild.name)}]"))
@@ -395,22 +396,46 @@ class Birthdays(commands.Cog):
 
     @bday.command(name="adminremove", description=f"{_CROWN} Rimuovi il compleanno di un utente")
     @perm("admin")
-    @app_commands.describe(utente="Utente di cui rimuovere il compleanno")
+    @app_commands.describe(
+        utente="Membro del server di cui rimuovere il compleanno (in alternativa a utente_id)",
+        utente_id="ID numerico dalla lista compleanni, anche per account eliminati o usciti dal server",
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def bday_adminremove(
         self,
         inter: discord.Interaction,
-        utente: discord.Member,
+        utente: Optional[discord.Member] = None,
+        utente_id: Optional[str] = None,
     ):
-        existed = remove_birthday(inter.guild_id, utente.id)
+        if (utente is None) == (utente_id is None):
+            return await inter.response.send_message(
+                embed=self._err("Specifica uno solo tra `utente` e `utente_id`."), ephemeral=True
+            )
+        if utente_id is not None:
+            raw_id = utente_id.strip()
+            if not (raw_id.isascii() and raw_id.isdecimal() and 1 <= len(raw_id) <= 20):
+                return await inter.response.send_message(
+                    embed=self._err("ID utente non valido: copia l'ID numerico da `/bday list`."),
+                    ephemeral=True,
+                )
+            target_id = int(raw_id)
+            if not 0 < target_id < 2**64:
+                return await inter.response.send_message(
+                    embed=self._err("ID utente non valido."), ephemeral=True
+                )
+            target_label = f"ID `{target_id}`"
+        else:
+            target_id = utente.id
+            target_label = f"**{utente.display_name}**"
+        existed = remove_birthday(inter.guild_id, target_id)
         if existed:
             asyncio.create_task(_refresh_list_in_channel(inter.guild))
             await inter.response.send_message(
-                embed=self._ok(f"🗑️ Compleanno di **{utente.display_name}** rimosso."), ephemeral=True
+                embed=self._ok(f"🗑️ Compleanno di {target_label} rimosso."), ephemeral=True
             )
         else:
             await inter.response.send_message(
-                embed=self._err(f"Nessun compleanno registrato per **{utente.display_name}**."),
+                embed=self._err(f"Nessun compleanno registrato per {target_label}."),
                 ephemeral=True,
             )
 
