@@ -25,6 +25,7 @@ from core.music.input import (
 )
 from core.music.player import MusicPlayer
 from core.music.session import music_session
+from core.music.voice_lifecycle import voice_session_ended
 from core.source_resolver import (
     SourceResolver,
     _is_yt_channel_url,
@@ -254,10 +255,19 @@ class Music(QueueCommands, BatchCommands, commands.Cog):
         g = member.guild
         if member.id == self.bot.user.id:
             if before.channel and not after.channel:
-                p = self._players.pop(g.id, None)
-                if p:
-                    p.stop()
-                self._trigger_cancel(g.id)
+                p = self._players.get(g.id)
+                self._cancel_empty_task(g.id)
+                ended = await voice_session_ended(g, g.voice_client)
+                # A new /play may have installed a different player meanwhile.
+                if ended and self._players.get(g.id) is p:
+                    self._players.pop(g.id, None)
+                    if p:
+                        p.stop()
+                    self._trigger_cancel(g.id)
+                    log.info(tag("VOICE", f"session ended guild_id={g.id}"))
+                else:
+                    log.info(tag("VOICE", f"player preserved after voice transition guild_id={g.id}"))
+                self._notify_dj_state_change(g.id)
             elif before.channel and after.channel and before.channel != after.channel:
                 p = self._players.get(g.id)
                 if p:
