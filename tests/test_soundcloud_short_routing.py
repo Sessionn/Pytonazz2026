@@ -21,3 +21,13 @@ assert q2 == "https://on.soundcloud.com/abc123"
 assert not _is_text_search(q2)
 
 print("OK: SoundCloud short link routing")
+
+from unittest.mock import patch
+from core.source_resolver.ytdlp import _resolve_soundcloud_short_url
+
+with patch("httpx.Client", side_effect=OSError("httpx unavailable")), patch(
+    "urllib.request.urlopen", side_effect=OSError("urllib unavailable")
+):
+    original = "https://on.soundcloud.com/abc123"
+    assert _resolve_soundcloud_short_url(original) == original
+print("OK: SoundCloud double failure keeps the original URL without UnboundLocalError")

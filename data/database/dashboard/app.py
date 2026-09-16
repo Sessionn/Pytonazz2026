@@ -126,11 +126,11 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         @functools.wraps(f)
         def wrapped(*args, **kwargs):
             if not dashboard_auth_ready:
-                if request.is_json:
+                if request.is_json or request.path.startswith("/api/"):
                     return jsonify({"error": "dashboard_auth_not_configured"}), 503
                 return render_template("login.html", error="Dashboard non configurata: imposta DASH_USER e DASH_PASSWORD."), 503
             if not session.get("auth"):
-                if request.is_json:
+                if request.is_json or request.path.startswith("/api/"):
                     return jsonify({"error": "unauthorized"}), 401
                 return redirect(url_for("login"))
             return f(*args, **kwargs)
@@ -398,7 +398,9 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         error = None
         if request.method == "POST":
             now = time.time()
-            client_ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "unknown")
+            # ProxyFix already resolves the trusted proxy hop when configured.
+            # Never use the client-controlled leftmost X-Forwarded-For value.
+            client_ip = request.remote_addr or "unknown"
             attempts = [ts for ts in login_attempts.get(client_ip, []) if now - ts < login_window_seconds]
             login_attempts[client_ip] = attempts
             if len(attempts) >= login_max_attempts:
@@ -406,8 +408,8 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
 
             username = (request.form.get("username", "") or "").strip()
             pw = request.form.get("password", "")
-            user_ok = (not dashboard_user) or secrets.compare_digest(username, dashboard_user)
-            pw_ok = bool(dashboard_pw) and secrets.compare_digest(pw, dashboard_pw)
+            user_ok = secrets.compare_digest(username.encode("utf-8"), dashboard_user.encode("utf-8"))
+            pw_ok = secrets.compare_digest(pw.encode("utf-8"), dashboard_pw.encode("utf-8"))
             if user_ok and pw_ok:
                 session["auth"] = True
                 session.permanent = True

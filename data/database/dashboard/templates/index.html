@@ -3,15 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pytonazz Dashboard Control Room</title>
+<title>Libreria musicale · Pytonazz</title>
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/dashboard-favicon.svg') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/workspace.css') }}">
 </head>
-<body>
+<body class="library-page">
+<a class="skip-link" href="#main-content">Vai alla libreria</a>
 <div class="page-orb page-orb-a" aria-hidden="true"></div>
 <div class="page-orb page-orb-b" aria-hidden="true"></div>
 <div class="shell">
-  <nav>
+  <nav aria-label="Navigazione della libreria">
     <div class="logo">
       {% if bot_avatar_url %}
       <img class="logo-avatar" src="{{ bot_avatar_url }}" alt="Avatar bot Pytonazz">
@@ -20,26 +22,26 @@
       {% endif %}
       <div class="logo-copy">
         <strong>Pytonazz</strong>
-        <span>Cache Control</span>
+        <span>Il tuo spazio musicale</span>
       </div>
     </div>
 
-    <div class="nav-section-label">Workspace</div>
+    <div class="nav-section-label">Libreria</div>
     <a href="#" class="active" onclick="showSection('cache', this); return false;">
       <span class="nav-icon" aria-hidden="true">&#x2301;</span>
-      <span>Vista operativa</span>
+      <span>Tutti i brani</span>
     </a>
     <a href="#" onclick="showSection('aliases', this); return false;">
       <span class="nav-icon" aria-hidden="true">&#x26D3;</span>
-      <span>Vista alias</span>
+      <span>Alias di ricerca</span>
     </a>
     <a href="#" onclick="showSection('tracks', this); return false;">
       <span class="nav-icon" aria-hidden="true">&#x266A;</span>
-      <span>Tracce canoniche</span>
+      <span>Catalogo tracce</span>
     </a>
     <a href="#" onclick="showSection('sources', this); return false;">
       <span class="nav-icon" aria-hidden="true">&#x21AF;</span>
-      <span>Sorgenti risolte</span>
+      <span>Sorgenti audio</span>
     </a>
     <a href="#" onclick="showSection('queries', this); return false;">
       <span class="nav-icon" aria-hidden="true">&#x2315;</span>
@@ -51,7 +53,7 @@
     </a>
 
     <div class="nav-divider"></div>
-    <div class="nav-section-label">Runtime</div>
+    <div class="nav-section-label">Archivio</div>
     <a class="nav-static">
       <span class="nav-icon" aria-hidden="true">&#x25EB;</span>
       <span>{{ db_name }}</span>
@@ -65,18 +67,16 @@
     </button>
   </nav>
 
-  <main>
+  <main id="main-content" tabindex="-1">
     <div class="page-header">
       <div class="page-header-top">
         <div class="page-copy">
-          <p class="eyebrow">Dashboard Database</p>
-          <h1><span aria-hidden="true">&#127899;&#65039;</span> Cache DB</h1>
-          <p class="page-sub">Monitoraggio della cache, delle query osservate e delle sorgenti risolte in tempo reale.</p>
+          <p class="eyebrow">PYTONAZZ / LIBRERIA</p>
+          <h1>La musica, in ordine.</h1>
+          <p class="page-sub">Ritrova i brani, controlla le sorgenti e cura la tua libreria musicale.</p>
           <p id="gen-time" class="gen-time"></p>
           <div class="signal-row">
-            <span class="signal-chip signal-chip-live">Aggiornamento live</span>
-            <span class="signal-chip signal-chip-cache">Schema normalizzato</span>
-            <span class="signal-chip signal-chip-audio">Sorgenti audio</span>
+            <span id="connection-status" class="signal-chip" role="status">Connessione in corso</span>
           </div>
         </div>
         <div class="page-actions">
@@ -95,7 +95,7 @@
             </div>
             <div class="runtime-footnote">{{ runtime_stack }}</div>
           </div>
-          <a href="{{ url_for('logout') }}" class="btn btn-ghost header-action">Logout</a>
+          <a href="{{ url_for('logout') }}" class="btn btn-ghost header-action">Esci</a>
         </div>
       </div>
     </div>
@@ -103,15 +103,15 @@
     <div class="stats-grid">
       <div class="stat-card stat-card-primary">
         <div class="stat-top">
-          <span class="stat-kicker">Entries</span>
+          <span class="stat-kicker">Libreria</span>
           <span class="stat-spark"></span>
         </div>
         <div class="val count-up" data-target="{{ stats.total or 0 }}" data-stat="total">0</div>
-        <div class="lbl">Entry totali</div>
+        <div class="lbl">Brani in cache</div>
       </div>
       <div class="stat-card">
         <div class="stat-top">
-          <span class="stat-kicker">Valid</span>
+          <span class="stat-kicker">Disponibili</span>
           <span class="stat-spark stat-green"></span>
         </div>
         <div class="val green count-up" data-target="{{ stats.valid or 0 }}" data-stat="valid">0</div>
@@ -119,7 +119,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-top">
-          <span class="stat-kicker">Invalid</span>
+          <span class="stat-kicker">Da controllare</span>
           <span class="stat-spark stat-red"></span>
         </div>
         <div class="val red count-up" data-target="{{ stats.invalid or 0 }}" data-stat="invalid">0</div>
@@ -127,7 +127,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-top">
-          <span class="stat-kicker">Hits</span>
+          <span class="stat-kicker">Utilizzo</span>
           <span class="stat-spark stat-amber"></span>
         </div>
         <div class="val yellow count-up" data-target="{{ stats.hits or 0 }}" data-stat="hits">0</div>
@@ -135,7 +135,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-top">
-          <span class="stat-kicker">Aliases</span>
+          <span class="stat-kicker">Ricerche</span>
           <span class="stat-spark"></span>
         </div>
         <div class="val count-up" data-target="{{ aliases_count }}" data-stat="aliases">0</div>
@@ -143,19 +143,27 @@
       </div>
     </div>
 
+    <div class="library-update" id="library-update" hidden role="status">
+      <span>La libreria è cambiata. Aggiorna quando vuoi per vedere le novità.</span>
+      <button class="btn" type="button" onclick="refreshCurrentData(false)">Aggiorna elenco</button>
+    </div>
+    <div class="section-tools">
+      <span id="section-summary">Tutti i brani</span>
+      <button class="btn btn-ghost" type="button" onclick="refreshCurrentData(false)">Aggiorna</button>
+    </div>
     <div id="cache-section" class="section-stack">
       <div class="section-banner section-banner-cache">
         <div>
-          <p class="section-kicker">Vista compatibile</p>
-          <h2>song_cache operativa</h2>
+          <p class="section-kicker">Esplora la libreria</p>
+          <h2>Tutti i brani</h2>
         </div>
-        <p>Vista derivata da <code>cache_sources</code> e <code>cache_tracks</code> per ricerca, filtri e interventi rapidi.</p>
+        <p>Cerca un titolo o un artista e filtra per piattaforma e disponibilità.</p>
       </div>
       <div class="toolbar">
         <div class="toolbar-main">
-          <input type="text" id="search-input" placeholder="Cerca titolo, artista o query..." oninput="debouncedFetch()">
+          <input type="search" id="search-input" aria-label="Cerca nella libreria" placeholder="Cerca titolo, artista o query..." oninput="debouncedFetch()">
           <div class="custom-select-wrap">
-            <select id="filter-source" onchange="fetchSongs()">
+            <select id="filter-source" aria-label="Piattaforma" onchange="fetchSongs()">
               <option value="">Tutte le sorgenti</option>
               <option value="youtube">YouTube</option>
               <option value="spotify">Spotify</option>
@@ -163,7 +171,7 @@
             </select>
           </div>
           <div class="custom-select-wrap">
-            <select id="filter-valid" onchange="fetchSongs()">
+            <select id="filter-valid" aria-label="Disponibilità" onchange="fetchSongs()">
               <option value="">Tutti gli stati</option>
               <option value="1">Valide</option>
               <option value="0">Invalide</option>
@@ -372,13 +380,13 @@
 </div>
 
 <div class="modal-bg" id="modal-bg">
-  <div class="modal">
-    <button class="close" onclick="closeModal()">x</button>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Dettagli del brano" tabindex="-1">
+    <button class="close" onclick="closeModal()" aria-label="Chiudi dettagli">×</button>
     <div id="modal-content"></div>
   </div>
 </div>
 
-<div class="toast-container" id="toast-container"></div>
+<div class="toast-container" id="toast-container" role="status" aria-live="polite"></div>
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
 </body>

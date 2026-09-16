@@ -6,13 +6,15 @@
   <title>Pytonazz DJ Console</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/dj-console-favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dj_console.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/workspace.css') }}">
 </head>
-<body data-guild-id="{{ guild_id }}">
+<body class="dj-page" data-guild-id="{{ guild_id }}">
   <main class="console-shell">
     <section class="hero-panel">
       <div class="brand-block">
-        <p class="eyebrow">Pytonazz Remote Deck</p>
-        <h1>DJ Console</h1>
+        <p class="eyebrow">PYTONAZZ / LIVE DECK</p>
+        <h1>La tua regia musicale.</h1>
+        <p class="deck-description">Riproduzione, coda ed effetti del tuo server, in un solo posto.</p>
       </div>
       <div class="status-grid" hidden>
         <div class="status-card status-card-voice">

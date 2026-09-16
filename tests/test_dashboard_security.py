@@ -42,6 +42,45 @@ with tempfile.TemporaryDirectory() as td:
 
     print("OK: dashboard security config/login")
 
+    anonymous = app.test_client()
+    assert anonymous.get("/api/songs").status_code == 401
+    assert anonymous.get("/api/stats").get_json() == {"error": "unauthorized"}
+
+    unicode_login = app.test_client().post(
+        "/login", data={"username": "amministratòre", "password": "caffè"}
+    )
+    assert unicode_login.status_code == 200, unicode_login.data
+
+    # The rightmost proxy hop determines identity; adding a spoofed prefix
+    # must not reset the rate limit for the same client.
+    limited = app.test_client()
+    for index in range(5):
+        response = limited.post(
+            "/login", data={"username": "bad", "password": "bad"},
+            headers={"X-Forwarded-For": f"198.51.100.{index}, 192.0.2.10"},
+        )
+        assert response.status_code == 200
+    response = limited.post(
+        "/login", data={"username": "bad", "password": "bad"},
+        headers={"X-Forwarded-For": "203.0.113.50, 192.0.2.10"},
+    )
+    assert response.status_code == 429, response.data
+
+    os.environ["DASH_TRUST_PROXY"] = "false"
+    direct_app = create_app(str(db_path))
+    direct_client = direct_app.test_client()
+    for index in range(5):
+        assert direct_client.post(
+            "/login", data={"username": "bad", "password": "bad"},
+            headers={"X-Forwarded-For": f"198.51.100.{index}"},
+        ).status_code == 200
+    assert direct_client.post(
+        "/login", data={"username": "bad", "password": "bad"},
+        headers={"X-Forwarded-For": "203.0.113.50"},
+    ).status_code == 429
+    os.environ["DASH_TRUST_PROXY"] = "true"
+    print("OK: JSON auth, Unicode credentials, trusted and untrusted proxy rate limits")
+
     os.environ.pop("DASH_SECRET_KEY", None)
     app_random_secret = create_app(str(db_path))
     assert app_random_secret.secret_key

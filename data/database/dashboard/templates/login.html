@@ -6,16 +6,23 @@
 <title>Login – Pytonazz Dashboard</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>💿</text></svg>">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/workspace.css') }}">
 </head>
-<body>
-<div class="login-wrap">
+<body class="login-page">
+<main class="login-wrap">
+  <section class="login-intro" aria-label="Pytonazz">
+    <span class="eyebrow">PYTONAZZ / MUSIC & COMMUNITY</span>
+    <h2>Buona musica.<br>Ottima compagnia.</h2>
+    <p>Uno spazio per la musica del tuo server. Tutti i brani, le ricerche e le sorgenti, a portata di mano.</p>
+    <div class="login-record" aria-hidden="true"></div>
+  </section>
   <div class="login-card">
-    <div class="login-logo">💿</div>
-    <h1>Pytonazz</h1>
-    <p class="login-sub">Dashboard — accesso riservato</p>
+    <div class="login-logo">PZ / LIBRERIA</div>
+    <h1>Bentornato.</h1>
+    <p class="login-sub">Accedi con le credenziali della dashboard per gestire la libreria del bot.</p>
 
     {% if error %}
-    <div class="login-error">{{ error }}</div>
+    <div class="login-error" role="alert">{{ error }}</div>
     {% endif %}
 
     <form method="POST" action="/login" autocomplete="on">
@@ -55,12 +62,13 @@
       <button type="submit" class="btn-login">Accedi</button>
     </form>
   </div>
-</div>
+</main>
 
 <script>
 function togglePwd() {
   const inp = document.getElementById('password');
   inp.type = inp.type === 'password' ? 'text' : 'password';
+  document.querySelector('.eye-btn').setAttribute('aria-pressed', String(inp.type === 'text'));
 }
 </script>
 </body>

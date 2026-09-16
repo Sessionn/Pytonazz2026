@@ -1,4 +1,4 @@
-﻿let currentSort = "created_at";
+let currentSort = "created_at";
 let currentOrder = "desc";
 let currentSection = "cache";
 let debounceTimer;
@@ -9,6 +9,8 @@ let cacheChangeTimer = null;
 let lastStatsSignature = "";
 let lastSongIds = new Set();
 let lastSongUrls = new Map();
+let songsRequestId = 0;
+let modalTrigger = null;
 const loadedSections = new Set();
 const tableData = {
   aliases: [],
@@ -47,10 +49,20 @@ const liveSectionLoaders = {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-  const saved = localStorage.getItem("theme") || "dark";
+  let saved = "dark";
+  try { saved = localStorage.getItem("theme") === "light" ? "light" : "dark"; } catch (_) {}
   document.documentElement.setAttribute("data-theme", saved);
   updateThemeUI(saved);
   normalizeSortArrows();
+  document.querySelectorAll("th[data-col]").forEach(th => {
+    th.tabIndex = 0;
+    th.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); th.click(); }
+    });
+  });
+  document.querySelectorAll('.toolbar input').forEach(input => {
+    if (!input.hasAttribute('aria-label')) input.setAttribute('aria-label', input.placeholder);
+  });
   animateCounters();
   fetchSongs(false);
   startStatsRefresh(8);
@@ -77,7 +89,7 @@ function toggleTheme() {
   const html = document.documentElement;
   const nextTheme = html.getAttribute("data-theme") === "light" ? "dark" : "light";
   html.setAttribute("data-theme", nextTheme);
-  localStorage.setItem("theme", nextTheme);
+  try { localStorage.setItem("theme", nextTheme); } catch (_) {}
   updateThemeUI(nextTheme);
 }
 
@@ -102,6 +114,10 @@ function animateCounters() {
 }
 
 function tweenCounter(el, from, to, duration = 600) {
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    el.textContent = to.toLocaleString("it-IT");
+    return;
+  }
   const card = el.closest(".stat-card");
   if (card && from !== to) {
     card.classList.remove("updating");
@@ -129,10 +145,25 @@ function refreshStats(refreshData = true) {
     .then(data => {
       applyStatsPayload(data);
     })
-    .catch(() => {});
+    .catch(() => setConnectionStatus("offline", "Connessione non disponibile"));
+}
+
+function setConnectionStatus(state, label) {
+  const target = document.getElementById("connection-status");
+  if (target) { target.dataset.state = state; target.textContent = label; }
+}
+
+function readJson(response) {
+  if (response.status === 401) {
+    setConnectionStatus("offline", "Sessione scaduta · accedi di nuovo");
+    throw new Error("Session expired");
+  }
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
 }
 
 function applyStatsPayload(data) {
+  setConnectionStatus("live", statsEventSource ? "Statistiche in diretta" : "Statistiche aggiornate ogni 8 s");
   const signature = ["total", "valid", "invalid", "hits", "aliases"]
     .map(key => `${key}:${data[key] ?? 0}`)
     .join("|");
@@ -171,6 +202,7 @@ function startRealtimeStats() {
     } catch (_) {}
   });
   statsEventSource.onerror = () => {
+    setConnectionStatus("offline", "Diretta interrotta · controllo periodico attivo");
     if (statsEventSource) {
       statsEventSource.close();
       statsEventSource = null;
@@ -183,7 +215,8 @@ function startRealtimeStats() {
 function handleCacheChange(_payload) {
   clearTimeout(cacheChangeTimer);
   ["aliases", "tracks", "sources", "queries", "schema"].forEach(section => loadedSections.delete(section));
-  cacheChangeTimer = setTimeout(() => refreshCurrentData(true), 180);
+  const notice = document.getElementById("library-update");
+  if (notice) notice.hidden = false;
 }
 
 function startStatsRefresh(seconds = 8) {
@@ -199,6 +232,7 @@ function stopStatsRefresh() {
 }
 
 function fetchSongs(silent = false) {
+  const requestId = ++songsRequestId;
   const q = document.getElementById("search-input")?.value || "";
   const source = document.getElementById("filter-source")?.value || "";
   const valid = document.getElementById("filter-valid")?.value || "";
@@ -208,8 +242,12 @@ function fetchSongs(silent = false) {
   if (!silent) showSkeleton();
 
   fetch("/api/songs?" + params.toString())
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
+      if (requestId !== songsRequestId) return;
+      if (!Array.isArray(data)) throw new Error("Invalid songs response");
+      const notice = document.getElementById("library-update");
+      if (notice) notice.hidden = true;
       if (!silent) hideSkeleton();
       if (data.length === 0) {
         const tbody = document.getElementById("songs-body");
@@ -228,7 +266,12 @@ function fetchSongs(silent = false) {
         renderSongs(data);
       }
     })
-    .catch(() => showToast("Errore nel caricamento dati", "error"));
+    .catch(() => {
+      if (requestId !== songsRequestId) return;
+      hideSkeleton();
+      if (!silent) document.getElementById("songs-body").innerHTML = '<tr><td colspan="11">Caricamento non riuscito. Usa Aggiorna per riprovare.</td></tr>';
+      showToast("Errore nel caricamento dati", "error");
+    });
 }
 
 function debouncedFetch() {
@@ -387,10 +430,11 @@ function actionIcon(source) {
 }
 
 function makeActionLink(url, source, title) {
+  url = safeHttpUrl(url);
   const src = normalizedSource(source, url);
   const aria = esc(title || src);
   if (url) {
-    return `<a class="icon-btn platform-btn icon-${esc(src)}" href="${esc(url)}" target="_blank" title="${aria}" aria-label="${aria}">${actionIcon(src)}</a>`;
+    return `<a class="icon-btn platform-btn icon-${esc(src)}" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="${aria}" aria-label="${aria}">${actionIcon(src)}</a>`;
   }
   return `<span class="icon-btn platform-btn icon-${esc(src)} disabled" title="${aria} (non disponibile)" aria-label="${aria} non disponibile" aria-disabled="true">${actionIcon(src)}</span>`;
 }
@@ -431,15 +475,15 @@ function buildSongRow(song, index = 0) {
       <div style="display:flex;align-items:center;gap:10px">
         ${thumbHtml}
         <div>
-          <div class="title-text" onclick='openModal(${JSON.stringify(song)})'>${esc(song.title || "")}</div>
+          <button class="title-text song-details" type="button">${esc(song.title || "")}</button>
           <div class="artist-text">${esc(song.artist || "")}</div>
         </div>
       </div>
     </td>
     <td>
-      <div class="query-cell" title="${esc(song.query_raw || "")}" onclick="setSearch('${esc(song.query_raw || "")}')">
+      <button type="button" class="query-cell" title="${esc(song.query_raw || "")}">
         ${esc(song.query_raw || "")}
-      </div>
+      </button>
     </td>
     <td>${sourceBadge(song.source, song.webpage_url)}</td>
     <td>${coverBadge(coverSource, song.thumbnail_confidence)}</td>
@@ -455,6 +499,8 @@ function buildSongRow(song, index = 0) {
       </div>
     </td>
   `;
+  tr.querySelector(".song-details").addEventListener("click", () => openModal(song));
+  tr.querySelector(".query-cell").addEventListener("click", () => setSearch(song.query_raw || ""));
   return tr;
 }
 
@@ -715,7 +761,7 @@ function removeDashboardRow(section, id) {
 
 function deleteSong(id) {
   fetch("/api/delete/" + id, { method: "DELETE" })
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       if (!data.ok) throw new Error("delete failed");
       preserveScrollDuring(() => {
@@ -731,7 +777,7 @@ function deleteSong(id) {
 
 function deleteTrack(id) {
   fetch("/api/tracks/" + id, { method: "DELETE" })
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       if (!data.ok) throw new Error("delete track failed");
       preserveScrollDuring(() => {
@@ -746,7 +792,7 @@ function deleteTrack(id) {
 
 function deleteSource(id) {
   fetch("/api/sources/" + id, { method: "DELETE" })
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       if (!data.ok) throw new Error("delete source failed");
       preserveScrollDuring(() => {
@@ -761,7 +807,7 @@ function deleteSource(id) {
 
 function deleteAlias(id) {
   fetch("/api/aliases/" + id, { method: "DELETE" })
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       if (!data.ok) throw new Error("delete alias failed");
       preserveScrollDuring(() => {
@@ -776,7 +822,7 @@ function deleteAlias(id) {
 
 function deleteQuery(id) {
   fetch("/api/queries/" + id, { method: "DELETE" })
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       if (!data.ok) throw new Error("delete query failed");
       preserveScrollDuring(() => {
@@ -790,6 +836,7 @@ function deleteQuery(id) {
 }
 
 function openModal(song) {
+  modalTrigger = document.activeElement;
   const thumbHtml = song.thumbnail ? `<img class="modal-thumb" src="${esc(song.thumbnail)}">` : "";
   document.getElementById("modal-content").innerHTML = `
     ${thumbHtml}
@@ -797,22 +844,23 @@ function openModal(song) {
     <div class="modal-artist" style="clear:none">${esc(song.artist || "")}</div>
     <div style="clear:both;margin-bottom:4px"></div>
     ${modalRow("ID", song.id)}
-    ${modalRow("Query", song.query_raw)}
-    ${modalRow("Sorgente", song.source)}
+    ${modalRow("Query", esc(song.query_raw))}
+    ${modalRow("Sorgente", esc(song.source))}
     ${modalRow("Durata", song.duration ? fmtDuration(song.duration) : "-")}
     ${modalRow("Hits", `<span style="color:var(--yellow);font-weight:700">${song.hit_count ?? 0}</span>`)}
     ${modalRow("Stato", song.is_valid ? `<span class="badge ok">valida</span>` : `<span class="badge err">invalida</span>`)}
     ${modalRow("Creata", fmtTs(song.created_at))}
     ${modalRow("Ultima usata", fmtTs(song.last_used))}
-    ${song.webpage_url ? modalRow("Link", `<a class="modal-link" href="${esc(song.webpage_url)}" target="_blank">${esc(song.webpage_url)}</a>`) : ""}
-    ${song.spotify_url ? modalRow("Spotify", `<a class="modal-link" href="${esc(song.spotify_url)}" target="_blank">${esc(song.spotify_url)}</a>`) : ""}
+    ${safeHttpUrl(song.webpage_url) ? modalRow("Link", `<a class="modal-link" href="${esc(safeHttpUrl(song.webpage_url))}" target="_blank" rel="noopener noreferrer">${esc(song.webpage_url)}</a>`) : ""}
+    ${safeHttpUrl(song.spotify_url) ? modalRow("Spotify", `<a class="modal-link" href="${esc(safeHttpUrl(song.spotify_url))}" target="_blank" rel="noopener noreferrer">${esc(song.spotify_url)}</a>`) : ""}
     ${modalRow("Cover", coverBadge(song.thumbnail_source || inferCoverSource(song), song.thumbnail_confidence))}
     <div class="modal-actions">
-      <button class="btn btn-danger" onclick="deleteSong(${song.id})">Delete</button>
+      <button class="btn btn-danger" onclick="deleteSong(${song.id})">Elimina</button>
       <button class="btn btn-ghost" onclick="closeModal()">Chiudi</button>
     </div>
   `;
   document.getElementById("modal-bg").classList.add("open");
+  document.querySelector(".modal .close").focus();
 }
 
 function modalRow(key, value) {
@@ -821,7 +869,18 @@ function modalRow(key, value) {
 
 function closeModal() {
   document.getElementById("modal-bg").classList.remove("open");
+  modalTrigger?.focus();
 }
+
+document.addEventListener("keydown", event => {
+  if (!document.getElementById("modal-bg")?.classList.contains("open")) return;
+  if (event.key === "Escape") closeModal();
+  if (event.key !== "Tab") return;
+  const elements = document.querySelectorAll('.modal button, .modal a[href], .modal input');
+  const first = elements[0], last = elements[elements.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});
 
 document.getElementById("modal-bg")?.addEventListener("click", event => {
   if (event.target === document.getElementById("modal-bg")) {
@@ -907,51 +966,55 @@ function renderStoredTable(section) {
 
 function fetchAliases(silent = false) {
   fetch("/api/aliases")
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       tableData.aliases = data;
       renderStoredTable("aliases");
       loadedSections.add("aliases");
+      document.getElementById("library-update").hidden = true;
     })
     .catch(() => !silent && showToast("Errore nel caricamento alias", "error"));
 }
 
 function fetchTracks(silent = false) {
   fetch("/api/tracks")
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       tableData.tracks = data;
       renderStoredTable("tracks");
       loadedSections.add("tracks");
+      document.getElementById("library-update").hidden = true;
     })
     .catch(() => !silent && showToast("Errore nel caricamento tracce", "error"));
 }
 
 function fetchSources(silent = false) {
   fetch("/api/sources")
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       tableData.sources = data;
       renderStoredTable("sources");
       loadedSections.add("sources");
+      document.getElementById("library-update").hidden = true;
     })
     .catch(() => !silent && showToast("Errore nel caricamento sorgenti", "error"));
 }
 
 function fetchQueries(silent = false) {
   fetch("/api/queries")
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       tableData.queries = data;
       renderStoredTable("queries");
       loadedSections.add("queries");
+      document.getElementById("library-update").hidden = true;
     })
     .catch(() => !silent && showToast("Errore nel caricamento query", "error"));
 }
 
 function fetchSchema() {
   fetch("/api/schema")
-    .then(r => r.json())
+    .then(readJson)
     .then(data => {
       const grid = document.getElementById("schema-grid");
       if (!grid) return;
@@ -967,7 +1030,9 @@ function fetchSchema() {
         </article>
       `).join("");
       loadedSections.add("schema");
-    });
+      document.getElementById("library-update").hidden = true;
+    })
+    .catch(() => showToast("Errore nel caricamento struttura database", "error"));
 }
 
 function renderSimpleTable(bodyId, data, colSpan, rowBuilder, emptyMessage) {
@@ -988,6 +1053,9 @@ function showSection(section, el) {
   currentSection = section;
   document.querySelectorAll("nav a").forEach(anchor => anchor.classList.remove("active"));
   el.classList.add("active");
+  document.querySelectorAll("nav a").forEach(anchor => anchor.removeAttribute("aria-current"));
+  el.setAttribute("aria-current", "page");
+  document.getElementById("section-summary").textContent = el.textContent.trim();
 
   ["cache", "aliases", "tracks", "sources", "queries", "schema"].forEach(name => {
     const target = document.getElementById(`${name}-section`);
@@ -1007,7 +1075,7 @@ function showToast(message, type = "success") {
   const icon = type === "success" ? "OK" : "ERR";
   const el = document.createElement("div");
   el.className = `toast ${type}`;
-  el.innerHTML = `<span>${icon}</span> ${message}`;
+  el.innerHTML = `<span>${icon}</span> ${esc(message)}`;
   container.appendChild(el);
   setTimeout(() => {
     el.style.animation = "toastOut .3s ease forwards";
@@ -1041,7 +1109,7 @@ function fmtDuration(sec) {
 function fmtTs(ts) {
   if (!ts) return "-";
   const date = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
-  if (Number.isNaN(date.getTime())) return String(ts).slice(0, 16);
+  if (Number.isNaN(date.getTime())) return esc(String(ts).slice(0, 16));
   return date.toLocaleDateString("it-IT") + " " + date.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -1057,7 +1125,15 @@ function esc(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return ["https:", "http:"].includes(url.protocol) ? url.href : "";
+  } catch (_) { return ""; }
 }
 
 function makePlaceholder() {
