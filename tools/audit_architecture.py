@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+from importlib.util import resolve_name
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,7 +46,7 @@ class FuncSample:
 def iter_python_files(folder: Path) -> list[Path]:
     return sorted(
         p for p in folder.rglob("*.py")
-        if "__pycache__" not in p.parts and p.name != "__init__.py"
+        if "__pycache__" not in p.parts
     )
 
 
@@ -71,22 +72,26 @@ def _function_fingerprint(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
 def find_cog_coupling() -> list[CogCoupling]:
     findings: list[CogCoupling] = []
     for path in iter_python_files(COGS_DIR):
-        source = path.read_text(encoding="utf-8")
+        source = path.read_text(encoding="utf-8-sig")
         tree = ast.parse(source, filename=str(path))
+        relative = path.relative_to(ROOT).with_suffix('').parts
+        owner = '.'.join(relative[:2])
+        package = '.'.join(relative[:-1])
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                if node.module.startswith("cogs."):
+            if isinstance(node, ast.ImportFrom):
+                target = resolve_name('.' * node.level + (node.module or ''), package) if node.level else (node.module or '')
+                if target.startswith("cogs.") and target.split('.')[:2] != owner.split('.'):
                     findings.append(
                         CogCoupling(
                             src=path,
                             line=node.lineno,
-                            target=node.module,
+                            target=target,
                         )
                     )
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name.startswith("cogs."):
+                    if alias.name.startswith("cogs.") and alias.name.split('.')[:2] != owner.split('.'):
                         findings.append(
                             CogCoupling(
                                 src=path,
@@ -102,7 +107,7 @@ def find_duplicate_logic(min_lines: int) -> dict[str, list[FuncSample]]:
 
     targets = iter_python_files(COGS_DIR) + iter_python_files(CORE_DIR)
     for path in targets:
-        source = path.read_text(encoding="utf-8")
+        source = path.read_text(encoding="utf-8-sig")
         tree = ast.parse(source, filename=str(path))
 
         class_stack: list[str] = []

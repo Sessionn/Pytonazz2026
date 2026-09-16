@@ -32,10 +32,11 @@ from typing import Optional, Union
 from config import Config
 from core.log_colors import tag, b, hi, dim, _BGRN, _BYEL, _BRED, _CYN, _TEAL, _GRY
 from core.stream_expiry import stream_expiry_epoch
+from core.cache import queries
+from core.cache.schema import _SCHEMA_VERSION, _table_exists, _schema_is_current, _rebuild_schema, _load_ids, _id_mapping, _apply_id_map, _reset_sqlite_sequence
 
 log = logging.getLogger("pitonazz.cache_db")
 
-_SCHEMA_VERSION = 3
 _STREAM_URL_DB_TTL_SECONDS = 30 * 60
 _lock = threading.Lock()
 _conn: Optional[sqlite3.Connection] = None
@@ -171,146 +172,10 @@ def _title_artist_norm(title: str, artist: str) -> str:
     return _normalize_key(f"{(title or '').strip()} {(artist or '').strip()}".strip())
 
 
-def _table_exists(conn: sqlite3.Connection, name: str, kind: str = "table") -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = ? AND name = ? LIMIT 1",
-        (kind, name),
-    ).fetchone()
-    return row is not None
 
 
-def _schema_is_current(conn: sqlite3.Connection) -> bool:
-    version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
-    return (
-        version == _SCHEMA_VERSION
-        and _table_exists(conn, "cache_tracks")
-        and _table_exists(conn, "cache_sources")
-        and _table_exists(conn, "cache_queries")
-        and _table_exists(conn, "song_cache", "view")
-        and _table_exists(conn, "query_aliases", "view")
-    )
 
 
-def _rebuild_schema(conn: sqlite3.Connection) -> None:
-    conn.execute("PRAGMA foreign_keys=OFF")
-    for kind, name in (
-        ("view", "song_cache"),
-        ("view", "query_aliases"),
-        ("table", "query_aliases"),
-        ("table", "song_cache"),
-        ("table", "cache_queries"),
-        ("table", "cache_sources"),
-        ("table", "cache_tracks"),
-    ):
-        if _table_exists(conn, name, kind):
-            conn.execute(f"DROP {kind.upper()} {name}")
-
-    conn.executescript(
-        """
-        CREATE TABLE cache_tracks (
-            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-            canonical_query_hash  TEXT    NOT NULL UNIQUE,
-            canonical_query_raw   TEXT    NOT NULL,
-            normalized_query      TEXT    NOT NULL UNIQUE,
-            canonical_title       TEXT    NOT NULL DEFAULT '',
-            canonical_artist      TEXT    NOT NULL DEFAULT '',
-            created_at            INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-            updated_at            INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-            is_active             INTEGER NOT NULL DEFAULT 1
-        );
-
-        CREATE TABLE cache_sources (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            track_id          INTEGER NOT NULL REFERENCES cache_tracks(id) ON DELETE CASCADE,
-            webpage_url       TEXT    NOT NULL DEFAULT '',
-            stream_url        TEXT    NOT NULL DEFAULT '',
-            stream_expires_at INTEGER NOT NULL DEFAULT 0,
-            last_stream_check INTEGER NOT NULL DEFAULT 0,
-            source            TEXT    NOT NULL DEFAULT 'youtube',
-            resolved_title    TEXT    NOT NULL DEFAULT '',
-            resolved_artist   TEXT    NOT NULL DEFAULT '',
-            duration          INTEGER NOT NULL DEFAULT 0,
-            thumbnail         TEXT    NOT NULL DEFAULT '',
-            thumbnail_source  TEXT    NOT NULL DEFAULT '',
-            thumbnail_confidence REAL NOT NULL DEFAULT 0.0,
-            spotify_url       TEXT    NOT NULL DEFAULT '',
-            source_confidence REAL    NOT NULL DEFAULT 1.0,
-            created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-            last_used         INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-            hit_count         INTEGER NOT NULL DEFAULT 1,
-            is_valid          INTEGER NOT NULL DEFAULT 1
-        );
-
-        CREATE TABLE cache_queries (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
-            query_hash       TEXT    NOT NULL UNIQUE,
-            query_raw        TEXT    NOT NULL,
-            query_norm       TEXT    NOT NULL,
-            track_id         INTEGER NOT NULL REFERENCES cache_tracks(id) ON DELETE CASCADE,
-            source_id        INTEGER NOT NULL REFERENCES cache_sources(id) ON DELETE CASCADE,
-            alias_type       TEXT    NOT NULL DEFAULT 'text',
-            match_method     TEXT    NOT NULL DEFAULT 'canonical',
-            match_confidence REAL    NOT NULL DEFAULT 1.0,
-            first_seen       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-            last_seen        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-            hit_count        INTEGER NOT NULL DEFAULT 1,
-            is_confirmed     INTEGER NOT NULL DEFAULT 1,
-            is_active        INTEGER NOT NULL DEFAULT 1
-        );
-
-        CREATE UNIQUE INDEX idx_cache_sources_webpage
-            ON cache_sources(webpage_url) WHERE webpage_url != '';
-        CREATE UNIQUE INDEX idx_cache_sources_spotify
-            ON cache_sources(spotify_url) WHERE spotify_url != '';
-        CREATE INDEX idx_cache_sources_track
-            ON cache_sources(track_id, is_valid, hit_count DESC, last_used DESC);
-        CREATE INDEX idx_cache_tracks_norm
-            ON cache_tracks(normalized_query);
-        CREATE INDEX idx_cache_queries_track
-            ON cache_queries(track_id, source_id, is_active);
-        CREATE INDEX idx_cache_queries_norm
-            ON cache_queries(query_norm, is_active);
-        CREATE INDEX idx_cache_queries_alias
-            ON cache_queries(alias_type, is_active);
-
-        CREATE VIEW song_cache AS
-        SELECT
-            s.id                                  AS id,
-            t.canonical_query_hash                AS query_hash,
-            t.canonical_query_raw                 AS query_raw,
-            s.webpage_url                         AS webpage_url,
-            s.stream_url                          AS stream_url,
-            s.stream_expires_at                   AS stream_expires_at,
-            s.source                              AS source,
-            COALESCE(NULLIF(s.resolved_title, ''),  t.canonical_title)  AS title,
-            COALESCE(NULLIF(s.resolved_artist, ''), t.canonical_artist) AS artist,
-            s.duration                            AS duration,
-            s.thumbnail                           AS thumbnail,
-            s.thumbnail_source                    AS thumbnail_source,
-            s.thumbnail_confidence                AS thumbnail_confidence,
-            s.spotify_url                         AS spotify_url,
-            s.created_at                          AS created_at,
-            s.last_used                           AS last_used,
-            s.hit_count                           AS hit_count,
-            s.is_valid                            AS is_valid
-        FROM cache_sources s
-        JOIN cache_tracks t ON t.id = s.track_id
-        WHERE t.is_active = 1;
-
-        CREATE VIEW query_aliases AS
-        SELECT
-            q.id          AS id,
-            q.query_hash  AS query_hash,
-            q.query_raw   AS query_raw,
-            q.alias_type  AS alias_type,
-            q.source_id   AS cache_id
-        FROM cache_queries q
-        WHERE q.is_active = 1;
-        """
-    )
-    conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
-    conn.commit()
-    conn.execute("PRAGMA foreign_keys=ON")
 
 
 def rebuild_database(db_path: Union[str, Path, None] = None) -> str:
@@ -388,43 +253,12 @@ def _cleanup_orphans(cur: sqlite3.Cursor) -> None:
     )
 
 
-def _load_ids(conn: sqlite3.Connection, table: str) -> list[int]:
-    rows = conn.execute(f"SELECT id FROM {table} ORDER BY id ASC").fetchall()
-    return [int(row[0]) for row in rows]
 
 
-def _id_mapping(ids: list[int]) -> dict[int, int]:
-    return {old_id: new_id for new_id, old_id in enumerate(ids, start=1)}
 
 
-def _apply_id_map(
-    conn: sqlite3.Connection,
-    table: str,
-    id_map: dict[int, int],
-    fk_updates: list[tuple[str, str]],
-) -> None:
-    if not id_map:
-        return
-    for old_id, new_id in id_map.items():
-        if old_id == new_id:
-            continue
-        temp_id = -new_id
-        conn.execute(f"UPDATE {table} SET id = ? WHERE id = ?", (temp_id, old_id))
-        for fk_table, fk_col in fk_updates:
-            conn.execute(f"UPDATE {fk_table} SET {fk_col} = ? WHERE {fk_col} = ?", (temp_id, old_id))
-
-    conn.execute(f"UPDATE {table} SET id = -id WHERE id < 0")
-    for fk_table, fk_col in fk_updates:
-        conn.execute(f"UPDATE {fk_table} SET {fk_col} = -{fk_col} WHERE {fk_col} < 0")
 
 
-def _reset_sqlite_sequence(conn: sqlite3.Connection, table: str) -> None:
-    if not _table_exists(conn, "sqlite_sequence"):
-        return
-    max_id = int(conn.execute(f"SELECT COALESCE(MAX(id), 0) FROM {table}").fetchone()[0] or 0)
-    conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
-    if max_id > 0:
-        conn.execute("INSERT INTO sqlite_sequence(name, seq) VALUES(?, ?)", (table, max_id))
 
 
 def _source_row(cur: sqlite3.Cursor, source_id: int) -> Optional[sqlite3.Row]:
@@ -1499,126 +1333,27 @@ def list_song_rows(
     sort: str = "created_at",
     order: str = "DESC",
 ) -> list[dict]:
-    allowed = {"hit_count", "created_at", "last_used", "title", "artist", "query_raw", "id"}
-    sort = sort if sort in allowed else "created_at"
-    order = "DESC" if str(order).upper() == "DESC" else "ASC"
-
-    filters, params = [], []
-    if search:
-        filters.append("(LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(query_raw) LIKE ?)")
-        params += [f"%{search.lower()}%"] * 3
-    if source:
-        filters.append("source = ?")
-        params.append(source)
-    if valid in ("1", "0"):
-        filters.append("is_valid = ?")
-        params.append(int(valid))
-
-    where = ("WHERE " + " AND ".join(filters)) if filters else ""
-    with _cursor() as cur:
-        rows = cur.execute(
-            f"SELECT * FROM song_cache {where} ORDER BY {sort} {order}",
-            params,
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return queries.list_song_rows(_cursor ,search, source, valid, sort, order)
 
 
 def list_alias_rows() -> list[dict]:
-    with _cursor() as cur:
-        rows = cur.execute(
-            """
-            SELECT qa.id, qa.query_raw, qa.cache_id,
-                   qa.alias_type, sc.title, sc.artist, sc.spotify_url, sc.webpage_url
-              FROM query_aliases qa
-              LEFT JOIN song_cache sc ON sc.id = qa.cache_id
-             ORDER BY qa.id DESC
-            """
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return queries.list_alias_rows(_cursor)
+
+
+def list_page(kind: str, **options) -> dict:
+    return queries.list_page(_cursor, kind, **options)
 
 
 def list_track_rows() -> list[dict]:
-    with _cursor() as cur:
-        rows = cur.execute(
-            """
-            SELECT
-                t.id,
-                t.canonical_title,
-                t.canonical_artist,
-                t.normalized_query,
-                t.created_at,
-                t.updated_at,
-                COUNT(DISTINCT s.id) AS source_count,
-                COUNT(DISTINCT q.id) AS query_count
-            FROM cache_tracks t
-            LEFT JOIN cache_sources s ON s.track_id = t.id
-            LEFT JOIN cache_queries q ON q.track_id = t.id AND q.is_active = 1
-            GROUP BY t.id, t.canonical_title, t.canonical_artist, t.normalized_query, t.created_at, t.updated_at
-            ORDER BY t.id DESC
-            """
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return queries.list_track_rows(_cursor)
 
 
 def list_source_rows() -> list[dict]:
-    with _cursor() as cur:
-        rows = cur.execute(
-            """
-            SELECT
-                s.id,
-                s.track_id,
-                t.canonical_title,
-                t.canonical_artist,
-                s.source,
-                s.resolved_title,
-                s.resolved_artist,
-                s.webpage_url,
-                s.stream_expires_at,
-                s.spotify_url,
-                s.duration,
-                s.thumbnail,
-                s.thumbnail_source,
-                s.thumbnail_confidence,
-                s.is_valid,
-                s.hit_count,
-                s.created_at,
-                s.last_used
-            FROM cache_sources s
-            JOIN cache_tracks t ON t.id = s.track_id
-            ORDER BY s.id DESC
-            """
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return queries.list_source_rows(_cursor)
 
 
 def list_query_rows() -> list[dict]:
-    with _cursor() as cur:
-        rows = cur.execute(
-            """
-            SELECT
-                q.id,
-                q.track_id,
-                q.source_id,
-                q.query_raw,
-                q.query_norm,
-                q.alias_type,
-                q.match_confidence AS confidence,
-                q.is_active,
-                q.hit_count,
-                q.first_seen AS created_at,
-                q.last_seen,
-                t.canonical_title,
-                t.canonical_artist,
-                s.source,
-                s.spotify_url,
-                s.webpage_url
-            FROM cache_queries q
-            JOIN cache_tracks t ON t.id = q.track_id
-            JOIN cache_sources s ON s.id = q.source_id
-            ORDER BY q.id DESC
-            """
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return queries.list_query_rows(_cursor)
 
 
 def schema_overview() -> list[dict]:

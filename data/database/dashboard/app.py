@@ -650,9 +650,27 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
 
         return Response(events(), mimetype="text/event-stream")
 
+    def requested_page(kind):
+        if "page" not in request.args and "page_size" not in request.args:
+            return None
+        try:
+            return jsonify(cache_db.list_page(
+                kind, page=request.args.get("page", 1),
+                page_size=request.args.get("page_size", 50),
+                search=request.args.get("q", "").strip(),
+                sort=request.args.get("sort", "id"),
+                order=request.args.get("order", "desc"),
+                source=request.args.get("source", ""), valid=request.args.get("valid", ""),
+            ))
+        except (ValueError, OverflowError):
+            return jsonify(error="page and page_size must be integers"), 400
+
     @app.route("/api/songs")
     @login_required
     def api_songs():
+        page = requested_page("songs")
+        if page is not None:
+            return page
         search = request.args.get("q", "").strip()
         source = request.args.get("source", "")
         valid = request.args.get("valid", "")
@@ -664,40 +682,40 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             sort = "created_at"
         order = "DESC" if order == "desc" else "ASC"
 
-        filters, params = [], []
-        if search:
-            filters.append("(LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(query_raw) LIKE ?)")
-            params += [f"%{search.lower()}%"] * 3
-        if source:
-            filters.append("source = ?")
-            params.append(source)
-        if valid in ("1", "0"):
-            filters.append("is_valid = ?")
-            params.append(int(valid))
-
-        where = ("WHERE " + " AND ".join(filters)) if filters else ""
         rows = cache_db.list_song_rows(search=search, source=source, valid=valid, sort=sort, order=order)
         return jsonify(rows)
 
     @app.route("/api/aliases")
     @login_required
     def api_aliases():
+        page = requested_page("aliases")
+        if page is not None:
+            return page
         rows = cache_db.list_alias_rows()
         return jsonify(rows)
 
     @app.route("/api/tracks")
     @login_required
     def api_tracks():
+        page = requested_page("tracks")
+        if page is not None:
+            return page
         return jsonify(cache_db.list_track_rows())
 
     @app.route("/api/sources")
     @login_required
     def api_sources():
+        page = requested_page("sources")
+        if page is not None:
+            return page
         return jsonify(cache_db.list_source_rows())
 
     @app.route("/api/queries")
     @login_required
     def api_queries():
+        page = requested_page("queries")
+        if page is not None:
+            return page
         return jsonify(cache_db.list_query_rows())
 
     @app.route("/api/schema")

@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-music_py = (ROOT / "cogs" / "music.py").read_text(encoding="utf-8")
+music_py = (ROOT / "cogs" / "music" / "__init__.py").read_text(encoding="utf-8")
 
 assert "self._play_next_ticket:" in music_py, (
     "FAIL: il cog musica deve prenotare ticket per guild per ordinare /play simultanei"

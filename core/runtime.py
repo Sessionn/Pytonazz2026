@@ -97,15 +97,25 @@ async def load_extensions(bot, cogs: list[str], log: logging.Logger) -> None:
 
 
 def cog_path(cog: str) -> Path:
-    return Path(*cog.split(".")).with_suffix(".py")
+    base = Path(__file__).resolve().parents[1].joinpath(*cog.split("."))
+    return base / "__init__.py" if base.is_dir() else base.with_suffix(".py")
+
+
+def _extension_owns(cog: str, filename: str) -> bool:
+    path = cog_path(cog)
+    candidate = Path(filename)
+    base = path.parent if path.name == "__init__.py" else path.with_suffix("")
+    return candidate == base.with_suffix(".py") or candidate.is_relative_to(base)
 
 
 def snapshot_extension_mtimes(cogs: list[str]) -> dict[str, float]:
     result: dict[str, float] = {}
     for cog in cogs:
         path = cog_path(cog)
-        if path.exists():
-            result[str(path)] = path.stat().st_mtime
+        paths = path.parent.rglob("*.py") if path.name == "__init__.py" else [path]
+        for source in paths:
+            if source.is_file() and "__pycache__" not in source.parts:
+                result[str(source)] = source.stat().st_mtime_ns
     return result
 
 
@@ -116,15 +126,22 @@ async def reload_modified_extensions(
     log: logging.Logger,
 ) -> dict[str, float]:
     current = snapshot_extension_mtimes(cogs)
-    for path, mtime in current.items():
-        if previous_mtimes.get(path, 0) == mtime:
+    changed = {path for path in current.keys() | previous_mtimes.keys()
+               if current.get(path) != previous_mtimes.get(path)}
+    for cog_name in cogs:
+        if not any(_extension_owns(cog_name, path) for path in changed):
             continue
-        cog_name = path.replace("\\", "/").replace("/", ".").removesuffix(".py")
         try:
             await bot.reload_extension(cog_name)
             log.info(tag("COG", f"hot-reload  {b(cog_name.split('.')[-1])}"))
         except Exception as exc:
             log.error(tag("COG", f"hot-reload ERRORE  {cog_name}  {exc}"))
+            # A failed reload must be retried, including added/deleted modules.
+            for path in list(current):
+                if _extension_owns(cog_name, path):
+                    current.pop(path)
+            current.update({path: stamp for path, stamp in previous_mtimes.items()
+                            if _extension_owns(cog_name, path)})
     return current
 
 

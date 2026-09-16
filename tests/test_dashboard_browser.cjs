@@ -36,6 +36,22 @@ const fs = require('node:fs');
   await page.getByRole('link', { name: 'Tutti i brani', exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.song-details').length === 6);
 
+  // Pagination retrieves disjoint SQL pages and search resets the current page.
+  await page.evaluate(() => { pageState('cache').page_size = 2; fetchSongs(); });
+  await page.waitForFunction(() => document.querySelectorAll('.song-details').length === 2);
+  const firstPage = await page.locator('#songs-body tr[data-id]').evaluateAll(rows => rows.map(row => row.dataset.id));
+  await page.getByRole('button', { name: 'Successiva', exact: true }).click();
+  await page.waitForFunction(() => pageState('cache').page === 2 && document.querySelector('#library-pagination span').textContent.includes('2 di 3'));
+  const secondPage = await page.locator('#songs-body tr[data-id]').evaluateAll(rows => rows.map(row => row.dataset.id));
+  assert(secondPage.every(id => !firstPage.includes(id)));
+  await page.locator('#search-input').fill('Midnight');
+  await page.waitForFunction(() => pageState('cache').total === 1);
+  assert.equal(await page.locator('.song-details').innerText(), 'Midnight City');
+  assert.equal(await page.getByRole('button', { name: 'Successiva', exact: true }).isDisabled(), true);
+  await page.evaluate(() => { pageState('cache').page_size = 50; });
+  await page.getByRole('button', { name: 'Reset', exact: true }).first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.song-details').length === 6);
+
   // User-controlled query text must remain inert when inserted in a row/modal.
   await page.evaluate(() => {
     const song = {id: 999, title: "A 'quoted' title", artist: 'Test',

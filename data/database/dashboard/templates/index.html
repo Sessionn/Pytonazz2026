@@ -147,6 +147,11 @@
       <span>La libreria è cambiata. Aggiorna quando vuoi per vedere le novità.</span>
       <button class="btn" type="button" onclick="refreshCurrentData(false)">Aggiorna elenco</button>
     </div>
+    <div id="library-pagination" role="navigation" aria-label="Pagine dei risultati" class="section-tools">
+      <button type="button" class="btn" data-step="-1" onclick="changeLibraryPage(-1)">Precedente</button>
+      <span aria-live="polite"></span>
+      <button type="button" class="btn" data-step="1" onclick="changeLibraryPage(1)">Successiva</button>
+    </div>
     <div class="section-tools">
       <span id="section-summary">Tutti i brani</span>
       <button class="btn btn-ghost" type="button" onclick="refreshCurrentData(false)">Aggiorna</button>
@@ -388,6 +393,7 @@
 
 <div class="toast-container" id="toast-container" role="status" aria-live="polite"></div>
 
+<script src="{{ url_for('static', filename='js/pagination.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
 </body>
 </html>

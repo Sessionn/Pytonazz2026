@@ -24,13 +24,6 @@ const tableStates = {
   sources: { search: "", sort: "id", order: "desc" },
   queries: { search: "", sort: "id", order: "desc" },
 };
-const tableSearchFields = {
-  aliases: ["id", "query_raw", "alias_type", "title", "artist", "cache_id"],
-  tracks: ["id", "canonical_title", "canonical_artist", "normalized_query", "source_count", "query_count", "created_at", "updated_at"],
-  sources: ["id", "track_id", "canonical_title", "canonical_artist", "source", "resolved_title", "resolved_artist", "webpage_url", "spotify_url", "duration", "hit_count", "last_used"],
-  queries: ["id", "track_id", "source_id", "query_raw", "alias_type", "confidence", "hit_count", "canonical_title", "canonical_artist", "source", "webpage_url", "spotify_url", "last_seen"],
-};
-
 const sectionLoaders = {
   cache: () => fetchSongs(false),
   aliases: fetchAliases,
@@ -236,7 +229,7 @@ function fetchSongs(silent = false) {
   const q = document.getElementById("search-input")?.value || "";
   const source = document.getElementById("filter-source")?.value || "";
   const valid = document.getElementById("filter-valid")?.value || "";
-  const params = new URLSearchParams({ q, source, valid, sort: currentSort, order: currentOrder });
+  const params = pagedParams("cache", { q, source, valid, sort: currentSort, order: currentOrder });
   const scrollSnapshot = silent ? captureScrollSnapshot() : null;
 
   if (!silent) showSkeleton();
@@ -245,7 +238,7 @@ function fetchSongs(silent = false) {
     .then(readJson)
     .then(data => {
       if (requestId !== songsRequestId) return;
-      if (!Array.isArray(data)) throw new Error("Invalid songs response");
+      data = acceptPage("cache", data);
       const notice = document.getElementById("library-update");
       if (notice) notice.hidden = true;
       if (!silent) hideSkeleton();
@@ -286,7 +279,7 @@ function debouncedTableSearch(section) {
     const input = document.getElementById(`${section}-search`);
     if (!state || !input) return;
     state.search = input.value.trim();
-    renderStoredTable(section);
+    fetchLibraryTable(section);
   }, 180);
 }
 
@@ -296,7 +289,7 @@ function clearTableSearch(section) {
   if (!state || !input) return;
   input.value = "";
   state.search = "";
-  renderStoredTable(section);
+  fetchLibraryTable(section);
 }
 
 function sortTable(section, column) {
@@ -309,7 +302,7 @@ function sortTable(section, column) {
     state.order = "desc";
   }
   updateTableSortHeader(section);
-  renderStoredTable(section);
+  fetchLibraryTable(section);
 }
 
 function updateTableSortHeader(section) {
@@ -327,35 +320,8 @@ function updateTableSortHeader(section) {
   if (arrow) arrow.textContent = state.order === "desc" ? "↓" : "↑";
 }
 
-function normalizeValue(value) {
-  if (value === null || value === undefined) return "";
-  return String(value).toLowerCase();
-}
-
-function rowMatchesSearch(row, section) {
-  const q = normalizeValue(tableStates[section]?.search || "").trim();
-  if (!q) return true;
-  return (tableSearchFields[section] || []).some(field => normalizeValue(row[field]).includes(q));
-}
-
-function compareRows(section, a, b) {
-  const state = tableStates[section] || {};
-  const column = state.sort || "id";
-  const dir = state.order === "asc" ? 1 : -1;
-  const av = a[column];
-  const bv = b[column];
-  const an = Number(av);
-  const bn = Number(bv);
-  if (av !== "" && bv !== "" && Number.isFinite(an) && Number.isFinite(bn)) {
-    return (an - bn) * dir;
-  }
-  return normalizeValue(av).localeCompare(normalizeValue(bv), "it", { numeric: true, sensitivity: "base" }) * dir;
-}
-
 function tableRows(section) {
-  return [...(tableData[section] || [])]
-    .filter(row => rowMatchesSearch(row, section))
-    .sort((a, b) => compareRows(section, a, b));
+  return tableData[section] || [];
 }
 
 function normalizedSource(source, url = "") {
@@ -965,51 +931,19 @@ function renderStoredTable(section) {
 }
 
 function fetchAliases(silent = false) {
-  fetch("/api/aliases")
-    .then(readJson)
-    .then(data => {
-      tableData.aliases = data;
-      renderStoredTable("aliases");
-      loadedSections.add("aliases");
-      document.getElementById("library-update").hidden = true;
-    })
-    .catch(() => !silent && showToast("Errore nel caricamento alias", "error"));
+  return fetchLibraryTable("aliases", silent);
 }
 
 function fetchTracks(silent = false) {
-  fetch("/api/tracks")
-    .then(readJson)
-    .then(data => {
-      tableData.tracks = data;
-      renderStoredTable("tracks");
-      loadedSections.add("tracks");
-      document.getElementById("library-update").hidden = true;
-    })
-    .catch(() => !silent && showToast("Errore nel caricamento tracce", "error"));
+  return fetchLibraryTable("tracks", silent);
 }
 
 function fetchSources(silent = false) {
-  fetch("/api/sources")
-    .then(readJson)
-    .then(data => {
-      tableData.sources = data;
-      renderStoredTable("sources");
-      loadedSections.add("sources");
-      document.getElementById("library-update").hidden = true;
-    })
-    .catch(() => !silent && showToast("Errore nel caricamento sorgenti", "error"));
+  return fetchLibraryTable("sources", silent);
 }
 
 function fetchQueries(silent = false) {
-  fetch("/api/queries")
-    .then(readJson)
-    .then(data => {
-      tableData.queries = data;
-      renderStoredTable("queries");
-      loadedSections.add("queries");
-      document.getElementById("library-update").hidden = true;
-    })
-    .catch(() => !silent && showToast("Errore nel caricamento query", "error"));
+  return fetchLibraryTable("queries", silent);
 }
 
 function fetchSchema() {
@@ -1051,6 +985,7 @@ function renderSimpleTable(bodyId, data, colSpan, rowBuilder, emptyMessage) {
 
 function showSection(section, el) {
   currentSection = section;
+  renderPagination();
   document.querySelectorAll("nav a").forEach(anchor => anchor.classList.remove("active"));
   el.classList.add("active");
   document.querySelectorAll("nav a").forEach(anchor => anchor.removeAttribute("aria-current"));

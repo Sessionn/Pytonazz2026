@@ -106,7 +106,7 @@ def collect_files() -> list[Path]:
 def audit_file(path: Path) -> FileResult:
     result = FileResult(path=path)
     try:
-        source = path.read_text(encoding="utf-8")
+        source = path.read_text(encoding="utf-8-sig")
     except Exception as e:
         result.violations.append(Violation(
             file=path, line=0, code="V0",

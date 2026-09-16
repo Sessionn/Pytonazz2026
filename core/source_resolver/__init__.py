@@ -1,4 +1,64 @@
-﻿import asyncio
+"""Resolver orchestration and backward-compatible public imports."""
+from .extraction import _FAST_STREAM_EXTRACT_OPTS
+from .policy import _LYRIC_PHRASE_PUNCT_RE
+from .policy import _LYRIC_PHRASE_WORD_RE
+from .shuffle import _T
+from .parsing import _YOUTUBE_VIDEO_ID
+from .parsing import _YT_CHANNEL
+from .parsing import _SPOTIFY_ID_PATTERN
+from .parsing import _SPOTIFY_LOCALE_SEGMENT
+from .parsing import _SPOTIFY_HOSTS
+
+from .extraction import ExtractionMixin
+
+from .memory_cache import ResolverCacheMixin
+
+from .policy import (
+    _drop_unrequested_variants,
+    _prefer_studio,
+    _is_url_like_query,
+    _should_enrich_with_spotify,
+    _is_short_or_ambiguous_query,
+    _is_title_only_candidate,
+    _spotify_meta_popularity,
+    _looks_like_lyric_phrase_query,
+    _should_defer_spotify_canonical_for_phrase_query,
+    _should_use_spotify_canonical_early,
+    _spotify_youtube_query,
+    _raw_result_supports_spotify_artist,
+    _raw_result_beats_weak_spotify_hint,
+    _query_token_recall,
+    _should_retry_canonical_after_weak_hint,
+    _should_retry_canonical_after_music_video_hint,
+    _should_force_multi_candidate_retry,
+    _should_accept_spotify_direct_fast_match,
+    _select_best_spotify_hint_result,
+    _should_try_track_derived_spotify_enrich,
+    _prefer_track_derived_spotify_meta,
+    _spotify_track_derived_search_query,
+    _spotify_enrich_mode,
+)
+
+from .parsing import (
+    _is_yt_channel_url,
+    _youtube_video_id,
+    _entry_thumbnail,
+    _extract_spotify_entity_id,
+    extract_spotify_track_id,
+    extract_spotify_playlist_id,
+    extract_spotify_album_id,
+    extract_spotify_artist_id,
+    is_spotify_artist_url,
+)
+
+from .shuffle import (
+    _popularity_tier_shuffle,
+    _bucket_shuffle,
+    spotify_style_shuffle,
+    _shuffle_pairs,
+)
+
+import asyncio
 import logging
 import random
 import re
@@ -18,7 +78,7 @@ from core.source_resolver.selection import (
     select_best_track,
 )
 
-# â”€â”€ Sub-module imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Sub-module imports ─────────────────────────────────────────────────────────────────────────────
 from core.source_resolver.scoring import (
     _MV_KEYWORDS,
     _VARIANT_KEYWORDS,
@@ -82,589 +142,13 @@ from core.source_resolver.spotify import (
 log = logging.getLogger("pitonazz.resolver")
 enrich_log = logging.getLogger("pitonazz.spotify_enrich")
 
-_SPOTIFY_HOSTS = {"open.spotify.com", "spotify.com", "www.spotify.com"}
-_SPOTIFY_LOCALE_SEGMENT = re.compile(
-    r"(?:[a-z]{2}(?:-[a-z]{2})?|intl-[a-z]{2}(?:-[a-z]{2})?)",
-    re.IGNORECASE,
-)
-_SPOTIFY_ID_PATTERN = re.compile(r"[A-Za-z0-9]+")
-
-_YT_CHANNEL  = re.compile(
-    r"(?:https?://)?(?:www\.)?youtube\.com/"
-    r"(?:channel/UC[A-Za-z0-9_-]+|c/[^/?#]+|user/[^/?#]+|@[^/?#]+)"
-    r"(?:[/?#].*)?$"
-)
 
 _YT_CANDIDATES = 3
-_YOUTUBE_VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,}$")
 
-_T = TypeVar("_T")
 
-
-def _popularity_tier_shuffle(pairs: list[tuple]) -> list[tuple]:
-    if not pairs:
-        return []
-    sorted_pairs = sorted(
-        pairs,
-        key=lambda p: p[0].get("popularity", 0) if isinstance(p[0], dict) else getattr(p[0], "popularity", 0),
-        reverse=True,
-    )
-    n     = len(sorted_pairs)
-    third = max(1, n // 3)
-    top   = sorted_pairs[:third]
-    mid   = sorted_pairs[third:third * 2]
-    deep  = sorted_pairs[third * 2:]
-    random.shuffle(top)
-    random.shuffle(mid)
-    random.shuffle(deep)
-    result = []
-    for i in range(max(len(top), len(mid), len(deep))):
-        if i < len(top):  result.append(top[i])
-        if i < len(mid):  result.append(mid[i])
-        if i < len(deep): result.append(deep[i])
-    return result
-
-
-def _bucket_shuffle(items: list[_T], key_fn: Callable[[_T], str]) -> list[_T]:
-    if not items:
-        return []
-    buckets: dict[str, list] = defaultdict(list)
-    for item in items:
-        buckets[key_fn(item).strip().lower()].append(item)
-    for lst in buckets.values():
-        random.shuffle(lst)
-    sorted_keys = sorted(buckets, key=lambda k: len(buckets[k]), reverse=True)
-    total  = len(items)
-    result: list = [None] * total
-    for key in sorted_keys:
-        group   = buckets[key]
-        n       = len(group)
-        spacing = total / n
-        for i, item in enumerate(group):
-            ideal = int((i + 0.5) * spacing)
-            for delta in range(total):
-                pos = (ideal + delta) % total
-                if result[pos] is None:
-                    result[pos] = item
-                    break
-    return [x for x in result if x is not None]
-
-
-def spotify_style_shuffle(tracks: list["TrackInfo"]) -> list["TrackInfo"]:
-    return _bucket_shuffle(tracks, lambda t: getattr(t, "artist", "") or "unknown")
-
-
-def _shuffle_pairs(pairs: list[tuple]) -> list[tuple]:
-    return _bucket_shuffle(pairs, lambda p: p[1])
-
-
-def _drop_unrequested_variants(
-    query: str,
-    results: list["TrackInfo"],
-    *,
-    context: str = "",
-) -> list["TrackInfo"]:
-    """Reject explicit version variants unless the user asked for that variant.
-
-    This is intentionally stricter than a scoring penalty: for a plain query like
-    "donne ricche" an "acoustic version" result must not be cached as the answer.
-    """
-    if not results or _query_requests_variant(query):
-        return results
-
-    clean_results = [track for track in results if not _is_variant(getattr(track, "title", "") or "")]
-    if clean_results or len(clean_results) == len(results):
-        return clean_results
-
-    variant_titles = ", ".join((getattr(track, "title", "") or "-") for track in results[:3])
-    log.debug(tag(
-        "RESOLVE",
-        f"scarto variante non richiesta  {b(query)}"
-        f"{f'  via={b(context)}' if context else ''}  reject={b(variant_titles)}",
-    ))
-    return []
-
-
-def _is_yt_channel_url(url: str) -> bool:
-    return bool(_YT_CHANNEL.match(url))
-
-
-def _youtube_video_id(entry: dict, webpage_url: str) -> str:
-    candidate = str(entry.get("id") or "").strip()
-    if _YOUTUBE_VIDEO_ID.fullmatch(candidate):
-        return candidate
-
-    parsed = urllib.parse.urlparse(webpage_url or "")
-    host = (parsed.hostname or "").lower()
-    if host.endswith("youtu.be"):
-        candidate = parsed.path.strip("/").split("/")[0]
-    elif host.endswith("youtube.com"):
-        if parsed.path == "/watch":
-            candidate = urllib.parse.parse_qs(parsed.query).get("v", [""])[0]
-        else:
-            parts = [part for part in parsed.path.split("/") if part]
-            candidate = parts[1] if len(parts) >= 2 and parts[0] in {"shorts", "embed", "live"} else ""
-    return candidate if _YOUTUBE_VIDEO_ID.fullmatch(candidate) else ""
-
-
-def _entry_thumbnail(entry: dict, webpage_url: str, source: str) -> str:
-    direct = str(entry.get("thumbnail") or "").strip()
-    if direct:
-        return direct
-
-    thumbnails = [item for item in (entry.get("thumbnails") or []) if isinstance(item, dict)]
-    urls = [str(item.get("url") or "").strip() for item in thumbnails]
-    urls = [url for url in urls if url]
-    if urls:
-        return urls[-1]
-
-    artwork = str(entry.get("artwork_url") or "").strip()
-    if artwork:
-        return artwork
-
-    if source == "youtube":
-        video_id = _youtube_video_id(entry, webpage_url)
-        if video_id:
-            return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-    return ""
-
-
-def _extract_spotify_entity_id(url: str, entity: str) -> Optional[str]:
-    entity = (entity or "").lower()
-    raw = (url or "").strip()
-    if not raw:
-        return None
-
-    if raw.lower().startswith("spotify:"):
-        parts = raw.split(":")
-        if len(parts) >= 3 and parts[1].lower() == entity:
-            spotify_id = parts[2].split("?")[0].strip()
-            if not spotify_id:
-                return None
-            return spotify_id if _SPOTIFY_ID_PATTERN.fullmatch(spotify_id) else None
-
-    parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
-    host = (parsed.hostname or "").lower()
-    if host not in _SPOTIFY_HOSTS:
-        return None
-
-    parts = [p for p in parsed.path.split("/") if p]
-    if (
-        len(parts) >= 3
-        and _SPOTIFY_LOCALE_SEGMENT.fullmatch(parts[0])
-        and parts[1].lower() == entity
-    ):
-        parts = parts[1:]
-    if len(parts) < 2:
-        return None
-    if parts[0].lower() != entity:
-        return None
-
-    spotify_id = parts[1]
-    return spotify_id if _SPOTIFY_ID_PATTERN.fullmatch(spotify_id) else None
-
-
-def extract_spotify_track_id(url: str) -> Optional[str]:
-    return _extract_spotify_entity_id(url, "track")
-
-
-def extract_spotify_playlist_id(url: str) -> Optional[str]:
-    return _extract_spotify_entity_id(url, "playlist")
-
-
-def extract_spotify_album_id(url: str) -> Optional[str]:
-    return _extract_spotify_entity_id(url, "album")
-
-
-def extract_spotify_artist_id(url: str) -> Optional[str]:
-    return _extract_spotify_entity_id(url, "artist")
-
-
-def is_spotify_artist_url(url: str) -> bool:
-    return extract_spotify_artist_id(url) is not None
-
-
-def _prefer_studio(
-    candidates: list,
-    sp_dur: float = 0,
-    user_query: str = "",
-    sp_meta: dict | None = None,
-) -> object:
-    if not candidates:
-        return None
-    meta = dict(sp_meta or {})
-    if sp_dur > 0 and "duration" not in meta:
-        meta["duration"] = sp_dur
-    if (user_query or "").strip() or meta:
-        best = select_best_track(user_query, candidates, meta or None)
-        return best if best else candidates[0]
-    return candidates[0]
-
-
-def _is_url_like_query(query: str) -> bool:
-    q = (query or "").strip()
-    if not q:
-        return False
-    if q.lower().startswith("spotify:"):
-        return True
-    return bool(re.match(r"^(?:https?://|www\.)", q, re.IGNORECASE))
-
-
-def _should_enrich_with_spotify(query: str, tracks: list["TrackInfo"]) -> bool:
-    if not Config.SPOTIFY_CLIENT_ID:
-        return False
-    if not tracks:
-        return False
-    q = (query or "").strip()
-    if not q:
-        return False
-    if _is_url_like_query(q):
-        return False
-    return True
-
-
-def _is_short_or_ambiguous_query(query: str) -> bool:
-    q_norm = _normalize_for_sim(query)
-    if not q_norm:
-        return False
-    parts = q_norm.split()
-    if len(parts) <= 2:
-        return True
-    return len(q_norm) <= 14
-
-
-def _is_title_only_candidate(query: str) -> bool:
-    q_norm = _normalize_for_sim(query)
-    if not q_norm or _query_requests_variant(query):
-        return False
-    parts = q_norm.split()
-    if len(parts) < 3 or len(parts) > 6:
-        return False
-    return not any(sep in q_norm for sep in (" - ", " feat ", " ft ", " by "))
-
-
-_LYRIC_PHRASE_WORD_RE = re.compile(
-    r"\b(i|im|i'm|me|my|you|youre|you're|your|we|our|they|them|she|he|her|him|"
-    r"dont|don't|cant|can't|wont|won't|gonna|wanna)\b",
-    re.IGNORECASE,
-)
-_LYRIC_PHRASE_PUNCT_RE = re.compile(r"[,!?\"']")
-
-
-def _spotify_meta_popularity(sp_meta: dict) -> int:
-    try:
-        return int(sp_meta.get("popularity") or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _looks_like_lyric_phrase_query(query: str) -> bool:
-    raw = (query or "").strip()
-    q_norm = _normalize_for_sim(raw)
-    if not raw or not q_norm:
-        return False
-    parts = q_norm.split()
-    if len(parts) < 2 or len(parts) > 8:
-        return False
-    if _query_requests_variant(raw):
-        return False
-    if any(sep in q_norm for sep in (" feat ", " ft ", " prod ", " by ")):
-        return False
-    has_phrase_punct = bool(_LYRIC_PHRASE_PUNCT_RE.search(raw))
-    has_phrase_word = bool(_LYRIC_PHRASE_WORD_RE.search(raw))
-    return has_phrase_punct and (has_phrase_word or len(parts) >= 3)
-
-
-def _should_defer_spotify_canonical_for_phrase_query(query: str, sp_meta: dict) -> bool:
-    if not sp_meta or not _looks_like_lyric_phrase_query(query):
-        return False
-    artist_sim, artist_hint_present = _query_artist_signal(query, sp_meta.get("artist", ""))
-    if artist_hint_present and artist_sim > 0.45:
-        return False
-    return _spotify_meta_popularity(sp_meta) < 45
-
-
-def _should_use_spotify_canonical_early(query: str, sp_meta: dict) -> bool:
-    if not sp_meta:
-        return False
-    title_norm = _normalize_for_sim(sp_meta.get("title", ""))
-    artist = sp_meta.get("artist", "")
-    artist_sim, artist_hint_present = _query_artist_signal(query, artist)
-    q_norm = _normalize_for_sim(query)
-    if not q_norm or not title_norm:
-        return False
-    if artist_hint_present and artist_sim > 0:
-        return False
-    if q_norm == title_norm and _should_defer_spotify_canonical_for_phrase_query(query, sp_meta):
-        return False
-    return q_norm == title_norm
-
-
-def _spotify_youtube_query(canonical: str, original_query: str) -> str:
-    query = (canonical or "").strip()
-    if not query:
-        return ""
-    if _is_short_or_ambiguous_query(original_query) and not _query_requests_variant(original_query):
-        return f"{query} audio"
-    return query
-
-
-def _raw_result_supports_spotify_artist(query: str, track, sp_artist: str) -> bool:
-    artist_sim, artist_hint_present = _query_artist_signal(query, sp_artist)
-    if not artist_hint_present or artist_sim <= 0.0:
-        return False
-    yt_blob = _normalize_for_sim(
-        f"{getattr(track, 'title', '') or ''} {getattr(track, 'artist', '') or ''}"
-    )
-    artist_tokens = [
-        tok for tok in _normalize_for_sim(sp_artist).split()
-        if len(tok) >= _ARTIST_TOKEN_MIN_LENGTH
-    ]
-    return any(_contains_token(yt_blob, tok) for tok in artist_tokens)
-
-
-def _raw_result_beats_weak_spotify_hint(query: str, track, sp_meta: dict) -> bool:
-    """Avoid replacing a query-coherent raw result with a weak Spotify guess."""
-    raw_sim = _enrich_sim(query, getattr(track, "title", "") or "", getattr(track, "artist", "") or "")
-    spotify_sim = _enrich_sim(query, sp_meta.get("title", ""), sp_meta.get("artist", ""))
-    raw_recall = _query_token_recall(query, f"{getattr(track, 'title', '') or ''} {getattr(track, 'artist', '') or ''}")
-    spotify_recall = _query_token_recall(query, f"{sp_meta.get('title', '')} {sp_meta.get('artist', '')}")
-    if raw_recall >= 0.67 and raw_recall >= spotify_recall + 0.34:
-        return True
-    if raw_sim >= 0.55 and spotify_sim < 0.45:
-        return True
-    if raw_sim >= 0.42 and raw_sim >= spotify_sim + 0.18:
-        return True
-    return False
-
-
-def _query_token_recall(query: str, candidate_text: str) -> float:
-    query_tokens = [tok for tok in _normalize_for_sim(query).split() if tok]
-    candidate_tokens = [tok for tok in _normalize_for_sim(candidate_text).split() if tok]
-    if not query_tokens or not candidate_tokens:
-        return 0.0
-    matched = 0
-    used: set[int] = set()
-    for q_tok in query_tokens:
-        best_idx = -1
-        best_score = 0.0
-        for idx, c_tok in enumerate(candidate_tokens):
-            if idx in used:
-                continue
-            if q_tok == c_tok:
-                best_idx = idx
-                best_score = 1.0
-                break
-            if min(len(q_tok), len(c_tok)) >= 4 and abs(len(q_tok) - len(c_tok)) <= 3:
-                sim = _str_sim(q_tok, c_tok)
-                if sim >= 0.78 and sim > best_score:
-                    best_idx = idx
-                    best_score = sim
-        if best_idx >= 0:
-            used.add(best_idx)
-            matched += 1
-    return matched / len(query_tokens)
-
-
-def _should_retry_canonical_after_weak_hint(query: str, track, sp_meta: dict, score: dict) -> bool:
-    if _is_short_or_ambiguous_query(query):
-        return True
-    if _raw_result_beats_weak_spotify_hint(query, track, sp_meta):
-        return False
-    raw_artist_ok = _raw_result_supports_spotify_artist(query, track, sp_meta.get("artist", ""))
-    if not _query_requests_variant(query) and float(score.get("variant_penalty", 0.0) or 0.0) >= 0.20:
-        if (
-            raw_artist_ok
-            and float(score.get("duration_sim", 0.0) or 0.0) >= 0.82
-            and max(float(score.get("query_sim", 0.0) or 0.0), float(score.get("yt_sim", 0.0) or 0.0)) >= 0.55
-        ):
-            return False
-        return True
-    if _is_variant(getattr(track, "title", "") or "") and not _query_requests_variant(query):
-        return True
-    if score.get("yt_sim", 0.0) < 0.50:
-        return True
-    if not raw_artist_ok:
-        return True
-    return False
-
-
-def _should_retry_canonical_after_music_video_hint(query: str, track, sp_meta: dict, score: dict) -> bool:
-    """For text queries, avoid caching official videos when a studio/audio result is nearby."""
-    if _query_requests_variant(query):
-        return False
-    if not _is_music_video(getattr(track, "title", "") or "", getattr(track, "artist", "") or ""):
-        return False
-    if not (sp_meta.get("title") and sp_meta.get("artist")):
-        return False
-    if float(score.get("query_sim", 0.0) or 0.0) < 0.55:
-        return False
-    if float(score.get("duration_sim", 0.0) or 0.0) < _DURATION_DEFAULT_SCORE:
-        return False
-    return True
-
-
-def _should_force_multi_candidate_retry(query: str, score: dict) -> bool:
-    if not _is_short_or_ambiguous_query(query):
-        return False
-    if score.get("decision") != "skip":
-        return False
-    if float(score.get("confidence", 0.0) or 0.0) > 0.18:
-        return False
-    if float(score.get("yt_sim", 0.0) or 0.0) > 0.12:
-        return False
-    return True
-
-
-def _should_accept_spotify_direct_fast_match(sp_title: str, track, score: dict) -> bool:
-    if score.get("decision") in ("full", "cover_only"):
-        return True
-    if _is_music_video(getattr(track, "title", "") or "", getattr(track, "artist", "") or ""):
-        return False
-    if _is_variant(getattr(track, "title", "") or "") and not _query_requests_variant(sp_title):
-        return False
-    if float(score.get("confidence", 0.0) or 0.0) < 0.43:
-        return False
-    if float(score.get("query_sim", 0.0) or 0.0) < 0.95:
-        return False
-    if float(score.get("yt_sim", 0.0) or 0.0) < 0.50:
-        return False
-    if float(score.get("duration_sim", 0.0) or 0.0) < 0.82:
-        return False
-    if float(score.get("variant_penalty", 0.0) or 0.0) > 0.0:
-        return False
-    return True
-
-
-def _select_best_spotify_hint_result(results: list, sp_meta: dict, query: str) -> list:
-    if not results or len(results) <= 1:
-        return results
-    sp_dur = float(sp_meta.get("duration", 0) or 0)
-    best = _prefer_studio(results, sp_dur=sp_dur, user_query=query, sp_meta=sp_meta)
-    return [best] if best else results[:1]
-
-
-def _should_try_track_derived_spotify_enrich(query: str, track, sp_meta: dict, score: dict) -> bool:
-    if not sp_meta or not track:
-        return False
-    if _spotify_enrich_mode(score) != "skip":
-        return False
-    if _is_url_like_query(query):
-        return False
-    title_blob = f"{getattr(track, 'title', '') or ''} {getattr(track, 'artist', '') or ''}"
-    if not title_blob.strip():
-        return False
-    if _is_music_video(getattr(track, "title", "") or "", getattr(track, "artist", "") or ""):
-        return False
-    if _should_defer_spotify_canonical_for_phrase_query(query, sp_meta):
-        return True
-    confidence = float(score.get("confidence", 0.0) or 0.0)
-    return _spotify_meta_popularity(sp_meta) < 35 and confidence < 0.45 and (
-        bool(getattr(track, "artist", "") or "") or " - " in getattr(track, "title", "")
-    )
-
-
-def _prefer_track_derived_spotify_meta(
-    query: str,
-    original_meta: dict,
-    original_score: dict,
-    derived_meta: dict | None,
-    derived_score: dict | None,
-) -> bool:
-    if not derived_meta or not derived_score:
-        return False
-    if _spotify_enrich_mode(derived_score) == "skip":
-        return False
-    original_pop = _spotify_meta_popularity(original_meta)
-    derived_pop = _spotify_meta_popularity(derived_meta)
-    if _should_defer_spotify_canonical_for_phrase_query(query, original_meta):
-        return derived_pop >= max(0, original_pop - 10)
-    original_conf = float(original_score.get("confidence", 0.0) or 0.0)
-    derived_conf = float(derived_score.get("confidence", 0.0) or 0.0)
-    return derived_pop >= original_pop or derived_conf >= original_conf + 0.18
-
-
-def _spotify_track_derived_search_query(original_query: str, track) -> str:
-    title_text = (getattr(track, "title", "") or "").strip()
-    artist_text = (getattr(track, "artist", "") or "").strip()
-    if _looks_like_lyric_phrase_query(original_query) and title_text:
-        cleaned_title = re.sub(
-            r"\((?:lyrics?|official\s+audio|official\s+video|audio|video)\)",
-            " ",
-            title_text,
-            flags=re.IGNORECASE,
-        )
-        cleaned_title = re.sub(
-            r"\[(?:lyrics?|official\s+audio|official\s+video|audio|video)\]",
-            " ",
-            cleaned_title,
-            flags=re.IGNORECASE,
-        )
-        cleaned_title = re.sub(r"\s+", " ", cleaned_title).strip(" -|")
-        if " - " in cleaned_title:
-            left, right = cleaned_title.split(" - ", 1)
-            return f"{left.strip()} {right.strip()}".strip()
-        if artist_text and _contains_token(_normalize_for_sim(cleaned_title), _normalize_for_sim(artist_text)):
-            return cleaned_title
-        return " ".join(x for x in (cleaned_title, artist_text) if x).strip()
-
-    search_parts = []
-    search_parts.append(original_query)
-    if title_text:
-        search_parts.append(title_text)
-    if artist_text:
-        search_parts.append(artist_text)
-    return " ".join(x.strip() for x in search_parts if x and x.strip())
-
-
-def _spotify_enrich_mode(score: dict) -> str:
-    decision = score.get("decision", "skip")
-    if decision in ("full", "cover_only"):
-        return decision
-
-    confidence = float(score.get("confidence", 0.0) or 0.0)
-    query_sim = float(score.get("query_sim", 0.0) or 0.0)
-    yt_sim = float(score.get("yt_sim", 0.0) or 0.0)
-    duration_sim = float(score.get("duration_sim", 0.0) or 0.0)
-    variant_penalty = float(score.get("variant_penalty", 0.0) or 0.0)
-    non_music_penalty = float(score.get("non_music_penalty", 0.0) or 0.0)
-    artist_hint_present = bool(score.get("artist_hint_present"))
-    artist_sim = float(score.get("artist_sim", 0.0) or 0.0)
-    artist_mismatch = artist_hint_present and artist_sim < _ARTIST_MISMATCH_THRESHOLD
-
-    if artist_mismatch:
-        return "skip"
-
-    if (
-        confidence >= 0.42
-        and query_sim >= 0.94
-        and yt_sim >= 0.88
-        and duration_sim >= 0.82
-        and variant_penalty <= 0.07
-        and non_music_penalty <= 0.0
-    ):
-        return "cover_link"
-
-    if (
-        confidence >= 0.38
-        and max(query_sim, yt_sim) >= 0.84
-        and duration_sim >= 0.68
-        and variant_penalty <= 0.14
-    ):
-        return "link_only"
-
-    return "skip"
-
-
-# â”€â”€ Query Cache singleton (lazy init) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
-_FAST_STREAM_EXTRACT_OPTS = {
-    "noplaylist": True,
-    "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio",
-    "youtube_include_dash_manifest": False,
-    "youtube_include_hls_manifest": False,
-}
 
 
 def _get_query_cache():
@@ -730,7 +214,7 @@ def _cache_hit_to_track(
     )
 
 
-class SourceResolver:
+class SourceResolver(ExtractionMixin, ResolverCacheMixin):
     _sp = None
     _cache_lock = threading.Lock()
     _ytdlp_query_cache: dict[str, tuple[float, list["TrackInfo"]]] = {}
@@ -833,83 +317,6 @@ class SourceResolver:
         enrich_log.debug(tag("SPOTIFY", f"  non_music={int(score['non_music_penalty'] * 100)}%"))
         enrich_log.debug(tag("SPOTIFY", f"  reason={dim(clip(score['reason']))}"))
 
-    @classmethod
-    def _cache_prune_locked(cls, cache: dict, max_size: int) -> None:
-        now = time.monotonic()
-        expired_keys = [k for k, (exp, _) in cache.items() if exp <= now]
-        for key in expired_keys:
-            cache.pop(key, None)
-        while len(cache) > max_size:
-            cache.pop(next(iter(cache)), None)
-
-    @classmethod
-    def _get_cached_ytdlp_results(
-        cls, key: str, requester: str, requester_id: int
-    ) -> Optional[list["TrackInfo"]]:
-        now = time.monotonic()
-        with cls._cache_lock:
-            cached = cls._ytdlp_query_cache.get(key)
-            if not cached:
-                return None
-            exp, tracks = cached
-            if exp <= now:
-                cls._ytdlp_query_cache.pop(key, None)
-                return None
-            cls._ytdlp_query_cache.pop(key, None)
-            cls._ytdlp_query_cache[key] = (exp, tracks)
-            hydrated = []
-            for track in tracks:
-                clone = _clone_track(track)
-                clone.requester = requester
-                clone.requester_id = requester_id
-                hydrated.append(clone)
-            return hydrated
-
-    @classmethod
-    def _set_cached_ytdlp_results(cls, key: str, tracks: list["TrackInfo"]) -> None:
-        with cls._cache_lock:
-            cls._ytdlp_query_cache.pop(key, None)
-            cls._ytdlp_query_cache[key] = (
-                time.monotonic() + _YTDLP_QUERY_CACHE_TTL,
-                [_clone_track(t) for t in tracks],
-            )
-            cls._cache_prune_locked(cls._ytdlp_query_cache, _YTDLP_QUERY_CACHE_MAX)
-
-    @classmethod
-    def _get_cached_stream_url(cls, webpage_url: str) -> Optional[str]:
-        now = time.monotonic()
-        with cls._cache_lock:
-            cached = cls._stream_url_cache.get(webpage_url)
-            if not cached:
-                return None
-            exp, url = cached
-            if exp <= now:
-                cls._stream_url_cache.pop(webpage_url, None)
-                return None
-            cls._stream_url_cache.pop(webpage_url, None)
-            cls._stream_url_cache[webpage_url] = (exp, url)
-            return url
-
-    @classmethod
-    def _set_cached_stream_url(cls, webpage_url: str, stream_url: str) -> None:
-        if not stream_url:
-            return
-        ttl = stream_ttl_seconds(stream_url, fallback_ttl=int(_STREAM_URL_CACHE_TTL))
-        with cls._cache_lock:
-            cls._stream_url_cache.pop(webpage_url, None)
-            cls._stream_url_cache[webpage_url] = (
-                time.monotonic() + ttl,
-                stream_url,
-            )
-            cls._cache_prune_locked(cls._stream_url_cache, _STREAM_URL_CACHE_MAX)
-
-    @classmethod
-    def invalidate_stream_cache(cls, webpage_url: str) -> None:
-        normalized_webpage_url = (webpage_url or "").strip()
-        if not normalized_webpage_url:
-            return
-        with cls._cache_lock:
-            cls._stream_url_cache.pop(normalized_webpage_url, None)
 
     @classmethod
     def _sp_client(cls):
@@ -1095,12 +502,12 @@ class SourceResolver:
             except Exception as _ce:
                 log.debug(tag("CACHE", f"direct-url read path error (ignorato): {_ce}"))
 
-        # â”€â”€ Spotify track singola â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Spotify track singola ──────────────────────────────────────────────
         if track_id := extract_spotify_track_id(query):
             results = await loop.run_in_executor(
                 None, cls._sp_track, track_id, requester, requester_id
             )
-            # 6.2 â€” cache per link Spotify diretto
+            # 6.2 — cache per link Spotify diretto
             if results and results[0].title:
                 try:
                     qc = _get_query_cache()
@@ -1110,7 +517,7 @@ class SourceResolver:
                     log.debug(tag("CACHE", f"write path spotify-direct (ignorato): {_we}"))
             return results
 
-        # â”€â”€ Spotify playlist / album / artista â†’ no cache (multi-traccia) â”€â”€â”€â”€
+        # ── Spotify playlist / album / artista → no cache (multi-traccia) ────
         if playlist_id := extract_spotify_playlist_id(query):
             return await loop.run_in_executor(
                 None, cls._sp_playlist, playlist_id, requester, requester_id
@@ -1127,11 +534,11 @@ class SourceResolver:
                 tracks.append(t)
             return tracks
 
-        # â”€â”€ URL YouTube / SoundCloud diretto â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── URL YouTube / SoundCloud diretto ──────────────────────────────────
         results = await loop.run_in_executor(
             None, cls._search_or_url, query, requester, requester_id
         )
-        # 6.2 â€” cache per URL diretto (YT/SC): salva solo se Ã¨ effettivamente un URL
+        # 6.2 — cache per URL diretto (YT/SC): salva solo se è effettivamente un URL
         if results and results[0].title and _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
@@ -1178,7 +585,7 @@ class SourceResolver:
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
 
-        # â”€â”€ READ PATH: cache-first lookup (solo per n==1, query testuale) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── READ PATH: cache-first lookup (solo per n==1, query testuale) ─────────────────────
         if n == 1 and not _is_url_like_query(query):
             try:
                 cached_track = await cls._resolve_cached_track(query, requester, requester_id)
@@ -1190,7 +597,7 @@ class SourceResolver:
                     log.info(tag("CACHE", f"{b(query)}  \u2192  stale url, ricerca fresca"))
             except Exception as _ce:
                 log.debug(tag("CACHE", f"read path error (ignorato): {_ce}"))
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ─────────────────────────────────────────────────────────────────────────────
 
         search_n = max(n, _YT_CANDIDATES)
         canonical_search_n = 1 if n == 1 else search_n
@@ -1492,7 +899,7 @@ class SourceResolver:
                         None, cls._enrich_with_spotify, results, query
                     )
 
-        # â”€â”€ WRITE PATH: salva il risultato in cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── WRITE PATH: salva il risultato in cache ─────────────────────────────────────────────
         if n == 1 and results and not _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
@@ -1500,7 +907,7 @@ class SourceResolver:
                     qc.store(query, results[0])
             except Exception as _we:
                 log.debug(tag("CACHE", f"write path error (ignorato): {_we}"))
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ─────────────────────────────────────────────────────────────────────────────
 
         elapsed = (time.perf_counter() - t0) * 1000
         log.info(tag("RESOLVE", f"{b(query)}  \u2192  {b(str(len(results)))} risultati  {ms(elapsed)}"))
@@ -1765,7 +1172,7 @@ class SourceResolver:
 
         log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  \u2192  {hi(chosen.webpage_url, _BBLU)}"))
 
-        # â”€â”€ WRITE PATH Spotify: salva in cache DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── WRITE PATH Spotify: salva in cache DB ────────────────────────────────────────────
         if sp_url:
             try:
                 qc = _get_query_cache()
@@ -1773,7 +1180,7 @@ class SourceResolver:
                     qc.link_spotify(sp_url, query_with_artist, "")
             except Exception:
                 pass
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ─────────────────────────────────────────────────────────────────────────────
 
         return chosen
 
@@ -1902,230 +1309,6 @@ class SourceResolver:
         log.info(tag("STREAM", f"{title(track.title)}  {ms(elapsed)}  {status}"))
         return url
 
-    @classmethod
-    def _search_or_url(cls, query: str, requester: str, requester_id: int) -> list:
-        if query.startswith("http"):
-            if _is_yt_channel_url(query):
-                log.debug(tag("RESOLVER", f"URL canale YouTube ignorato: {b(query)}"))
-                return []
-            query = _resolve_soundcloud_short_url(query)
-            query = _strip_soundcloud_params(query)
-            query = _strip_yt_radio(query)
-        else:
-            query = "ytsearch:" + query
-        return cls._run_ytdlp(query, requester, requester_id)
-
-    @classmethod
-    def _run_ytdlp(cls, query: str, requester: str, requester_id: int) -> list:
-        cache_key = query.strip()
-        cached = cls._get_cached_ytdlp_results(cache_key, requester, requester_id)
-        if cached is not None:
-            log.debug(tag("RESOLVE", f"cache hit ytdlp  {b(query)}"))
-            return cached
-        with cls._cache_lock:
-            inflight = cls._ytdlp_query_inflight.get(cache_key)
-            if inflight is None:
-                inflight = threading.Event()
-                cls._ytdlp_query_inflight[cache_key] = inflight
-                owns_inflight = True
-            else:
-                owns_inflight = False
-        if not owns_inflight:
-            inflight.wait()
-            cached = cls._get_cached_ytdlp_results(cache_key, requester, requester_id)
-            return cached if cached is not None else []
-        normalized_query = query.strip()
-        origin_query = re.sub(r"^ytsearch\d*:", "", normalized_query, count=1).strip() or normalized_query
-        try:
-            fast_search_results = cls._run_ytdlp_flat_first(normalized_query, requester, requester_id, origin_query)
-            if fast_search_results is not None:
-                cls._set_cached_ytdlp_results(cache_key, fast_search_results)
-                return fast_search_results
-            try:
-                with yt_dlp.YoutubeDL(_make_opts()) as ydl:
-                    info = ydl.extract_info(query, download=False)
-            except yt_dlp.utils.ExtractorError as e:
-                err_str = str(e).lower()
-                # Video non disponibile (rimosso, geo-bloccato, privato, ecc.)
-                if any(kw in err_str for kw in ("video unavailable", "private video",
-                                                 "this video is not available",
-                                                 "has been removed", "geo")):
-                    log.warning(tag("WARN", f"video non disponibile, fallback search: {b(query)}"))
-                    # Se era un URL diretto, proviamo una ricerca testuale con il titolo
-                    if query.startswith("http"):
-                        return []  # per URL diretti non c'Ã¨ fallback sicuro
-                    # Per query ytsearch, logghiamo e restituiamo vuoto
-                    return []
-                log.error(tag("ERR", f"yt-dlp ExtractorError: {e}"))
-                return []
-            except Exception as e:
-                log.error(tag("ERR", f"yt-dlp: {e}"))
-                return []
-            if not info:
-                return []
-            results = cls._tracks_from_ytdlp_info(info, requester, requester_id, origin_query)
-            cls._set_cached_ytdlp_results(cache_key, results)
-            return results
-        finally:
-            with cls._cache_lock:
-                done = cls._ytdlp_query_inflight.pop(cache_key, None)
-                if done is not None:
-                    done.set()
-
-    @classmethod
-    def _run_ytdlp_flat_first(
-        cls,
-        query: str,
-        requester: str,
-        requester_id: int,
-        origin_query: str,
-    ) -> Optional[list]:
-        if not re.match(r"^ytsearch1:", query, re.IGNORECASE):
-            return None
-        try:
-            with yt_dlp.YoutubeDL(_make_opts({"extract_flat": True, "format": "bestaudio/best"})) as ydl:
-                info = ydl.extract_info(query, download=False)
-            direct_url = cls._first_ytdlp_webpage_url(info or {})
-            if not direct_url:
-                return None
-            with yt_dlp.YoutubeDL(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
-                direct_info = ydl.extract_info(direct_url, download=False)
-            results = cls._tracks_from_ytdlp_info(direct_info or {}, requester, requester_id, origin_query)
-            return results if results else None
-        except Exception as exc:
-            log.debug(tag("RESOLVE", f"flat-first ytsearch fallback  {b(query)}  {exc}"))
-            return None
-
-    @staticmethod
-    def _first_ytdlp_webpage_url(info: dict) -> str:
-        entries = info.get("entries") or []
-        first = entries[0] if entries else info
-        if not first:
-            return ""
-        url = (first.get("webpage_url") or first.get("url") or "").strip()
-        if not url:
-            return ""
-        if url.startswith(("http://", "https://")):
-            return url
-        if re.match(r"^ytsearch\d*:", url, re.IGNORECASE):
-            return ""
-        if re.fullmatch(r"[A-Za-z0-9_-]{11}", url):
-            return f"https://www.youtube.com/watch?v={url}"
-        return ""
-
-    @classmethod
-    def _tracks_from_ytdlp_info(cls, info: dict, requester: str, requester_id: int, origin_query: str) -> list:
-        raw_entries = info.get("entries")
-        entries = raw_entries if raw_entries is not None else [info]
-        results = []
-        for e in entries:
-            if not e or cls._is_drm(e):
-                continue
-            url = cls._best_audio_url(e)
-            if not url:
-                continue
-            webpage_url = e.get("webpage_url", "")
-            src    = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
-            artist = e.get("artist") or e.get("creator") or e.get("uploader", "")
-            thumbnail = _entry_thumbnail(e, webpage_url, src)
-            results.append(TrackInfo(
-                title        = e.get("title", "Senza titolo"),
-                webpage_url  = webpage_url,
-                duration     = int(e.get("duration") or 0),
-                thumbnail    = thumbnail,
-                requester    = requester,
-                requester_id = requester_id,
-                source       = src,
-                stream_url   = url,
-                artist       = artist,
-                origin_query = origin_query,
-                thumbnail_source = src if thumbnail else "",
-                thumbnail_confidence = 0.45 if thumbnail else 0.0,
-            ))
-        return results
-
-    @classmethod
-    def _fetch_stream_url(cls, webpage_url: str) -> str:
-        normalized_webpage_url = (webpage_url or "").strip()
-        if not normalized_webpage_url:
-            return ""
-        cached = cls._get_cached_stream_url(normalized_webpage_url)
-        if cached is not None:
-            log.debug(tag("STREAM", f"cache hit stream_url  {b(normalized_webpage_url)}"))
-            return cached
-        with cls._cache_lock:
-            inflight = cls._stream_url_inflight.get(normalized_webpage_url)
-            if inflight is None:
-                inflight = threading.Event()
-                cls._stream_url_inflight[normalized_webpage_url] = inflight
-                owns_inflight = True
-            else:
-                owns_inflight = False
-        if not owns_inflight:
-            inflight.wait()
-            return cls._get_cached_stream_url(normalized_webpage_url) or ""
-        try:
-            try:
-                with yt_dlp.YoutubeDL(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
-                    info = ydl.extract_info(normalized_webpage_url, download=False)
-            except yt_dlp.utils.ExtractorError as e:
-                cls.invalidate_stream_cache(normalized_webpage_url)
-                err_str = str(e).lower()
-                if any(kw in err_str for kw in ("video unavailable", "private video",
-                                                 "this video is not available",
-                                                 "has been removed")):
-                    log.warning(tag("WARN", f"video non disponibile (rimosso/privato): {b(normalized_webpage_url)}"))
-                else:
-                    log.error(tag("ERR", f"fetch_stream_url ExtractorError: {e}"))
-                return ""
-            except Exception as e:
-                cls.invalidate_stream_cache(normalized_webpage_url)
-                log.error(tag("ERR", f"fetch_stream_url: {e}"))
-                return ""
-            if not info or cls._is_drm(info):
-                cls.invalidate_stream_cache(normalized_webpage_url)
-                return ""
-            entries = info.get("entries") or []
-            if entries:
-                info = next((entry for entry in entries if entry and not cls._is_drm(entry)), {}) or {}
-                if not info:
-                    cls.invalidate_stream_cache(normalized_webpage_url)
-                    return ""
-            stream_url = cls._best_audio_url(info) or ""
-            if stream_url:
-                cls._set_cached_stream_url(normalized_webpage_url, stream_url)
-            else:
-                cls.invalidate_stream_cache(normalized_webpage_url)
-            return stream_url
-        finally:
-            with cls._cache_lock:
-                done = cls._stream_url_inflight.pop(normalized_webpage_url, None)
-                if done is not None:
-                    done.set()
-
-    @staticmethod
-    def _is_drm(info: dict) -> bool:
-        if info.get("is_drm_protected"):
-            return True
-        formats = info.get("formats", [])
-        return bool(formats) and all(f.get("has_drm") for f in formats)
-
-    @staticmethod
-    def _best_audio_url(info: dict) -> Optional[str]:
-        formats = info.get("formats", [])
-        audio = [
-            f for f in formats
-            if f.get("vcodec") == "none"
-            and f.get("acodec") not in (None, "none")
-            and f.get("url")
-            and not f.get("has_drm")
-        ]
-        if not audio:
-            return info.get("url")
-        _DIRECT = {"https", "http", ""}
-        direct  = [f for f in audio if (f.get("protocol") or "").split("+")[0] in _DIRECT]
-        pool    = direct if direct else audio
-        return max(pool, key=lambda f: f.get("abr") or f.get("tbr") or 0)["url"]
 
     @classmethod
     def _sp_track(cls, track_id: str, requester: str, requester_id: int) -> list:

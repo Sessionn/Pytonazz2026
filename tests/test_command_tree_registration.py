@@ -8,6 +8,7 @@ Run from project root:
 import asyncio
 import os
 import sys
+from types import SimpleNamespace
 
 import discord
 from discord import app_commands
@@ -46,6 +47,34 @@ async def main() -> None:
         entries = []
         for item in bot.tree.get_commands():
             entries.extend(_walk(item))
+
+        signatures = {name: [(p.name, p.type, p.required) for p in cmd.parameters]
+                      for name, cmd in entries}
+        original = bot.get_cog('Music')
+        player = SimpleNamespace()
+        original._players[123] = player
+        original._play_next_ticket[123] = 7
+        moderation = bot.get_cog('Moderation')
+        moderation._muted_mic[123] = {456}
+        old_watchdog = moderation._quarantine_watchdog.get_task()
+        for _ in range(2):
+            for extension in ('cogs.music', 'cogs.moderation'):
+                await bot.reload_extension(extension)
+            reloaded = [entry for item in bot.tree.get_commands() for entry in _walk(item)]
+            assert len(reloaded) == len(entries)
+            assert signatures == {name: [(p.name, p.type, p.required) for p in cmd.parameters]
+                                  for name, cmd in reloaded}
+            music = bot.get_cog('Music')
+            assert music is not original
+            assert music._players[123] is player
+            assert music._play_next_ticket[123] == 7
+            assert player._on_autoplay.__self__ is music
+            assert player._on_state_change.__self__ is music
+            assert bot.get_cog('Moderation')._muted_mic[123] == {456}
+        await asyncio.sleep(0)
+        assert old_watchdog.done()
+        player._on_cleanup(123)
+        assert 123 not in music._players
 
     names = [name for name, _cmd in entries]
     duplicates = sorted({name for name in names if names.count(name) > 1})

@@ -70,6 +70,25 @@ stats = client.get("/api/stats")
 assert stats.status_code == 200, stats.data
 assert stats.get_json()["total"] == 3
 
+for kind in ("songs", "aliases", "tracks", "sources", "queries"):
+    legacy = client.get(f"/api/{kind}").get_json()
+    first = client.get(f"/api/{kind}?page=1&page_size=2&sort=id&order=asc").get_json()
+    assert first["total"] == len(legacy), (kind, first)
+    assert len(first["items"]) <= 2
+    last = client.get(f"/api/{kind}?page=999999&page_size=2").get_json()
+    assert last["page"] == last["pages"]
+    empty = client.get(f"/api/{kind}?page=2&q=no-such-track-xyz").get_json()
+    assert empty["items"] == [] and empty["page"] == 1 and empty["total"] == 0
+    assert client.get(f"/api/{kind}?page=bad").status_code == 400
+    capped = client.get(f"/api/{kind}?page_size=999999&sort=id;DROP+TABLE+cache_tracks").get_json()
+    assert capped["page_size"] == 200 and capped["total"] == len(legacy)
+
+search_page = client.get('/api/songs?page=1&q=Song+Two&source=youtube&valid=1').get_json()
+assert search_page["total"] == 1 and search_page["items"][0]["title"] == "Song Two"
+assert client.get('/api/songs?page=1&q=%25').get_json()["total"] == 0
+tracks_page = client.get('/api/tracks?page=1').get_json()["items"]
+assert all(row['source_count'] == 1 and row['query_count'] >= 1 for row in tracks_page)
+
 aliases = client.get("/api/aliases")
 assert aliases.status_code == 200, aliases.data
 
