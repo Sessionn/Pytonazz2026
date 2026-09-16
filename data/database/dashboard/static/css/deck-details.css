@@ -1,0 +1,34 @@
+/* Small additions to the original dark mixer, independent of the library theme. */
+.progress-track { overflow: visible; }
+#progress-fill { position: relative; border-radius: inherit; }
+#progress-fill::after {
+  content: ""; position: absolute; right: 0; top: 50%;
+  width: 12px; height: 12px; border-radius: 50%; background: #fff;
+  transform: translate(50%, -50%); box-shadow: 0 0 0 3px #ffffff18, 0 2px 8px #0008;
+}
+#volume-slider-handle::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 7px; height: 7px; border-radius: 50%; background: white;
+  transform: translate(-50%, -50%); box-shadow: 0 0 7px #ffffff70;
+}
+#remaining-label { color: #a9bad4; font-size: 12px; font-variant-numeric: tabular-nums; }
+.console-shell, .deck-panel, .mixer-main, .platter-wrap { min-width: 0; }
+@media (max-width: 1100px) {
+  .deck-grid { grid-template-columns: 1fr; }
+  .queue-panel { grid-column: 1; }
+}
+@media (max-width: 700px) {
+  .console-shell { padding: 16px; }
+  .deck-panel { padding: 14px; }
+  .mixer-layout { grid-template-columns: 1fr; }
+  .channel-strip { min-height: 180px; }
+  .volume-well { height: 130px; min-height: 130px; }
+  .knob-bank { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .knob { width: 100%; max-width: 110px; }
+  .eq-slot { width: 52px; }
+  .fader-handle { width: 58px; }
+  .filter-button-grid, .fx-pad-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

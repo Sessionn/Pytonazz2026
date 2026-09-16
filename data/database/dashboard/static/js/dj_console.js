@@ -243,7 +243,9 @@ function getDisplayedPosition() {
 }
 
 function renderPlaybackClock() {
+  const remaining = document.getElementById("remaining-label");
   if (!state) {
+    if (remaining) remaining.textContent = "−00:00";
     els.position.textContent = "00:00";
     els.duration.textContent = "00:00";
     els.progress.style.width = "0%";
@@ -253,6 +255,9 @@ function renderPlaybackClock() {
   const duration = Number(state.duration || 0);
   els.position.textContent = formatTime(position);
   els.duration.textContent = formatTime(duration);
+  if (remaining) remaining.textContent = duration > 0
+    ? `−${formatTime(Math.max(0, duration - position))}`
+    : (state.current_track ? "LIVE" : "−00:00");
   const progress = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
   els.progress.style.width = `${progress}%`;
 }
@@ -427,7 +432,7 @@ function ensureScratchAudio() {
   drive.gain.value = 0.0001;
 
   const master = context.createGain();
-  master.gain.value = 0.88;
+  master.gain.value = 1.0; // +14% local scratch level; music output is unchanged.
 
   const panner = context.createStereoPanner();
   panner.pan.value = 0;

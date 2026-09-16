@@ -101,6 +101,17 @@ const fs = require('node:fs');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(base + '/preview-dj');
   await page.locator('#track-title').waitFor();
+  assert.equal(await page.locator('#remaining-label').innerText(), '−00:00');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('progress-fill'), '::after').backgroundColor), 'rgb(255, 255, 255)');
+  assert.equal(await page.evaluate(() => {
+    const previous = state;
+    state = { connected: false, position: 30, duration: 120, current_track: { title: 'Test' } };
+    renderPlaybackClock();
+    const remaining = document.getElementById('remaining-label').textContent;
+    state = previous;
+    renderPlaybackClock();
+    return remaining;
+  }), '−01:30');
   await page.screenshot({ path: 'data/tmp/web-review/dj-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'data/tmp/web-review/dj-mobile.png', fullPage: true });
