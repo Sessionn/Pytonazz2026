@@ -67,7 +67,7 @@ class DJAccessController:
         return None
 
     def subscribe(self, guild_id: int) -> queue.Queue[str]:
-        q: queue.Queue[str] = queue.Queue()
+        q: queue.Queue[str] = queue.Queue(maxsize=1)
         with self._lock:
             self._subscribers.setdefault(guild_id, set()).add(q)
         return q
@@ -92,8 +92,15 @@ class DJAccessController:
         for q in subscribers:
             try:
                 q.put_nowait(payload)
-            except Exception:
-                pass
+            except queue.Full:
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    q.put_nowait(payload)
+                except queue.Full:
+                    pass
 
     def get_player_snapshot(self, guild_id: int) -> dict[str, Any]:
         player = self._find_player(guild_id)

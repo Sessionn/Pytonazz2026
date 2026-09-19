@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "data" / "database" / "dashboard" / "templates" / "index.html"
-STYLE_CSS = ROOT / "data" / "database" / "dashboard" / "static" / "css" / "style.css"
+STYLE_CSS = ROOT / "data" / "database" / "dashboard" / "static" / "css" / "dashboard.css"
 DASHBOARD_JS = ROOT / "data" / "database" / "dashboard" / "static" / "js" / "dashboard.js"
 
 

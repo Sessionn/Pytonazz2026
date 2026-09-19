@@ -70,6 +70,16 @@ stats = client.get("/api/stats")
 assert stats.status_code == 200, stats.data
 assert stats.get_json()["total"] == 3
 
+# Streaming clients cannot occupy every Waitress worker; closing frees a slot.
+streams = [client.get('/api/events', buffered=False) for _ in range(4)]
+assert all(response.status_code == 200 for response in streams)
+assert client.get('/api/events').status_code == 503
+for response in reversed(streams):
+    response.close()
+released = client.get('/api/events', buffered=False)
+assert released.status_code == 200
+released.close()
+
 for kind in ("songs", "aliases", "tracks", "sources", "queries"):
     legacy = client.get(f"/api/{kind}").get_json()
     first = client.get(f"/api/{kind}?page=1&page_size=2&sort=id&order=asc").get_json()
@@ -128,73 +138,23 @@ row = conn.execute("SELECT alias_type FROM cache_queries WHERE query_raw LIKE 'h
 conn.close()
 assert row and row[0] == "spotify"
 
-deleted = client.delete("/api/delete/2")
-assert deleted.status_code == 200, deleted.data
-delete_payload = deleted.get_json()
-assert delete_payload["ok"] is True
-assert delete_payload["compact"]["source_id_map"]["3"] == 2, delete_payload
-assert delete_payload["compact"]["track_id_map"]["3"] == 2, delete_payload
-
-tracks_after_delete = client.get("/api/tracks?sort=id&order=ASC")
-assert tracks_after_delete.status_code == 200, tracks_after_delete.data
-track_rows = tracks_after_delete.get_json()
-assert [row["id"] for row in track_rows] == [2, 1], track_rows
-assert {row["canonical_title"] for row in track_rows} == {"Song", "Song Three"}, track_rows
-
+# Deleting in one session never reassigns IDs still visible in another session.
+deleted = client.delete("/api/delete/2").get_json()
+assert deleted["ok"] and deleted["compact"] == {}
+rows = client.get("/api/sources").get_json()
+assert [row["id"] for row in rows] == [3, 1]
+assert client.delete("/api/delete/2").get_json()["ok"] is False
+assert client.get("/api/sources").get_json()[0]["id"] == 3
+cache_db.put("song four artist", dict(title="Song Four", artist="Artist", webpage_url="https://youtube.com/watch?v=4", source="youtube", duration=160))
+rows = client.get("/api/sources").get_json()
+assert rows[0]["id"] == 4
+assert client.delete("/api/queries/1").status_code == 200
+assert client.delete("/api/sources/1").get_json()["ok"]
+assert client.delete("/api/tracks/3").get_json()["ok"]
 conn = sqlite3.connect(tmp.name)
-source_rows = conn.execute(
-    "SELECT id, track_id, webpage_url FROM cache_sources ORDER BY id ASC"
-).fetchall()
-query_rows = conn.execute(
-    "SELECT id, track_id, source_id, query_raw FROM cache_queries ORDER BY id ASC"
-).fetchall()
+assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+assert conn.execute("SELECT id, canonical_title FROM cache_tracks").fetchall() == [(4, "Song Four")]
 conn.close()
-
-assert source_rows == [
-    (1, 1, "https://youtube.com/watch?v=1"),
-    (2, 2, "https://youtube.com/watch?v=3"),
-], source_rows
-assert all(track_id in (1, 2) for _, track_id, _, _ in query_rows), query_rows
-assert all(source_id in (1, 2) for _, _, source_id, _ in query_rows), query_rows
-
-cache_db.put(
-    "song four artist",
-    {
-        "title": "Song Four",
-        "artist": "Artist",
-        "webpage_url": "https://youtube.com/watch?v=4",
-        "source": "youtube",
-        "duration": 160,
-        "thumbnail": "",
-        "spotify_url": "",
-    },
-)
-tracks_after_insert = client.get("/api/tracks?sort=id&order=ASC")
-assert tracks_after_insert.status_code == 200, tracks_after_insert.data
-assert [row["id"] for row in tracks_after_insert.get_json()] == [3, 2, 1], tracks_after_insert.get_json()
-
-delete_query = client.delete("/api/queries/1")
-assert delete_query.status_code == 200, delete_query.data
-assert delete_query.get_json()["ok"] is True
-
-delete_source = client.delete("/api/sources/1")
-assert delete_source.status_code == 200, delete_source.data
-assert delete_source.get_json()["ok"] is True
-
-delete_track = client.delete("/api/tracks/1")
-assert delete_track.status_code == 200, delete_track.data
-assert delete_track.get_json()["ok"] is True
-
-conn = sqlite3.connect(tmp.name)
-final_tracks = conn.execute("SELECT id, canonical_title FROM cache_tracks ORDER BY id ASC").fetchall()
-final_sources = conn.execute("SELECT id, track_id FROM cache_sources ORDER BY id ASC").fetchall()
-final_queries = conn.execute("SELECT id, track_id, source_id FROM cache_queries ORDER BY id ASC").fetchall()
-conn.close()
-
-assert final_tracks == [(1, "Song Four")], final_tracks
-assert final_sources == [(1, 1)], final_sources
-assert final_queries, final_queries
-assert all(row == (row[0], 1, 1) for row in final_queries), final_queries
 
 try:
     os.unlink(tmp.name)

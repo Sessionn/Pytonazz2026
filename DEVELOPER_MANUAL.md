@@ -1,3 +1,5 @@
+> Aggiornamento 20 settembre 2026: vedere [audit e rilascio](docs/AUDIT_2026-09-20.md) per stato attuale, verifiche e limiti.
+
 # Pytonazz2026 Developer Manual
 
 Manuale tecnico unico per sviluppare, modificare e verificare Pytonazz2026.
@@ -6,7 +8,7 @@ bot e quali punti toccare quando si aggiungono comandi, flussi o integrazioni.
 
 ## 1. Stack e responsabilita
 
-- Python 3.10+.
+- Python 3.11+ consigliato (la VM attuale usa ancora 3.10).
 - `discord.py` gestisce bot, slash command, voice, UI e interaction lifecycle.
 - `yt-dlp` risolve YouTube, SoundCloud e stream audio temporanei.
 - `spotipy` recupera metadata Spotify; Spotify non fornisce audio riproducibile.
@@ -43,7 +45,7 @@ Sequenza principale:
 
 ## 4. Aggiungere un comando custom
 
-1. Scegli il cog giusto. Se il comando e' musicale usa `cogs/music.py`; se e'
+1. Scegli il cog giusto. Se il comando e' musicale usa `cogs/music/__init__.py`; se e'
    owner/dev usa `cogs/dev.py` o un cog dedicato.
 2. Metti la logica riusabile in `core/`, non dentro un altro cog.
 3. Usa `@app_commands.command` o un `Group` esistente.
@@ -85,7 +87,7 @@ Se crei un nuovo cog, aggiungilo a `DEFAULT_COGS` in `core/runtime.py`.
 
 Percorso direct play:
 
-1. `cogs/music.py` normalizza input e assicura connessione voice.
+1. `cogs/music/__init__.py` normalizza input e assicura connessione voice.
 2. `SourceResolver.resolve_choices(query, requester, requester_id, n=1)` parte cache-first.
 3. Se SQLite ha uno stream URL valido, ritorna immediatamente.
 4. Se serve un refresh, `_fetch_stream_url(webpage_url)` aggiorna stream temporaneo.

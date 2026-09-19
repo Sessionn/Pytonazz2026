@@ -181,7 +181,7 @@ def _resolve_soundcloud_short_url(url: str, timeout: float = 8.0) -> str:
             follow_redirects=True,
             timeout=timeout,
             headers=_HEADERS,
-            verify=False,           # ignora SSL self-signed, necessario su alcuni deploy
+            verify=True,
         ) as client:
             resp = client.get(target)
             final_url = str(resp.url)
@@ -192,12 +192,10 @@ def _resolve_soundcloud_short_url(url: str, timeout: float = 8.0) -> str:
         httpx_error = str(exc_httpx)
         log.debug(tag("RESOLVE", f"httpx fallback su urllib ({exc_httpx})"))
 
-    # ── Tentativo 2: urllib con SSL non verificato ────────────────────────────
+    # ── Tentativo 2: urllib con verifica TLS ────────────────────────────────
     try:
         import ssl as _ssl
         ctx = _ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = _ssl.CERT_NONE
         req = urllib.request.Request(target, headers=_HEADERS)
         with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
             final_url = resp.geturl() or target
@@ -212,4 +210,3 @@ def _resolve_soundcloud_short_url(url: str, timeout: float = 8.0) -> str:
         # Restituiamo comunque il target: yt-dlp con generic extractor
         # seguirà i redirect internamente e potrà estrarre il brano
         return target
-

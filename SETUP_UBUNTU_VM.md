@@ -1,3 +1,5 @@
+> Aggiornamento 20 settembre 2026: vedere [audit e rilascio](docs/AUDIT_2026-09-20.md) per stato attuale, verifiche e limiti.
+
 # Setup Ubuntu VM
 
 Guida operativa per installare Pytonazz su una VM Ubuntu e pubblicare la dashboard in HTTPS dietro reverse proxy. La porta `5000` non deve essere esposta a Internet.
@@ -26,14 +28,14 @@ Stato operativo verificato sulla VM:
 
 - OS: Ubuntu 22.04 LTS;
 - repo produzione: `~/Pytonazz2026`;
-- branch produzione: `main-2`;
+- branch produzione: `codex/p3-maintainability-performance`;
 - Python: `3.10`;
 - FFmpeg: serie `4.4.x` Ubuntu;
 - yt-dlp: installato nel venv;
 - dashboard: `127.0.0.1:5000`;
 - proxy pubblico: Caddy su `80/443`;
 - WARP SOCKS locale: `127.0.0.1:40000`;
-- processo bot: `screen` session `pytonazz`;
+- processo bot: `tmux` session `pytonazz`;
 - script runtime: `~/.local/bin/pytonazz-bot`;
 - cookie YouTube: `/home/sessionn/cookies.txt`;
 - autostart: crontab utente.
@@ -273,7 +275,7 @@ sudo systemctl status caddy --no-pager
 
 ## 12. Service systemd
 
-La VM attuale usa `screen` e crontab, non systemd per il bot. Questa sezione resta valida se in futuro vuoi migrare a un servizio systemd.
+La VM attuale usa `tmux` e crontab, non systemd per il bot. Questa sezione resta valida se in futuro vuoi migrare a un servizio systemd.
 
 Crea `/etc/systemd/system/pytonazz.service`:
 
@@ -305,9 +307,9 @@ sudo systemctl restart pytonazz
 sudo systemctl status pytonazz --no-pager
 ```
 
-Se invece usi `screen`, assicurati che lo script di start entri nel repo, attivi `venv` e lanci `python main.py`.
+Se invece usi `tmux`, assicurati che lo script di start entri nel repo, attivi `venv` e lanci `python main.py`.
 
-Setup screen usato sulla VM attuale:
+Setup tmux usato sulla VM attuale:
 
 ```bash
 mkdir -p ~/.local/bin
@@ -322,14 +324,14 @@ alias gp='cd ~/Pytonazz2026 && git pull && cd ~'
 alias sta='~/.local/bin/pytonazz-bot start'
 alias sto='~/.local/bin/pytonazz-bot stop'
 alias res='~/.local/bin/pytonazz-bot restart'
-alias scr='screen -r pytonazz'
+alias scr='tmux attach -t pytonazz'
 alias warp-rotate='~/.local/bin/rotate-warp'
 
 # Autostart:
 (crontab -l 2>/dev/null; echo '@reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start') | crontab -
 ```
 
-Evita `screen -L` senza `-Logfile`: crea `screenlog.0` nella directory corrente, spesso la home.
+Per consultare il processo usa `tmux attach -t pytonazz`; esci senza fermarlo con la combinazione di detach configurata. Controlla anche il log applicativo: la sola sessione tmux non prova che Discord sia connesso.
 
 ## 13. Deploy aggiornamenti
 
@@ -354,7 +356,7 @@ sudo systemctl restart pytonazz
 sudo systemctl restart caddy
 ```
 
-Con `screen`, sostituisci il restart systemd con i tuoi alias di stop/start.
+Con `tmux`, sostituisci il restart systemd con i tuoi alias di stop/start.
 
 Deploy standard sulla VM attuale:
 
@@ -486,7 +488,7 @@ Segreti da ruotare se finiti in file o log:
 - [ ] `ufw` con `22`, `80`, `443` aperte e `5000` chiusa
 - [ ] Caddy attivo
 - [ ] HTTPS pubblico funzionante
-- [ ] servizio systemd o screen attivo
+- [ ] servizio systemd o tmux attivo
 - [ ] `python tools/benchmark_resolve.py "titolo artista"` eseguito
 - [ ] `/play` reale provato in Discord
 - [ ] home utente pulita: repo, dotfile/cartelle utente e `cookies.txt`

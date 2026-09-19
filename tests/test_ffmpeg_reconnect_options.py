@@ -21,7 +21,7 @@ for required in (
     "-reconnect 1",
     "-reconnect_streamed 1",
     "-reconnect_on_network_error 1",
-    "-reconnect_on_http_error 4xx,5xx",
+    "-reconnect_on_http_error 429,5xx",
     "-reconnect_delay_max 5",
     "-rw_timeout 15000000",
 ):
@@ -31,6 +31,7 @@ for unsupported in (
     "-reconnect_max_retries",
     "-reconnect_delay_total_max",
     "-reconnect_at_eof",
+    "-reconnect_on_http_error 4xx",
 ):
     assert unsupported not in before_options, f"Unsupported FFmpeg option still present: {unsupported}"
 

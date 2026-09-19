@@ -9,6 +9,7 @@ import secrets
 import sqlite3
 import sys
 import time
+import threading
 from urllib.parse import urlencode
 
 import httpx
@@ -78,6 +79,15 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
     if trust_proxy:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     login_attempts: dict[str, list[float]] = {}
+    stream_slots = threading.BoundedSemaphore(4)
+
+    def stream_response(factory):
+        if not stream_slots.acquire(blocking=False):
+            return jsonify(error="stream_capacity", retry="polling"), 503
+        response = Response(factory(), mimetype="text/event-stream")
+        response.call_on_close(stream_slots.release)
+        return response
+
 
     controller = init_dj_access_controller(bot) if bot else get_dj_access_controller()
 
@@ -612,7 +622,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
                 controller.unsubscribe(guild_id, sub)
                 _dj_log("events_unsubscribed", level=logging.DEBUG, guild_id=guild_id)
 
-        return Response(events(), mimetype="text/event-stream")
+        return stream_response(events)
 
     @app.route("/api/stats")
     @login_required
@@ -648,7 +658,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             finally:
                 cache_db.unsubscribe_changes(sub)
 
-        return Response(events(), mimetype="text/event-stream")
+        return stream_response(events)
 
     def requested_page(kind):
         if "page" not in request.args and "page_size" not in request.args:
@@ -739,31 +749,31 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
     @login_required
     def delete_song(row_id):
         ok = cache_db.delete_song_row(row_id)
-        return jsonify({"ok": ok, "compact": cache_db.compact_ids() if ok else {}})
+        return jsonify({"ok": ok, "compact": {}})
 
     @app.route("/api/tracks/<int:track_id>", methods=["DELETE"])
     @login_required
     def delete_track(track_id):
         ok = cache_db.delete_track_row(track_id)
-        return jsonify({"ok": ok, "compact": cache_db.compact_ids() if ok else {}})
+        return jsonify({"ok": ok, "compact": {}})
 
     @app.route("/api/sources/<int:source_id>", methods=["DELETE"])
     @login_required
     def delete_source(source_id):
         ok = cache_db.delete_source_row(source_id)
-        return jsonify({"ok": ok, "compact": cache_db.compact_ids() if ok else {}})
+        return jsonify({"ok": ok, "compact": {}})
 
     @app.route("/api/queries/<int:query_id>", methods=["DELETE"])
     @login_required
     def delete_query(query_id):
         ok = cache_db.delete_alias(query_id)
-        return jsonify({"ok": ok, "compact": cache_db.compact_ids() if ok else {}})
+        return jsonify({"ok": ok, "compact": {}})
 
     @app.route("/api/aliases/<int:alias_id>", methods=["DELETE"])
     @login_required
     def delete_alias(alias_id):
         ok = cache_db.delete_alias(alias_id)
-        return jsonify({"ok": ok, "compact": cache_db.compact_ids() if ok else {}})
+        return jsonify({"ok": ok, "compact": {}})
 
     return app
 

@@ -5,9 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Libreria musicale · Pytonazz</title>
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/dashboard-favicon.svg') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/workspace.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/library-motion.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+<script src="{{ url_for('static', filename='js/snake.js') }}" defer></script>
 </head>
 <body class="library-page">
 <a class="skip-link" href="#main-content">Vai alla libreria</a>
@@ -73,7 +72,7 @@
       <div class="page-header-top">
         <div class="page-copy">
           <p class="eyebrow">PYTONAZZ / LIBRERIA</p>
-          <h1>La musica, in ordine.</h1>
+          <h1>Il tuo spazio musicale.</h1>
           <p class="page-sub">Ritrova i brani, controlla le sorgenti e cura la tua libreria musicale.</p>
           <p id="gen-time" class="gen-time"></p>
           <div class="signal-row">
@@ -101,6 +100,13 @@
       </div>
     </div>
 
+    <section class="studio-welcome">
+      <div><p class="eyebrow">PANORAMICA / LIBRERIA</p><h2>Ogni brano, al posto giusto.</h2>
+      <p>Cerca nella libreria, verifica le sorgenti e scopri come vengono ritrovati i tuoi brani. Le statistiche si aggiornano in diretta; gli elenchi quando decidi tu.</p>
+      </div><div class="snake-stage" aria-label="Serpente 3D interattivo">
+  <canvas aria-hidden="true"></canvas>
+  <button type="button" class="snake-toggle" aria-pressed="false" aria-label="Pausa animazione">Ⅱ</button>
+</div></section>
     <div class="stats-grid">
       <div class="stat-card stat-card-primary">
         <div class="stat-top">
@@ -214,10 +220,10 @@
     <div id="aliases-section" class="section-stack" style="display:none">
       <div class="section-banner section-banner-alias">
         <div>
-          <p class="section-kicker">Vista compatibile</p>
-          <h2>query_aliases</h2>
+          <p class="section-kicker">RICERCA RAPIDA</p>
+          <h2>I nomi con cui cerchi</h2>
         </div>
-        <p>Vista rapida sugli alias esposti alla dashboard, derivata da <code>cache_queries</code>.</p>
+        <p>Parole e link che il bot riconosce e collega a una canzone.</p>
       </div>
       <div class="toolbar table-toolbar">
         <div class="toolbar-main">
@@ -247,10 +253,10 @@
     <div id="tracks-section" class="section-stack" style="display:none">
       <div class="section-banner section-banner-tracks">
         <div>
-          <p class="section-kicker">Tabella reale</p>
-          <h2>cache_tracks</h2>
+          <p class="section-kicker">ESPLORA LA LIBRERIA</p>
+          <h2>Il catalogo dei brani</h2>
         </div>
-        <p>Una riga per identita canonica del brano. Qui si separa il brano logico dalle sue singole sorgenti.</p>
+        <p>Ogni canzone compare una volta, con le sue sorgenti e le ricerche associate.</p>
       </div>
       <div class="toolbar table-toolbar">
         <div class="toolbar-main">
@@ -283,10 +289,10 @@
     <div id="sources-section" class="section-stack" style="display:none">
       <div class="section-banner section-banner-sources">
         <div>
-          <p class="section-kicker">Tabella reale</p>
-          <h2>cache_sources</h2>
+          <p class="section-kicker">ESPLORA LA LIBRERIA</p>
+          <h2>Da dove arriva la musica</h2>
         </div>
-        <p>Una riga per sorgente risolta: URL, durata, validita, hit e legame con la traccia canonica.</p>
+        <p>Controlla piattaforma, disponibilità e utilizzo dei collegamenti audio.</p>
       </div>
       <div class="toolbar table-toolbar">
         <div class="toolbar-main">
@@ -321,10 +327,10 @@
     <div id="queries-section" class="section-stack" style="display:none">
       <div class="section-banner section-banner-queries">
         <div>
-          <p class="section-kicker">Tabella reale</p>
-          <h2>cache_queries</h2>
+          <p class="section-kicker">ESPLORA LA LIBRERIA</p>
+          <h2>La cronologia delle ricerche</h2>
         </div>
-        <p>Una riga per query osservata o alias confermato, con confidence, tipo e puntamento a track/source.</p>
+        <p>Le richieste ricevute dal bot e il brano a cui sono state associate.</p>
       </div>
       <div class="toolbar table-toolbar">
         <div class="toolbar-main">

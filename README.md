@@ -1,3 +1,5 @@
+> Aggiornamento 20 settembre 2026: vedere [audit e rilascio](docs/AUDIT_2026-09-20.md) per stato attuale, verifiche e limiti.
+
 # Pytonazz2026
 
 ![Pytonazz Gif](assets/git/demo.gif)
@@ -25,7 +27,7 @@ Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
 
 ## Stack
 
-- Python 3.10+.
+- Python 3.11+ consigliato (la VM attuale usa ancora 3.10).
 - `discord.py` 2.x per bot, slash commands, voice e UI.
 - `yt-dlp` per ricerca ed estrazione stream.
 - FFmpeg per playback audio su Discord.
@@ -167,7 +169,7 @@ Discord voice -> processo Python -> FFmpeg
 
 Layout della VM operativa attuale:
 
-- repo produzione: `~/Pytonazz2026`, branch `main-2`;
+- repo produzione: `~/Pytonazz2026`, branch `codex/p3-maintainability-performance`;
 - start/stop/restart: `~/.local/bin/pytonazz-bot`;
 - alias shell: `gp`, `sta`, `sto`, `res`, `scr`;
 - autostart: crontab `@reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start`;

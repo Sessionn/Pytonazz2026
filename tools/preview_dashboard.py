@@ -34,6 +34,7 @@ def main():
                    webpage_url=f'https://www.youtube.com/watch?v=demo{i}', source='youtube',
                    duration=180+i*23, thumbnail='', spotify_url=''))
         app = create_app(str(path))
+        app.config['TEMPLATES_AUTO_RELOAD'] = True
         @app.route('/preview-dj')
         def preview_dj():
             return render_template('dj_console.html', guild_id=123)

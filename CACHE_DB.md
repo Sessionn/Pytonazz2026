@@ -1,3 +1,5 @@
+> Dal 20 settembre 2026 le cancellazioni web conservano gli ID delle altre righe. La rinumerazione è una manutenzione esplicita da eseguire a bot fermo e con le dashboard chiuse.
+
 # Cache DB Manual
 
 Questo documento descrive il cache database musicale di Pytonazz2026: perche' esiste, come e' strutturato, come apprende query/alias, come interagisce con resolver, Spotify, yt-dlp e dashboard.
@@ -19,7 +21,8 @@ Non e' un motore ML pesante. L'apprendimento e' volutamente leggero: query osser
 
 ## 2. File coinvolti
 
-- `core/cache_db.py`: schema, CRUD, alias, pruning, dashboard helpers.
+- `core/cache_db.py`: proprietario di connessione, lock, CRUD, alias e notifiche.
+- `core/cache/`: schema, query di lettura e paginazione SQL.
 - `core/source_resolver/__init__.py`: read/write cache durante resolve.
 - `core/source_resolver/scoring.py`: confidence Spotify/YouTube.
 - `core/source_resolver/spotify.py`: scelta candidato Spotify.

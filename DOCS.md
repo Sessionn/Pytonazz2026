@@ -1,3 +1,5 @@
+> Aggiornamento 20 settembre 2026: vedere [audit e rilascio](docs/AUDIT_2026-09-20.md) per stato attuale, verifiche e limiti.
+
 # Pytonazz2026 Developer Manual
 
 Questo documento e' il manuale tecnico storico del bot. Per il manuale sviluppatore unico e aggiornato usa [DEVELOPER_MANUAL.md](DEVELOPER_MANUAL.md), che raccoglie flussi runtime, aggiunta comandi custom, resolver, test, logging e deploy.
@@ -119,7 +121,7 @@ La dashboard deve stare dietro reverse proxy HTTPS se esposta fuori dalla macchi
 
 File principali:
 
-- `cogs/music.py`: slash commands e orchestrazione.
+- `cogs/music/__init__.py`: slash commands e orchestrazione.
 - `core/source_resolver/__init__.py`: resolve testuale, URL, Spotify, playlist.
 - `core/source_resolver/scoring.py`: normalizzazione, Jaccard, durata, penalita'.
 - `core/source_resolver/spotify.py`: client Spotify e ranking item.
@@ -130,7 +132,7 @@ File principali:
 
 Flusso per query testuale:
 
-1. `cogs/music.py` riceve `/play query`.
+1. `cogs/music/__init__.py` riceve `/play query`.
 2. `SourceResolver.resolve_choices(query, ..., n=1)` prova cache DB se attiva.
 3. Se cache hit e stream URL temporaneo valido: ritorna subito.
 4. Se cache miss: per query testuali usa `ytsearch1` e allarga a piu' candidati solo quando il primo risultato e' sospetto.
@@ -253,7 +255,7 @@ Caratteristiche:
 
 ## 10. Moderazione
 
-`cogs/moderation.py` copre:
+`cogs/moderation/__init__.py` copre:
 
 - `/purge`
 - `/ruolo`
@@ -394,12 +396,12 @@ Per installazione completa segui [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
 
 ### VM operativa attuale
 
-La VM di produzione usa `screen`, non un servizio `pytonazz.service` systemd.
+La VM di produzione usa `tmux`, non un servizio `pytonazz.service` systemd.
 
 Layout:
 
 - repo: `~/Pytonazz2026`;
-- branch: `main-2`;
+- branch: `codex/p3-maintainability-performance`;
 - venv: `~/Pytonazz2026/venv`;
 - script runtime: `~/.local/bin/pytonazz-bot`;
 - utility WARP manuale: `~/.local/bin/rotate-warp`;
@@ -415,7 +417,7 @@ gp   # cd ~/Pytonazz2026 && git pull && cd ~
 sta  # start bot
 sto  # stop bot
 res  # restart bot
-scr  # screen -r pytonazz
+scr  # tmux attach -t pytonazz
 ```
 
 Autostart:
@@ -440,7 +442,7 @@ res
 Controlli rapidi:
 
 ```bash
-screen -list
+tmux list-sessions
 ss -ltnp | grep -E ':80|:443|:5000|:40000'
 systemctl is-active cron caddy docker warp-svc
 ```

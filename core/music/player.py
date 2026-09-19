@@ -27,6 +27,7 @@ from core.audio_filters import (
     normalize_tone_filters,
 )
 from core.music.live_fx import LivePCMTransform
+from core.music.ffmpeg_source import CheckedFFmpegPCMAudio
 from core.music.queue import MusicQueue
 from core.source_resolver import TrackInfo, SourceResolver
 from core.log_colors import tag, b, ms, title, hi, _CYN
@@ -486,11 +487,11 @@ class MusicPlayer:
         return added > 0
 
     async def _retry_current_after_ffmpeg_error(self, track, depth: int) -> None:
-        if self.current is not track or depth > 0:
-            await self.play_next(_depth=depth + 1)
+        if self.current is not track:
             return
-        if getattr(track, "_ffmpeg_retrying", False):
+        if depth > 0 or getattr(track, "_ffmpeg_retrying", False):
             track.stream_url = ""
+            self.current = None  # A failed track must not loop forever in track-repeat mode.
             await self.play_next(_depth=depth + 1)
             return
 
@@ -503,6 +504,7 @@ class MusicPlayer:
         except Exception:
             pass
         self._filter_replay = True
+        self._seek_position = self.position
         log.warning(tag("PLAYER", f"FFmpeg fallito, refetch stream  \u2192  {title(track.title)}"))
         await self.play_next(_depth=depth + 1)
 
@@ -581,7 +583,7 @@ class MusicPlayer:
 
             t_start_play = time.perf_counter()
             source = LivePCMTransform(
-                discord.FFmpegPCMAudio(stream_url, **ffmpeg_opts),
+                CheckedFFmpegPCMAudio(stream_url, **ffmpeg_opts),
                 volume=self.volume,
             )
             source.set_tone_filters(

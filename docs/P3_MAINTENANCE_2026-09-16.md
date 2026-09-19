@@ -1,3 +1,5 @@
+> Documento storico. Per lo stato attuale vedere [audit del 20 settembre](AUDIT_2026-09-20.md).
+
 # Interventi P3 — 16 settembre 2026
 
 Branch: `codex/p3-maintainability-performance`, derivato da `codex/web-redesign-audit` (`5d82d76`).

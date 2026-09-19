@@ -5,16 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Login – Pytonazz Dashboard</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>💿</text></svg>">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/workspace.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+<script src="{{ url_for('static', filename='js/snake.js') }}" defer></script>
 </head>
 <body class="login-page">
 <main class="login-wrap">
   <section class="login-intro" aria-label="Pytonazz">
     <span class="eyebrow">PYTONAZZ / MUSIC & COMMUNITY</span>
-    <h2>Buona musica.<br>Ottima compagnia.</h2>
-    <p>Uno spazio per la musica del tuo server. Tutti i brani, le ricerche e le sorgenti, a portata di mano.</p>
-    <div class="login-record" aria-hidden="true"></div>
+    <h2>La tua musica.<br>Il tuo ecosistema.</h2>
+    <p>Gestisci la libreria del tuo server in un unico spazio.</p>
+    <div class="snake-stage" aria-label="Serpente 3D interattivo">
+  <canvas aria-hidden="true"></canvas>
+  <button type="button" class="snake-toggle" aria-pressed="false" aria-label="Pausa animazione">Ⅱ</button>
+</div>
   </section>
   <div class="login-card">
     <div class="login-logo">PZ / LIBRERIA</div>

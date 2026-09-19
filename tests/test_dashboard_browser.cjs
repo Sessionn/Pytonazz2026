@@ -13,6 +13,8 @@ const fs = require('node:fs');
   page.on('pageerror', error => errors.push(error.message));
   fs.mkdirSync('data/tmp/web-review', { recursive: true });
   await page.goto(base + '/login');
+  assert.equal(await page.locator('.snake-stage canvas').count(), 1);
+  assert.equal(await page.locator('.snake-stage').innerText(), '▶');
   await page.screenshot({ path: 'data/tmp/web-review/login-desktop.png', fullPage: true });
   await page.getByLabel('Utente', { exact: true }).fill('preview');
   await page.getByLabel('Password', { exact: true }).fill('preview-only');
@@ -101,6 +103,7 @@ const fs = require('node:fs');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(base + '/preview-dj');
   await page.locator('#track-title').waitFor();
+  assert.equal(await page.locator('.hero-panel').count(), 0);
   assert.equal(await page.locator('#remaining-label').innerText(), '−00:00');
   assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('progress-fill'), '::after').backgroundColor), 'rgb(255, 255, 255)');
   assert.equal(await page.evaluate(() => {
