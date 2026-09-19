@@ -27,6 +27,7 @@ def run_tool(script_name: str) -> subprocess.CompletedProcess[str]:
         cwd=ROOT,
         env=env,
         text=True,
+        encoding="cp1252",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=30,
