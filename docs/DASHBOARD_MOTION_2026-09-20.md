@@ -12,13 +12,15 @@ Questo documento aggiorna la parte web dell'audit del 20 settembre. Il modello e
 
 ## Modello e limiti visivi
 
-La mesh originale ha circa 41.000 vertici, superficie liscia, testa sagomata, mandibola, narici, occhi con pupille e riflessi, fossette labiali, squame e pigmentazione ancorate alle coordinate della pelle. Due passaggi GPU disegnano ombra e superficie. La risoluzione del canvas segue lo schermo fino a DPR 2; non viene ingrandita una piccola immagine raster.
+Il modello iniziale generato nel browser è stato sostituito con un asset realizzato in Blender 4.5: progetto modificabile, superficie ad alta risoluzione, export GLB, mesh di produzione e atlanti della pelle a 2K. Testa, mandibola, occhi, narici e fossette labiali sono componenti della geometria; i dettagli delle squame sono precalcolati nelle mappe della pelle e delle normali.
 
-È un modello geometrico realizzato per questa interfaccia, con materiale procedurale: non è una scansione fotogrammetrica o un asset zoologico scolpito e texturizzato da uno specialista. La densità della mesh, da sola, non garantisce fotorealismo. La resa finale va valutata sul dispositivo reale; misure locali non garantiscono lo stesso frame rate su ogni GPU.
+La versione web ha 30.468 vertici e 58.624 triangoli, usa mipmap e filtraggio anisotropico quando disponibile e trasferisce circa 3 MB al primo caricamento. Il canvas arriva a DPR 2. L'asset viene caricato in modo asincrono: un errore o un timeout attiva la decorazione statica senza impedire il login. La build completa e i limiti di ricostruzione sono descritti in [assets/python/README.md](../assets/python/README.md).
+
+Il modello è originale, non una scansione di un animale. Le misure di fluidità locali non garantiscono lo stesso frame rate su ogni GPU.
 
 ## File e responsabilità
 
-- `static/js/snake-mesh.js`: costruzione immutabile della mesh, shader, buffer e rendering WebGL.
+- `static/js/snake-mesh.js`: caricamento della mesh esportata, texture, shader, buffer e rendering WebGL.
 - `static/js/snake.js`: pose, puntatore, focus, interpolazione, ridimensionamento, visibilità e preferenze di movimento.
 - `static/js/login-transition.js`: POST autenticato, gestione degli errori e passaggio della pagina mantenendo canvas e contesto WebGL.
 - `static/js/dashboard.js`: aggiornamento incrementale delle tabelle e animazioni della libreria.

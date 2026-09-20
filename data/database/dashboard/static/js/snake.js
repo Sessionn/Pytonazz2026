@@ -1,5 +1,5 @@
 /* One persistent renderer. Pose updates touch only 64 control points, not vertices. */
-(() => {
+(async () => {
   let stage = document.querySelector('.snake-stage');
   if (!stage) return;
   const canvas = stage.querySelector('canvas');
@@ -7,7 +7,7 @@
   const spine = new Float32Array(64 * 4);
   const target = new Float32Array(61 * 3);
   let renderer;
-  try { renderer = window.PythonMesh.create(canvas); } catch (_) { renderer = null; }
+  try { renderer = await window.PythonMesh.create(canvas); } catch (_) { renderer = null; }
   let toggle, observer, visibilityObserver, homeVisible = true;
   let frame = 0, last = 0, phase = 0, paused = reduced.matches;
   let mode = document.body.classList.contains('login-page') ? 'idle' : 'dashboard';
@@ -61,7 +61,8 @@
     home = stage.getBoundingClientRect();
     const input = document.getElementById(mode === 'password' ? 'password' : 'username');
     field = input?.getBoundingClientRect();
-    desiredSize = mode === 'dashboard' ? Math.min(1,home.width / 370,home.height / 155) : Math.min(1.15,width / 700);
+    desiredSize = mode === 'dashboard' ? Math.min(1,home.width / 370,home.height / 155)
+      : mode === 'idle' ? Math.min(1.65,home.width / 330) : Math.min(1.15,width / 700);
     // Large enough to show individual scales, including on mobile.
     desiredSize = Math.max(.48,desiredSize);
     dirty = false;
@@ -181,7 +182,7 @@
   document.addEventListener('pointermove',e=>{
     if(!document.body.classList.contains('login-page') || e.pointerType==='touch') return;
     pointerX=e.clientX;pointerY=e.clientY;
-    if(!focusedPose()) mode='follow';
+    if(!focusedPose() && mode!=='follow') {mode='follow';dirty=true;}
     wake();
   },{passive:true});
   document.addEventListener('focusin',e=>{
