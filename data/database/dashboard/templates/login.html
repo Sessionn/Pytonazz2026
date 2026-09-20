@@ -6,7 +6,9 @@
 <title>Login – Pytonazz Dashboard</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>💿</text></svg>">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+<script src="{{ url_for('static', filename='js/snake-mesh.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/snake.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/login-transition.js') }}" defer></script>
 </head>
 <body class="login-page">
 <main class="login-wrap">
@@ -38,7 +40,6 @@
           autocomplete="username"
           placeholder="username"
           required
-          autofocus
         >
       </div>
       <div class="field">

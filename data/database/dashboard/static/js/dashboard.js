@@ -12,6 +12,7 @@ let lastSongUrls = new Map();
 let songsRequestId = 0;
 let modalTrigger = null;
 const loadedSections = new Set();
+const counterFrames = new WeakMap();
 const tableData = {
   aliases: [],
   tracks: [],
@@ -41,7 +42,7 @@ const liveSectionLoaders = {
   queries: () => fetchQueries(true),
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+function initializeDashboard() {
   let saved = "dark";
   try { saved = localStorage.getItem("theme") === "light" ? "light" : "dark"; } catch (_) {}
   document.documentElement.setAttribute("data-theme", saved);
@@ -61,7 +62,9 @@ document.addEventListener("DOMContentLoaded", () => {
   startStatsRefresh(8);
   startRealtimeStats();
   updateGenTime();
-});
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeDashboard, { once: true });
+else initializeDashboard();
 
 function normalizeSortArrows() {
   document.querySelectorAll("th[data-col]").forEach(th => {
@@ -107,26 +110,19 @@ function animateCounters() {
 }
 
 function tweenCounter(el, from, to, duration = 600) {
+  cancelAnimationFrame(counterFrames.get(el));
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
     el.textContent = to.toLocaleString("it-IT");
     return;
   }
-  const card = el.closest(".stat-card");
-  if (card && from !== to) {
-    card.classList.remove("updating");
-    void card.offsetWidth;
-    card.classList.add("updating");
-    card.addEventListener("animationend", () => card.classList.remove("updating"), { once: true });
-  }
-
   const start = performance.now();
   const update = now => {
     const progress = Math.min((now - start) / duration, 1);
     const eased = 1 - Math.pow(1 - progress, 3);
     el.textContent = Math.round(from + (to - from) * eased).toLocaleString("it-IT");
-    if (progress < 1) requestAnimationFrame(update);
+    if (progress < 1) counterFrames.set(el, requestAnimationFrame(update));
   };
-  requestAnimationFrame(update);
+  counterFrames.set(el, requestAnimationFrame(update));
 }
 
 function refreshStats(refreshData = true) {
@@ -232,7 +228,10 @@ function fetchSongs(silent = false) {
   const params = pagedParams("cache", { q, source, valid, sort: currentSort, order: currentOrder });
   const scrollSnapshot = silent ? captureScrollSnapshot() : null;
 
-  if (!silent) showSkeleton();
+  const body = document.getElementById('songs-body');
+  body?.setAttribute('aria-busy','true');
+  // Keep existing results readable while a filter, page or refresh is pending.
+  if (!silent && !body?.children.length) showSkeleton();
 
   fetch("/api/songs?" + params.toString())
     .then(readJson)
@@ -252,19 +251,15 @@ function fetchSongs(silent = false) {
         restoreScrollSnapshot(scrollSnapshot);
         return;
       }
-      if (silent) {
-        renderSongsDiff(data);
-        restoreScrollSnapshot(scrollSnapshot);
-      } else {
-        renderSongs(data);
-      }
+      renderSongsDiff(data);
+      restoreScrollSnapshot(scrollSnapshot);
     })
     .catch(() => {
       if (requestId !== songsRequestId) return;
       hideSkeleton();
-      if (!silent) document.getElementById("songs-body").innerHTML = '<tr><td colspan="11">Caricamento non riuscito. Usa Aggiorna per riprovare.</td></tr>';
+      if (!body?.querySelector('[data-id]')) body.innerHTML = '<tr><td colspan="11">Caricamento non riuscito. Usa Aggiorna per riprovare.</td></tr>';
       showToast("Errore nel caricamento dati", "error");
-    });
+    }).finally(() => { if(requestId === songsRequestId) body?.removeAttribute('aria-busy'); });
 }
 
 function debouncedFetch() {
@@ -433,7 +428,8 @@ function buildSongRow(song, index = 0) {
   const coverSource = song.thumbnail_source || inferCoverSource(song) || normalizedSource(song.source, song.webpage_url);
 
   const tr = document.createElement("tr");
-  tr.style.animationDelay = `${index * 28}ms`;
+  tr._song = song;
+  tr._signature = JSON.stringify(song);
   tr.dataset.id = song.id;
   tr.innerHTML = `
     <td class="id-col">${song.id}</td>
@@ -465,8 +461,8 @@ function buildSongRow(song, index = 0) {
       </div>
     </td>
   `;
-  tr.querySelector(".song-details").addEventListener("click", () => openModal(song));
-  tr.querySelector(".query-cell").addEventListener("click", () => setSearch(song.query_raw || ""));
+  tr.querySelector(".song-details").addEventListener("click", () => openModal(tr._song));
+  tr.querySelector(".query-cell").addEventListener("click", () => setSearch(tr._song.query_raw || ""));
   return tr;
 }
 
@@ -482,62 +478,26 @@ function renderSongs(data) {
 function renderSongsDiff(data) {
   const tbody = document.getElementById("songs-body");
   if (!tbody) return;
-  const newIds = new Set(data.map(song => song.id));
-
-  document.querySelectorAll("#songs-body tr[data-id]").forEach(tr => {
-    if (!newIds.has(parseInt(tr.dataset.id, 10))) {
-      tr.style.transition = "opacity .4s, transform .4s";
-      tr.style.opacity = "0";
-      tr.style.transform = "translateX(20px)";
-      setTimeout(() => tr.remove(), 400);
+  const existing = new Map([...tbody.children].map(row => [Number(row.dataset.id), row]));
+  const wanted = new Set(data.map(song => song.id));
+  for (const [id, row] of existing) if (!wanted.has(id)) row.remove();
+  data.forEach((song, index) => {
+    let row = existing.get(song.id);
+    const signature = JSON.stringify(song);
+    if (!row) row = buildSongRow(song, index);
+    else if (row._signature !== signature) {
+      const next = buildSongRow(song, index);
+      // Patch only changed cells: preserve unchanged buttons, focus and images.
+      [...next.children].forEach((cell, i) => {
+        if (row.children[i].innerHTML !== cell.innerHTML) row.children[i].replaceWith(cell);
+      });
+      row._song = song;
+      row._signature = signature;
     }
+    if (tbody.children[index] !== row) tbody.insertBefore(row, tbody.children[index] || null);
   });
-
-  data.forEach(song => {
-    const tr = document.querySelector(`#songs-body tr[data-id="${song.id}"]`);
-    if (!tr) return;
-
-    const hitsCell = tr.querySelector(".hits-num");
-    if (hitsCell) {
-      const oldValue = parseInt(hitsCell.textContent.replace(/\D/g, ""), 10) || 0;
-      if (oldValue !== song.hit_count) {
-        hitsCell.textContent = song.hit_count ?? 0;
-        hitsCell.classList.remove("flash");
-        void hitsCell.offsetWidth;
-        hitsCell.classList.add("flash");
-        hitsCell.addEventListener("animationend", () => hitsCell.classList.remove("flash"), { once: true });
-      }
-    }
-
-    const prev = lastSongUrls.get(song.id) || {};
-    if (prev.webpage_url !== song.webpage_url || prev.spotify_url !== song.spotify_url) {
-      patchRowActions(tr, song);
-      lastSongUrls.set(song.id, { webpage_url: song.webpage_url, spotify_url: song.spotify_url });
-    }
-  });
-
-  const addedIds = [...newIds].filter(id => !lastSongIds.has(id));
-  lastSongIds = newIds;
-
-  if (addedIds.length > 0) {
-    showToast(`+${addedIds.length} nuova traccia in cache`, "success");
-    const newSongs = data.filter(song => addedIds.includes(song.id));
-    newSongs.forEach(song => {
-      const newTr = buildSongRow(song, 0);
-      newTr.style.animation = "none";
-      tbody.prepend(newTr);
-      void newTr.offsetWidth;
-      newTr.style.animation = "";
-      newTr.classList.add("row-new");
-      setTimeout(() => newTr.classList.remove("row-new"), 3000);
-    });
-    newSongs.forEach(song => lastSongUrls.set(song.id, { webpage_url: song.webpage_url, spotify_url: song.spotify_url }));
-  }
-
-  data.forEach(song => {
-    const tr = tbody.querySelector(`tr[data-id="${song.id}"]`);
-    if (tr) tbody.appendChild(tr);
-  });
+  lastSongIds = wanted;
+  lastSongUrls = new Map(data.map(song => [song.id, {webpage_url:song.webpage_url,spotify_url:song.spotify_url}]));
 }
 
 function setSearch(value) {
@@ -976,14 +936,20 @@ function renderSimpleTable(bodyId, data, colSpan, rowBuilder, emptyMessage) {
     tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;padding:32px;color:var(--muted)">${emptyMessage}</td></tr>`;
     return;
   }
-  tbody.innerHTML = data.map((row, index) => `
-    <tr style="animation-delay:${index * 18}ms">
-      ${rowBuilder(row)}
-    </tr>
-  `).join("");
+  const existing = new Map([...tbody.children].map(row => [row.dataset.id, row]));
+  const wanted = new Set(data.map(row => String(row.id)));
+  for (const [id, row] of existing) if (!wanted.has(id)) row.remove();
+  data.forEach((item, index) => {
+    const id = String(item.id), html = rowBuilder(item);
+    let row = existing.get(id);
+    if (!row) { row = document.createElement('tr'); row.dataset.id = id; }
+    if (row._html !== html) { row.innerHTML = html; row._html = html; }
+    if (tbody.children[index] !== row) tbody.insertBefore(row, tbody.children[index] || null);
+  });
 }
 
 function showSection(section, el) {
+  if (section === currentSection) return;
   currentSection = section;
   renderPagination();
   document.querySelectorAll("nav a").forEach(anchor => anchor.classList.remove("active"));
@@ -994,7 +960,14 @@ function showSection(section, el) {
 
   ["cache", "aliases", "tracks", "sources", "queries", "schema"].forEach(name => {
     const target = document.getElementById(`${name}-section`);
-    if (target) target.style.display = name === section ? "grid" : "none";
+    if (target) {
+      target.style.display = name === section ? "grid" : "none";
+      if (name === section && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        target.getAnimations().forEach(animation => animation.cancel());
+        target.animate([{opacity:.25,transform:'translateY(5px)'},{opacity:1,transform:'translateY(0)'}],
+          {duration:220,easing:'cubic-bezier(.2,.7,.2,1)'});
+      }
+    }
   });
 
   const loader = sectionLoaders[section];
@@ -1077,4 +1050,3 @@ function makePlaceholder() {
   div.textContent = "ART";
   return div;
 }
-

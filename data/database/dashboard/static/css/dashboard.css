@@ -336,6 +336,34 @@ code {
   touch-action:pan-y;
 }
 
+canvas.python-overlay {
+  position:fixed;
+  inset:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;
+  z-index:15;
+  contain:strict;
+}
+
+.snake-stage { pointer-events:none; }
+.snake-toggle { pointer-events:auto; z-index:16; }
+.modal-bg { z-index:30; }
+tbody[aria-busy="true"] { cursor:progress; }
+.val { font-variant-numeric:tabular-nums; }
+.login-page .field > label { position:relative; z-index:16; }
+
+@media(prefers-reduced-motion:no-preference) {
+  .dashboard-entering .shell {
+    animation:dashboard-reveal .65s cubic-bezier(.2,.7,.2,1) both;
+  }
+  .dashboard-entering :is(.page-header,.studio-welcome,.stat-card) { animation:none; }
+}
+@keyframes dashboard-reveal {
+  from { opacity:0; transform:translateY(10px); }
+  to { opacity:1; transform:translateY(0); }
+}
+
 .snake-toggle {
   position:absolute;
   right:6px;
@@ -537,6 +565,8 @@ select {
   overflow:auto;
   max-width:100%;
 }
+
+.table-wrap:not(.schema-notes) { min-height:320px; }
 
 table {
   border-collapse:collapse;
@@ -1030,9 +1060,6 @@ td img {
   }
   .stat-card:nth-child(5) {
     animation-delay:.2s;
-  }
-  .section-stack {
-    animation:arrive .25s;
   }
   .toast,.modal {
     animation:arrive .2s;
