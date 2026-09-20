@@ -19,10 +19,18 @@ assert(['localhost','127.0.0.1'].includes(new URL(base).hostname));
   assert(!first.equals(await page.locator('.python-overlay').screenshot()),'Autonomous movement with no input');
   const uploads=await page.evaluate(()=>window.uploads);await page.mouse.move(600,620);await page.waitForTimeout(250);
   assert.equal(await page.evaluate(()=>window.uploads),uploads,'No per-frame mesh uploads');
+  await page.getByLabel('Utente',{exact:true}).focus();
+  for(const kind of ['nod','look','ripple']) {
+   await page.locator('#username').pressSequentially('a');
+   await page.waitForFunction(k=>document.querySelector('canvas').dataset.gesture===k,kind);
+   await page.waitForFunction(()=>document.querySelector('canvas').dataset.gesture==='none');
+  }
   await page.getByLabel('Utente',{exact:true}).fill('preview');
   await page.waitForFunction(()=>document.querySelector('canvas').dataset.pose==='username');
   await page.getByLabel('Password',{exact:true}).fill('wrong');
   await page.waitForFunction(()=>document.querySelector('canvas').dataset.pose==='password');
+  await page.locator('#password').pressSequentially('a');
+  await page.waitForFunction(()=>document.querySelector('canvas').dataset.gesture==='guard');
   await page.locator('[type=submit]').click();await page.locator('.login-error').waitFor();
   await page.getByLabel('Password',{exact:true}).fill('preview-only');
   await page.evaluate(()=>window.originalCanvas=document.querySelector('.python-overlay'));
@@ -82,6 +90,6 @@ assert(['localhost','127.0.0.1'].includes(new URL(base).hostname));
   await fallback.locator('#username').fill('preview');await fallback.locator('#password').fill('preview-only');
   await fallback.locator('[type=submit]').click();await fallback.locator('.song-details').first().waitFor();
   assert(await fallback.locator('.snake-poster').isVisible());assert.deepEqual(errors,[]);
-  console.log('OK: autonomous login, continuous canvas arrival, real PNG rest, zero idle draws/assets, document scroll, explicit finite O refresh, reduced motion, fallback');
+  console.log('OK: autonomous login, continuous canvas arrival, real PNG rest, zero idle draws/assets, document scroll, clockwise finite refresh, varied typing reactions, reduced motion, fallback');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});

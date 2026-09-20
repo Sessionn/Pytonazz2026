@@ -79,10 +79,11 @@
       dt=clamp(dt,0,.04);this.time+=dt;this.scale+=(scale-this.scale)*(1-Math.exp(-dt*2));
       const head=this.trail.head,dx=goal.x-head[0],dy=goal.y-head[1];
       const distance=Math.hypot(dx,dy),target=Math.atan2(dy,dx);
-      const desiredTurn=clamp(angle(target-this.heading)*2.6,-1.8,1.8);
-      this.turn+=(desiredTurn-this.turn)*(1-Math.exp(-dt*4));this.heading+=this.turn*dt;
-      const wanted=clamp(distance*.8,19*this.scale,125*this.scale)*(goal.pace||1);
-      this.speed+=(wanted-this.speed)*(1-Math.exp(-dt*2.4));
+      const responsive=goal.chase||goal.settle,turnLimit=responsive?5:1.8;
+      const desiredTurn=clamp(angle(target-this.heading)*(responsive?5:2.6),-turnLimit,turnLimit);
+      this.turn+=(desiredTurn-this.turn)*(1-Math.exp(-dt*(responsive?8:4)));this.heading+=this.turn*dt;
+      const wanted=clamp(distance*(responsive?2.5:.8),goal.settle?0:19*this.scale,(goal.chase?360:goal.settle?240:125)*this.scale)*(goal.pace||1);
+      this.speed+=(wanted-this.speed)*(1-Math.exp(-dt*(responsive?6:2.4)));
       const sway=Math.sin(this.time*2.4)*.16*Math.min(1,this.speed/(80*this.scale));
       const direction=this.heading+sway,z=head[2]+((goal.z||0)-head[2])*(1-Math.exp(-dt*2));
       this.trail.push(head[0]+Math.cos(direction)*this.speed*dt,head[1]+Math.sin(direction)*this.speed*dt,z);
@@ -90,12 +91,22 @@
     }
   }
   function refresh(out,t,cx=185,cy=85,scale=1) {
-    const shape=ease(t/.25)*(1-ease((t-.72)/.28)),spin=Math.PI*2*ease((t-.2)/.55);
+    // Positive rotation in screen coordinates is clockwise. Preserve shape.
+    const spin=Math.PI*2*ease(t),c=Math.cos(spin),s=Math.sin(spin);
     for(let i=0;i<COUNT;i++) {
-      const u=i/(COUNT-1),a=-.8+u*(Math.PI*2-.24)+spin,x=185+Math.cos(a)*54,y=85+Math.sin(a)*54;
-      out[i*3]=cx+((rest[i*3]-185)*(1-shape)+(x-185)*shape)*scale;
-      out[i*3+1]=cy+((rest[i*3+1]-85)*(1-shape)+(y-85)*shape)*scale;out[i*3+2]=rest[i*3+2]*(1-shape)*scale;
+      const x=rest[i*3]-185,y=rest[i*3+1]-85;
+      out[i*3]=cx+(x*c-y*s)*scale;out[i*3+1]=cy+(x*s+y*c)*scale;out[i*3+2]=rest[i*3+2]*scale;
     }
   }
-  globalThis.PythonMotion={COUNT,length,rest,resting,uniforms,Trail,Animal,refresh,ease};
+  function gesture(points,time,kind,energy,scale=1) {
+    for(let i=0;i<COUNT;i++) {
+      const u=i/(COUNT-1),head=Math.exp(-u*8),tail=Math.pow(u,5);
+      const wave=Math.sin(time*7-u*5)*energy*scale;
+      if(kind==='nod')points[i*3+2]+=wave*7*head;
+      else if(kind==='look')points[i*3]+=wave*5*head;
+      else if(kind==='ripple')points[i*3+2]+=wave*4*Math.sin(u*Math.PI);
+      else {points[i*3+2]+=energy*scale*(tail*12-head*2);points[i*3+1]+=wave*5*tail;}
+    }
+  }
+  globalThis.PythonMotion={COUNT,length,rest,resting,uniforms,Trail,Animal,refresh,gesture,ease};
 })();

@@ -303,7 +303,7 @@ code {
   padding:26px 30px;
   margin-bottom:24px;
   align-items:center;
-  overflow:hidden;
+  overflow:visible;
 }
 
 .studio-welcome h2 {

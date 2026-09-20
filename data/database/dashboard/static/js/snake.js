@@ -11,6 +11,7 @@
   let renderer=null,loading=null,animal=null,frame=0,last=0,elapsed=0,scale=1,contextReady=true;
   let poster,toggle,resizeObserver,home,field,dirty=true,paused=reduced.matches;
   let pointer=null,focus=null,phase=0,arrival=null,refreshPending=false;
+  let dock=null,gestureEnergy=0,gestureKind='nod',gestureCount=0;
   let viewportWidth=innerWidth,viewportHeight=innerHeight;
   try{paused ||= sessionStorage.getItem('snake-paused')==='1';phase=Number(sessionStorage.getItem('snake-phase'))||0;}catch(_){}
   canvas.setAttribute('aria-hidden','true');
@@ -41,6 +42,7 @@
   }
   const homeScale=()=>Math.max(.2,Math.min(home.w/370,home.h/170));
   function mountOverlay() {
+    canvas.style.cssText='';
     canvas.className='python-overlay';canvas.hidden=false;document.body.append(canvas);if(poster)poster.hidden=true;
   }
   function staticRest() {
@@ -66,12 +68,16 @@
   }
   function loginGoal(now) {
     if(focus&&field) {
-      const password=focus==='password',a=phase*(password ? .32 : .42);
-      const cx=password?field.x+field.w-65*scale:field.x+field.w/2,cy=password?field.y-22*scale:field.y+field.h/2;
-      const rx=password?55*scale:field.w/2+24*scale,ry=password?18*scale:field.h/2+15*scale;
-      return {x:cx+Math.cos(a)*rx,y:cy+Math.sin(a)*ry,z:password?9+Math.sin(a)*3:2,pace:password ? .65 : .8};
+      const rim=field.y-18*scale,head=animal.trail.head;
+      if(!dock)dock={side:head[0]<field.x+field.w/2?-1:1,arrived:false};
+      const entry=field.x+(dock.side<0?-24*scale:field.w+24*scale);
+      if(Math.hypot(head[0]-entry,head[1]-rim)<35*scale)dock.arrived=true;
+      if(!dock.arrived)return {x:entry,y:rim,z:2,settle:true};
+      // Settle on the upper rim; small breathing motion continues during typing.
+      return {x:field.x+field.w-(focus==='password'?60:90)*scale+Math.sin(phase*.7)*1.5*scale,
+        y:rim+Math.sin(phase*.9)*scale,z:2+Math.sin(phase*1.2)*.6,settle:true};
     }
-    if(pointer&&now-pointer.time<2200)return {x:pointer.x,y:pointer.y,z:2};
+    if(pointer&&now-pointer.time<2200)return {x:pointer.x,y:pointer.y,z:2,chase:true};
     return {x:home.x+home.w*(.5+.31*Math.sin(phase*.31)),y:home.y+home.h*(.5+.27*Math.sin(phase*.47+.8)),z:2+Math.sin(phase*.6),pace:.8};
   }
   function startArrival() {
@@ -106,22 +112,31 @@
     if(!await ensureRenderer()){fallback();return;}if(state!=='refresh-loading')return;
     measure();state='refresh';elapsed=0;last=0;scale=homeScale();
     // Paint the matching first frame before replacing the image: no blank flash.
-    motion.resting(points,home.w/2,home.h/2,scale);motion.uniforms(points,spine);
-    renderer.draw(spine,scale,home.w,home.h,Math.min(devicePixelRatio||1,2));
+    paintRefresh(0);
     canvas.className='python-local';canvas.hidden=false;stage.append(canvas);poster.hidden=true;wake();
+  }
+  function paintRefresh(t) {
+    const side=Math.max(home.w,home.h);
+    // Square drawing surface allows the unchanged silhouette to rotate unclipped.
+    canvas.style.width=side+'px';canvas.style.height=side+'px';
+    canvas.style.left=(home.w-side)/2+'px';canvas.style.top=(home.h-side)/2+'px';
+    motion.refresh(points,t,side/2,side/2,scale);motion.uniforms(points,spine);
+    renderer.draw(spine,scale,side,side,Math.min(devicePixelRatio||1,2));
   }
   function tick(now) {
     frame=0;if(document.hidden||paused||!renderer)return;if(dirty||state==='arrival')measure();
     const dt=last?Math.min((now-last)/1000,.04):1/60;last=now;phase+=dt;stage.dataset.motion=state;
     canvas.dataset.pose=state==='login'?(focus||(pointer&&now-pointer.time<2200?'follow':'idle')):state;
     if(state==='login') {
-      animal.step(dt,loginGoal(now),Math.max(.55,Math.min(1.2,home.w/370)));scale=animal.scale;drawOverlay();
+      animal.step(dt,loginGoal(now),Math.max(.55,Math.min(1.2,home.w/370)));scale=animal.scale;
+      gestureEnergy*=Math.exp(-dt*2.8);
+      motion.gesture(points,phase,gestureKind,gestureEnergy,scale);
+      canvas.dataset.gesture=gestureEnergy>.05?gestureKind:'none';drawOverlay();
     }else if(state==='arrival') {
       if(!arrivalStep(dt))return;drawOverlay();
     }else if(state==='refresh') {
       elapsed+=dt;if(elapsed>=2.4){staticRest();return;}
-      scale=homeScale();motion.refresh(points,elapsed/2.4,home.w/2,home.h/2,scale);motion.uniforms(points,spine);
-      renderer.draw(spine,scale,home.w,home.h,Math.min(devicePixelRatio||1,2));
+      scale=homeScale();paintRefresh(elapsed/2.4);
     }else return;
     wake();
   }
@@ -129,8 +144,15 @@
   function focused(){const el=document.activeElement;return el?.closest('.pwd-wrap')?'password':el?.id==='username'?'username':null;}
   document.addEventListener('pointermove',event=>{if(state==='login'&&event.pointerType!=='touch')pointer={x:event.clientX+scrollX,y:event.clientY+scrollY,time:performance.now()};},{passive:true});
   document.addEventListener('pointerleave',()=>{pointer=null;});
-  document.addEventListener('focusin',()=>{if(state==='login'){focus=focused();dirty=true;}});
-  document.addEventListener('focusout',()=>queueMicrotask(()=>{if(state==='login'){focus=focused();dirty=true;}}));
+  function updateFocus(){if(state==='login'){const next=focused();if(next!==focus){dock=null;gestureEnergy=0;}focus=next;dirty=true;}}
+  document.addEventListener('focusin',updateFocus);
+  document.addEventListener('focusout',()=>queueMicrotask(updateFocus));
+  document.addEventListener('beforeinput',event=>{
+    if(state!=='login'||paused||!['username','password'].includes(event.target.id))return;
+    // Only an input event and field identity are used; never key/data/value.
+    if(gestureEnergy<.15)gestureKind=event.target.id==='password'?'guard':['nod','look','ripple'][gestureCount++%3];
+    gestureEnergy=Math.min(1,gestureEnergy+.4);
+  });
   document.addEventListener('click',event=>{if(event.target.closest('[data-python-refresh]'))startRefresh();});
   document.addEventListener('pytonazz:dashboard',()=>{try{sessionStorage.setItem('snake-phase',String(phase));}catch(_){}startArrival();});
   document.addEventListener('visibilitychange',()=>{
