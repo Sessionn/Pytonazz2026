@@ -23,3 +23,7 @@ Il secondo comando richiede Pillow nell'interprete usato per la build; non è un
 Il formato web `PYT1` contiene un'intestazione di 12 byte (firma, numero vertici, numero indici), vertici little-endian da 10 float32 (posizione locale, normale, parametro longitudinale, UV, materiale) e indici uint16. Il renderer deforma la mesh tramite la curva del corpo già usata dalle interazioni del login. La mappa colore web è WebP di qualità 92; la mappa delle normali è WebP lossless. La rugosità web è uniforme per ridurre il trasferimento, mentre il file Blender conserva la mappa completa.
 
 Il toolkit è stato consultato e il suo CLI verificato. Poiché l'addon risultava non attivo, il progetto è stato costruito con Blender in modalità batch, senza modificare scene aperte o installare addon globali.
+
+## PNG della dashboard
+
+`static/models/python/rest.png` (relativo alla dashboard) è il render trasparente 740×340 della curva di riposo. Il modello resta invariato. Rigenerarlo dopo modifiche alla curva o allo shader con `node tools/blender/render_python_rest.cjs`, impostando `DASHBOARD_TEST_URL` sulla preview locale e `BROWSER_EXECUTABLE` su Chromium. A riposo la dashboard mostra esclusivamente questo PNG; mesh e mappe vengono richieste soltanto per un aggiornamento esplicito.

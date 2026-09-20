@@ -346,6 +346,16 @@ canvas.python-overlay {
   contain:strict;
 }
 
+.snake-poster,.python-local {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  pointer-events:none;
+}
+.snake-poster[hidden],.snake-stage canvas[hidden],.snake-toggle[hidden] { display:none; }
+
 .snake-stage { pointer-events:none; }
 .snake-toggle { pointer-events:auto; z-index:16; }
 .modal-bg { z-index:30; }

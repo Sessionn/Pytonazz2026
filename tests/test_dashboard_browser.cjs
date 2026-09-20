@@ -13,7 +13,7 @@ const fs = require('node:fs');
   page.on('pageerror', error => errors.push(error.message));
   fs.mkdirSync('data/tmp/web-review', { recursive: true });
   await page.goto(base + '/login');
-  assert.equal(await page.locator('canvas.python-overlay').count(), 1);
+  assert(await page.locator('.snake-poster').isVisible());
   assert.equal(await page.locator('.snake-stage').innerText(), '▶');
   await page.screenshot({ path: 'data/tmp/web-review/login-desktop.png', fullPage: true });
   await page.getByLabel('Utente', { exact: true }).fill('preview');

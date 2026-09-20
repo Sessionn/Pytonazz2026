@@ -7,8 +7,8 @@ Questo documento aggiorna la parte web dell'audit del 20 settembre. Il modello e
 - Il renderer precedente creava array e triangoli a ogni frame e limitava il disegno a circa 30 fps. La nuova superficie indicizzata viene caricata una sola volta sulla GPU; durante l'animazione cambiano soltanto 64 punti di controllo. Il rendering segue `requestAnimationFrame`, senza limite fisso a 30 fps.
 - Tabelle: le risposte non svuotano più i risultati durante il caricamento. Righe invariate, immagini e pulsanti mantengono identità e focus. Le celle cambiate vengono aggiornate; riordini e paginazione rispettano l'ordine restituito dal server. Rimane la protezione contro risposte fuori ordine.
 - Eliminati ritardi progressivi sulle righe e riavvii forzati delle animazioni dei contatori. Ogni contatore cancella la propria animazione precedente. Le sezioni hanno una breve transizione di opacità/posizione e spazio minimo per i risultati.
-- Login: il puntatore guida il muso, con velocità limitata e seguito articolato del corpo. Il focus sul nickname porta il serpente attorno al campo. Il focus sulla password lo raccoglie sul bordo destro, con la coda sollevata davanti agli occhi. Nessuna lettura dei valori dei campi da parte del renderer.
-- Dopo il login il serpente raggiunge la propria area e non segue più il mouse. Quando questa area è fuori schermo, oppure la scheda è nascosta, il ciclo di rendering si ferma. Pausa e movimento ridotto sono rispettati.
+- Login: il puntatore guida il muso, con velocità limitata e seguito articolato del corpo. Il focus su nickname e password modifica gradualmente la traiettoria verso il bordo del campo; non sostituisce il corpo con una posa prefissata. Senza input il serpente esplora lentamente l’area di login. Nessuna lettura dei valori dei campi da parte del renderer.
+- Dopo il login la testa raggiunge l’area di destinazione e il corpo la segue lungo il percorso. Alla fine compare un vero PNG, `rest.png`, e il ciclo di rendering termina. L’immagine è nel layout della pagina e segue lo scroll senza inseguire il viewport. Soltanto i pulsanti “Aggiorna” e “Aggiorna elenco” attivano una sequenza locale di 2,4 secondi: raccolta a O, rotazione completa, ritorno al PNG. I clic ripetuti non accodano animazioni. Statistiche, filtri, paginazione, puntatore e cambi di sezione non la avviano. Pausa, movimento ridotto e scheda nascosta sono rispettati.
 
 ## Modello e limiti visivi
 
@@ -21,7 +21,8 @@ Il modello è originale, non una scansione di un animale. Le misure di fluidità
 ## File e responsabilità
 
 - `static/js/snake-mesh.js`: caricamento della mesh esportata, texture, shader, buffer e rendering WebGL.
-- `static/js/snake.js`: pose, puntatore, focus, interpolazione, ridimensionamento, visibilità e preferenze di movimento.
+- `static/js/snake-motion.js`: percorso della testa campionato per distanza, seguito del corpo, sterzata/accelerazione smorzate e curva finita della O.
+- `static/js/snake.js`: stati login/arrivo/PNG/aggiornamento, puntatore, focus, scroll, ridimensionamento e visibilità.
 - `static/js/login-transition.js`: POST autenticato, gestione degli errori e passaggio della pagina mantenendo canvas e contesto WebGL.
 - `static/js/dashboard.js`: aggiornamento incrementale delle tabelle e animazioni della libreria.
 
@@ -31,12 +32,13 @@ I percorsi sono relativi a `data/database/dashboard/`. Nessuna libreria, texture
 
 Il form conserva il POST nativo. Con JavaScript disponibile, il client invia il medesimo POST al server e accetta la dashboard soltanto dopo una risposta riuscita con redirect della stessa origine e pagina attesa. Autenticazione, sessione e limiti ai tentativi rimangono sul server. Gli script ricevuti nell'HTML non vengono eseguiti; si caricano soltanto i due entry point locali noti della dashboard.
 
-Il canvas rimane lo stesso nodo: la pagina appare gradualmente mentre la posa raggiunge l'area di destinazione in 1,25 secondi. Se il login fallisce si mostra il messaggio sul form; se gli script della dashboard non si caricano dopo l'autenticazione si usa la navigazione normale. Senza JavaScript rimane il POST tradizionale; senza WebGL l'accesso continua con una decorazione statica. Le credenziali non vengono memorizzate dal codice di animazione o transizione.
+Il canvas rimane lo stesso nodo: la pagina appare gradualmente mentre la testa e poi il corpo raggiungono l’area di destinazione in circa 3,6 secondi. Il PNG è renderizzato dalla stessa curva, mesh e shader dell’ultimo fotogramma; sulla dashboard aperta direttamente non vengono neppure caricati mesh o texture finché non viene premuto Aggiorna. Se il login fallisce si mostra il messaggio sul form; se gli script della dashboard non si caricano dopo l'autenticazione si usa la navigazione normale. Senza JavaScript rimane il POST tradizionale; senza WebGL l'accesso continua con una decorazione statica. Le credenziali non vengono memorizzate dal codice di animazione o transizione.
 
 ## Verifica
 
 - `tests/test_dashboard_browser.cjs`: funzionalità desktop/mobile, filtri, ricerca, dettaglio, sicurezza del rendering e temi.
-- `tests/test_snake_browser.cjs`: compilazione effettiva degli shader, buffer GPU stabili tra frame, pose, login errato, stesso canvas dopo il login, righe/focus stabili durante refresh, pausa, fallback WebGL e POST senza JavaScript.
+- `tests/test_snake_motion.cjs`: continuità e velocità limitata della testa, lunghezza del corpo, confronto 60/120 fps, chiusura a O e coincidenza degli estremi con il PNG.
+- `tests/test_snake_browser.cjs`: autonomia senza input, login errato, stesso canvas durante l’arrivo, PNG reale a riposo, assenza di disegni GPU durante scroll/navigazione/statistiche, sequenza finita attivata solo da Aggiorna, caricamento differito del modello, movimento ridotto e fallback.
 - `tools/run_repository_checks.py --pattern 'test_dashboard_*.py'`: API, autenticazione e asset in copia isolata.
 - Ispezione visiva delle schermate desktop e mobile della preview con database temporaneo.
 - Campione locale di 120 intervalli `requestAnimationFrame` su Chromium, 1440×1000, DPR 1: mediana circa 6,1 ms, percentile 95 circa 6,2 ms, nessun intervallo oltre 32 ms. È una misura del ciclo browser su questa macchina, non una certificazione della latenza end-to-end né delle GPU mobili.

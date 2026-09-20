@@ -7,6 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/dashboard-favicon.svg') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 <script src="{{ url_for('static', filename='js/snake-mesh.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/snake-motion.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/snake.js') }}" defer></script>
 </head>
 <body class="library-page">
@@ -105,7 +106,8 @@
       <div><p class="eyebrow">PANORAMICA / LIBRERIA</p><h2>Ogni brano, al posto giusto.</h2>
       <p>Cerca nella libreria, verifica le sorgenti e scopri come vengono ritrovati i tuoi brani. Le statistiche si aggiornano in diretta; gli elenchi quando decidi tu.</p>
       </div><div class="snake-stage" aria-label="Serpente 3D interattivo">
-  <canvas aria-hidden="true"></canvas>
+  <img class="snake-poster" src="{{ url_for('static', filename='models/python/rest.png') }}" width="740" height="340" alt="" aria-hidden="true">
+  <canvas aria-hidden="true" hidden></canvas>
   <button type="button" class="snake-toggle" aria-pressed="false" aria-label="Pausa animazione">Ⅱ</button>
 </div></section>
     <div class="stats-grid">
@@ -153,7 +155,7 @@
 
     <div class="library-update" id="library-update" hidden role="status">
       <span>La libreria è cambiata. Aggiorna quando vuoi per vedere le novità.</span>
-      <button class="btn" type="button" onclick="refreshCurrentData(false)">Aggiorna elenco</button>
+      <button class="btn" type="button" data-python-refresh onclick="refreshCurrentData(false)">Aggiorna elenco</button>
     </div>
     <div id="library-pagination" role="navigation" aria-label="Pagine dei risultati" class="section-tools">
       <button type="button" class="btn" data-step="-1" onclick="changeLibraryPage(-1)">Precedente</button>
@@ -162,7 +164,7 @@
     </div>
     <div class="section-tools">
       <span id="section-summary">Tutti i brani</span>
-      <button class="btn btn-ghost" type="button" onclick="refreshCurrentData(false)">Aggiorna</button>
+      <button class="btn btn-ghost" type="button" data-python-refresh onclick="refreshCurrentData(false)">Aggiorna</button>
     </div>
     <div id="cache-section" class="section-stack">
       <div class="section-banner section-banner-cache">

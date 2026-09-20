@@ -7,6 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 110'><text y='1em' font-size='90'>💿</text></svg>">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 <script src="{{ url_for('static', filename='js/snake-mesh.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/snake-motion.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/snake.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/login-transition.js') }}" defer></script>
 </head>
@@ -17,7 +18,8 @@
     <h2>La tua musica.<br>Il tuo ecosistema.</h2>
     <p>Gestisci la libreria del tuo server in un unico spazio.</p>
     <div class="snake-stage" aria-label="Serpente 3D interattivo">
-  <canvas aria-hidden="true"></canvas>
+  <img class="snake-poster" src="{{ url_for('static', filename='models/python/rest.png') }}" width="740" height="340" alt="" aria-hidden="true">
+  <canvas aria-hidden="true" hidden></canvas>
   <button type="button" class="snake-toggle" aria-pressed="false" aria-label="Pausa animazione">Ⅱ</button>
 </div>
   </section>
