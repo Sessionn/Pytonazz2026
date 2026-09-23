@@ -48,6 +48,26 @@ PYTONAZZ_COOKIE_WATCH_TEST_URL=https://www.youtube.com/watch?v=dQw4w9WgXcQ
 
 Il cookie watchdog interno al bot legge anche `monitoring/.env` all'avvio, senza sovrascrivere le variabili gia presenti nel `.env` principale. Parte quando trova `COOKIE_FILE` e ntfy configurato. Controlla i cookie ogni `PYTONAZZ_COOKIE_WATCH_INTERVAL_SECONDS`; se fallisce manda ntfy direttamente, senza dipendere dal file log o dallo script esterno.
 
+Il bootstrap esegue inoltre un test locale nei log, anche senza ntfy: controlla
+formato Netscape, presenza e scadenza dei cookie YouTube, estrae lo stream e
+decodifica un secondo di audio con FFmpeg. Usa cookie effettivi, proxy, client e
+formato del bot. Un processo isolato limita il test a 45 secondi (15 per FFmpeg);
+un errore viene segnalato senza impedire l'avvio del bot. Il watchdog periodico
+usa lo stesso test. I cookie vengono copiati in un file temporaneo privato per
+evitare che la sonda sovrascriva il file del resolver.
+
+Un HTTP 403 indica uno stream rifiutato, non necessariamente cookie scaduti.
+Un test positivo conferma la lettura del video campione in quel momento, non
+la validità di ogni cookie o l'accessibilità di tutti i video. Gli URL firmati
+vengono oscurati nei risultati. Il video campione resta configurabile con
+`PYTONAZZ_COOKIE_WATCH_TEST_URL`.
+
+Per YouTube installare `yt-dlp[default]` (include EJS) e Node >=22 oppure Deno
+>=2.3 nel PATH. Il bot abilita entrambi i runtime. Il client predefinito è
+`web_safari`, modificabile con `YTDLP_YOUTUBE_CLIENTS`; preferisce HLS audio o
+HLS con video fino a 360p, scartato da FFmpeg. Questo evita i formati progressivi
+che possono essere estratti correttamente ma rispondere 403 alla lettura.
+
 ## Personalizzazione messaggi
 
 Copia l'esempio:

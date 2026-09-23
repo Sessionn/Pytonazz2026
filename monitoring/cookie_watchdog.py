@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import json
+import re
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,7 +116,7 @@ def _int_env(values: Mapping[str, str], key: str, default: int) -> int:
 
 
 def classify_cookie_probe_output(*, returncode: int, output: str) -> CookieProbeResult:
-    text = output.strip()
+    text = re.sub(r"https?://\S+", "[URL oscurato]", output.strip())
     lowered = text.lower()
     if returncode == 0:
         return CookieProbeResult(ok=True, rule_name="cookie_ok", detail=text or "probe ok")
@@ -122,6 +126,8 @@ def classify_cookie_probe_output(*, returncode: int, output: str) -> CookieProbe
             rule_name="youtube_cookie",
             detail=f"YouTube richiede cookie validi o verifica anti-bot. Output: {text}",
         )
+    if "403" in lowered or "forbidden" in lowered:
+        return CookieProbeResult(False, "youtube_stream", "Stream audio rifiutato (HTTP 403): verificare client, cookie e restrizioni YouTube; non prova da solo cookie scaduti.")
     if "--cookies" in lowered or "cookies-from-browser" in lowered:
         return CookieProbeResult(
             ok=False,
@@ -177,49 +183,31 @@ async def run_ytdlp_cookie_probe(config: CookieWatchConfig) -> CookieProbeResult
 
 
 def _run_ytdlp_cookie_probe_sync(config: CookieWatchConfig) -> CookieProbeResult:
+    """Isolated, bounded worker: a stalled extraction cannot block bootstrap."""
+    from core.paths import REPO_ROOT
     try:
-        import yt_dlp
-    except Exception as exc:
-        return CookieProbeResult(False, "error", f"yt-dlp non importabile: {exc}")
+        result = subprocess.run(
+            [sys.executable, "-m", "monitoring.audio_probe"],
+            input=json.dumps({"cookie_file": config.cookie_file, "test_url": config.test_url}),
+            capture_output=True, text=True, timeout=45, cwd=REPO_ROOT,
+        )
+        if result.returncode:
+            return CookieProbeResult(False, "error", "Processo del test audio terminato in errore.")
+        return CookieProbeResult(**json.loads(result.stdout))
+    except subprocess.TimeoutExpired:
+        return CookieProbeResult(False, "error", "Test audio scaduto dopo 45 secondi; avvio del bot prosegue.")
+    except Exception:
+        return CookieProbeResult(False, "error", "Impossibile eseguire il test audio isolato.")
 
-    messages: list[str] = []
 
-    class ProbeLogger:
-        def debug(self, msg: str) -> None:
-            if msg and not msg.startswith("[debug]"):
-                messages.append(msg)
-
-        def info(self, msg: str) -> None:
-            if msg:
-                messages.append(msg)
-
-        def warning(self, msg: str) -> None:
-            if msg:
-                messages.append(msg)
-
-        def error(self, msg: str) -> None:
-            if msg:
-                messages.append(msg)
-
-    opts = {
-        "cookiefile": config.cookie_file,
-        "extract_flat": True,
-        "format": "bestaudio/best",
-        "ignoreerrors": False,
-        "logger": ProbeLogger(),
-        "noplaylist": True,
-        "quiet": True,
-        "skip_download": True,
-        "socket_timeout": 10,
-    }
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(config.test_url, download=False)
-        title = info.get("title", "video raggiungibile") if isinstance(info, dict) else "video raggiungibile"
-        return CookieProbeResult(True, "cookie_ok", f"yt-dlp cookie probe OK: {title}")
-    except Exception as exc:
-        messages.append(str(exc))
-        return classify_cookie_probe_output(returncode=1, output="\n".join(messages))
+def log_startup_cookie_check(logger) -> CookieProbeResult:
+    from config import Config
+    from dataclasses import replace
+    config = replace(CookieWatchConfig.from_env(), cookie_file=Config.EFFECTIVE_COOKIE_FILE)
+    logger.info(tag("BOOT", "Test cookie/YouTube: estrazione e decodifica audio (massimo 45s)"))
+    result = _run_ytdlp_cookie_probe_sync(config)
+    (logger.info if result.ok else logger.warning)(tag("BOOT", result.detail))
+    return result
 
 
 async def run_cookie_check_once(
@@ -229,11 +217,14 @@ async def run_cookie_check_once(
     notifier: AlertNotifier,
     probe: ProbeFunc = run_ytdlp_cookie_probe,
     now: float | None = None,
+    logger=None,
 ) -> bool:
     if not config.enabled:
         return False
     now = time.time() if now is None else now
     result = await probe(config)
+    if logger:
+        (logger.info if result.ok else logger.warning)(tag("COOKIE", result.detail))
     if result.ok:
         return False
     if now - state.last_failure_alert_at < config.cooldown_seconds:
@@ -281,7 +272,7 @@ async def cookie_watch_loop(
         await asyncio.sleep(config.startup_delay_seconds)
     while True:
         try:
-            await run_cookie_check_once(config=config, state=state, notifier=notifier, probe=probe)
+            await run_cookie_check_once(config=config, state=state, notifier=notifier, probe=probe, logger=logger)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -291,7 +282,9 @@ async def cookie_watch_loop(
 
 
 def start_cookie_watchdog(bot, *, logger=None):
-    config = CookieWatchConfig.from_env()
+    from config import Config
+    from dataclasses import replace
+    config = replace(CookieWatchConfig.from_env(), cookie_file=Config.EFFECTIVE_COOKIE_FILE)
     if not config.enabled:
         if logger:
             logger.info("cookie watchdog non avviato: COOKIE_FILE o ntfy non configurati")

@@ -160,14 +160,18 @@ class Config:
     }
 
     YDL_OPTIONS: dict = {
-        "format": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+        "js_runtimes": {"deno": {}, "node": {}},
+        "extractor_args": {"youtube": {"player_client": [
+            client.strip() for client in os.getenv("YTDLP_YOUTUBE_CLIENTS", "web_safari").split(",") if client.strip()
+        ]}},
+        "format": "bestaudio[protocol*=m3u8]/best[protocol*=m3u8][height<=360]/best[protocol*=m3u8]/bestaudio/best",
         "cookiefile": _cookies if _cookies else None,
         "noplaylist": False,
         "nocheckcertificate": True,
         "ignoreerrors": True,
         "logtostderr": False,
         "quiet": True,
-        "no_warnings": True,
+        "no_warnings": False,
         "default_search": "ytsearch",
         "source_address": "0.0.0.0",
         "skip_download": True,

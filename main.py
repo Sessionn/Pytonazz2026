@@ -26,7 +26,7 @@ from core.runtime import (
     snapshot_extension_mtimes,
     start_dashboard_thread,
 )
-from monitoring.cookie_watchdog import start_cookie_watchdog
+from monitoring.cookie_watchdog import start_cookie_watchdog, log_startup_cookie_check
 from assets.status_messages import STATUS_CYCLE
 from core.constants import UNDISABLEABLE, command_slug
 
@@ -51,6 +51,7 @@ from core.log_colors import tag, b, hi, dim, _BGRN
 
 log_runtime_paths(log)
 ensure_ytdlp_current(log)
+log_startup_cookie_check(log)
 
 # ── Cache DB ─────────────────────────────────────────────────────────────────
 init_db(enabled=Config.CACHE_ENABLED)

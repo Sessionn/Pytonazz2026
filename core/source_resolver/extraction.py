@@ -6,6 +6,7 @@ import re
 import threading
 from typing import Optional
 import yt_dlp
+from config import Config
 from core.log_colors import tag, b
 from core.source_resolver.models import TrackInfo
 from core.source_resolver.ytdlp import _make_opts, _strip_yt_radio, _is_soundcloud_url, _resolve_soundcloud_short_url, _strip_soundcloud_params
@@ -14,9 +15,9 @@ log = logging.getLogger("pitonazz.resolver")
 
 _FAST_STREAM_EXTRACT_OPTS = {
     "noplaylist": True,
-    "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio",
-    "youtube_include_dash_manifest": False,
-    "youtube_include_hls_manifest": False,
+    # Some authenticated YouTube sessions expose only muxed HLS streams.
+    # FFmpeg discards video; prefer a small rendition to limit bandwidth.
+    "format": Config.YDL_OPTIONS["format"],
 }
 
 

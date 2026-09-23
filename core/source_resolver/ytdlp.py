@@ -42,7 +42,7 @@ class _YdlLogger:
         log.debug(tag("RESOLVE", f"{msg}"))
 
     def warning(self, msg: str) -> None:
-        if "DRM" not in msg and "JavaScript runtime" not in msg:
+        if "DRM" not in msg:
             log.warning(tag("WARN", f"{msg}"))
 
     def error(self, msg: str) -> None:

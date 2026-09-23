@@ -70,7 +70,7 @@ def ensure_ytdlp_current(logger: logging.Logger) -> None:
     logger.info(tag("BOOT", f"yt-dlp  aggiornamento {b(current)} -> {hi(latest)} in corso"))
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--upgrade", f"{_YTDLP_PACKAGE}>={latest}"],
+            [sys.executable, "-m", "pip", "install", "--upgrade", f"{_YTDLP_PACKAGE}[default]>={latest}"],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
