@@ -28,15 +28,23 @@ def browser_cookies():
                         "https://www.youtube.com/"], check=True, capture_output=True, timeout=15)
         return []
     code = """
-import json,sqlite3
+import json,sqlite3,shutil,tempfile
 from pathlib import Path
 p=Path('/home/seluser/pytonazz-profile/cookies.sqlite')
 result=[]
 if p.exists():
-    with sqlite3.connect(p.as_uri()+'?mode=ro',uri=True,timeout=5) as db:
-        for host,path,secure,expiry,name,value,http_only in db.execute(
-            "SELECT host,path,isSecure,expiry,name,value,isHttpOnly FROM moz_cookies WHERE host='youtube.com' OR host LIKE '%.youtube.com'"):
-            result.append(dict(domain=host,path=path,secure=bool(secure),expiry=expiry,name=name,value=value,httpOnly=bool(http_only)))
+    # Firefox holds an exclusive lock. Read a private snapshot, including WAL,
+    # without changing the live database or asking the user to close Firefox.
+    with tempfile.TemporaryDirectory(prefix='pytonazz-cookie-') as folder:
+        snapshot=Path(folder)/'cookies.sqlite'
+        shutil.copyfile(p,snapshot)
+        wal=p.with_name(p.name+'-wal')
+        if wal.exists():
+            shutil.copyfile(wal,snapshot.with_name(snapshot.name+'-wal'))
+        with sqlite3.connect(snapshot.as_uri()+'?mode=ro',uri=True,timeout=5) as db:
+            for host,path,secure,expiry,name,value,http_only in db.execute(
+                "SELECT host,path,isSecure,expiry,name,value,isHttpOnly FROM moz_cookies WHERE host='youtube.com' OR host LIKE '%.youtube.com'"):
+                result.append(dict(domain=host,path=path,secure=bool(secure),expiry=expiry,name=name,value=value,httpOnly=bool(http_only)))
 print(json.dumps(result))
 """
     result = subprocess.run(["docker", "exec", "-u", "seluser", CONTAINER, "python3", "-c", code],
