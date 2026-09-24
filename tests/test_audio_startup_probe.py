@@ -8,11 +8,24 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from monitoring.audio_probe import probe
-from monitoring.cookie_watchdog import CookieWatchConfig, _run_ytdlp_cookie_probe_sync, classify_cookie_probe_output
+from monitoring.cookie_watchdog import CookieProbeResult, CookieWatchConfig, _run_ytdlp_cookie_probe_sync, classify_cookie_probe_output, log_startup_cookie_check
 from config import Config
 
 
 class AudioProbeTests(unittest.TestCase):
+    def test_boot_summary_preserves_real_outcome(self):
+        logger = MagicMock()
+        checks = [{'name': 'Cookie', 'status': 'ok', 'detail': 'Netscape'}]
+        for ok in [True, False]:
+            logger.reset_mock()
+            result = CookieProbeResult(ok, 'cookie_ok' if ok else 'youtube_stream', 'diagnosi', checks)
+            with patch('monitoring.cookie_watchdog._run_ytdlp_cookie_probe_sync', return_value=result), patch('monitoring.cookie_watchdog.CookieWatchConfig.from_env', return_value=CookieWatchConfig.from_mapping({})):
+                self.assertEqual(log_startup_cookie_check(logger).ok, ok)
+            info = ' '.join(str(c) for c in logger.info.call_args_list)
+            self.assertEqual('PRONTO' in info, ok)
+            self.assertIn('Cookie', info)
+            self.assertEqual(logger.warning.called, not ok)
+
     def test_probe_uses_private_cookie_copy(self):
         with tempfile.TemporaryDirectory() as temp:
             original = Path(temp) / 'cookies.txt'

@@ -7,11 +7,11 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable, Mapping, Protocol
 
-from core.log_colors import _BGRN, _CYN, b, hi, tag
+from core.log_colors import _BGRN, _BRED, _BYEL, _CYN, b, hi, tag
 from monitoring.log_monitor import Alert, format_notification, load_alert_profiles
 from monitoring.notifier import NtfyConfig, NtfyNotifier
 
@@ -76,6 +76,7 @@ class CookieProbeResult:
     ok: bool
     rule_name: str
     detail: str
+    checks: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -128,6 +129,8 @@ def classify_cookie_probe_output(*, returncode: int, output: str) -> CookieProbe
         )
     if "403" in lowered or "forbidden" in lowered:
         return CookieProbeResult(False, "youtube_stream", "Stream audio rifiutato (HTTP 403): verificare client, cookie e restrizioni YouTube; non prova da solo cookie scaduti.")
+    if "requested format is not available" in lowered:
+        return CookieProbeResult(False, "youtube_format", "Nessun formato audio disponibile per questo video/client.")
     if "--cookies" in lowered or "cookies-from-browser" in lowered:
         return CookieProbeResult(
             ok=False,
@@ -204,9 +207,24 @@ def log_startup_cookie_check(logger) -> CookieProbeResult:
     from config import Config
     from dataclasses import replace
     config = replace(CookieWatchConfig.from_env(), cookie_file=Config.EFFECTIVE_COOKIE_FILE)
-    logger.info(tag("BOOT", "Test cookie/YouTube: estrazione e decodifica audio (massimo 45s)"))
+    started = time.monotonic()
+    logger.info(tag("BOOT", f"{b('Audio check')}  {hi('● IN CORSO', _CYN)}  limite 45s"))
     result = _run_ytdlp_cookie_probe_sync(config)
-    (logger.info if result.ok else logger.warning)(tag("BOOT", result.detail))
+    for check in result.checks:
+        status = hi('✓ OK', _BGRN) if check['status'] == 'ok' else hi('— OFF', _BYEL)
+        logger.info(tag("BOOT", f"{b(check['name'].ljust(12))}  {b(status)}  {check['detail']}"))
+    elapsed = time.monotonic() - started
+    if result.ok:
+        logger.info(tag("BOOT", f"{b('Audio check')}  {b(hi('✓ PRONTO', _BGRN))}  {elapsed:.1f}s"))
+    else:
+        label = {'youtube_cookie': 'Cookie da verificare', 'youtube_cookie_hint': 'Cookie da verificare',
+                 'youtube_stream': 'Stream rifiutato · HTTP 403',
+                 'youtube_format': 'Formato audio non disponibile'}.get(result.rule_name, 'Test audio non riuscito')
+        logger.warning(tag("BOOT", f"{b('Audio check')}  {b(hi('✗ ERRORE', _BRED))}  {label}"))
+        detail = ' '.join(result.detail.split())
+        logger.warning(tag("BOOT", f"{hi('Dettaglio', _BYEL)}  {detail[:160]}{'…' if len(detail) > 160 else ''}"))
+        logger.debug('Audio check: %s', result.detail)
+
     return result
 
 

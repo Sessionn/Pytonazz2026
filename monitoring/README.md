@@ -62,6 +62,12 @@ la validità di ogni cookie o l'accessibilità di tutti i video. Gli URL firmati
 vengono oscurati nei risultati. Il video campione resta configurabile con
 `PYTONAZZ_COOKIE_WATCH_TEST_URL`.
 
+Il riepilogo `BOOT` separa Cookie (formato e scadenze), YouTube (estrazione)
+e FFmpeg (campioni audio decodificati). Indicatori e stati in grassetto:
+verde `✓ OK`/`✓ PRONTO`, ciano `● IN CORSO`, giallo `— OFF`, rosso `✗ ERRORE`.
+Mostra solo i controlli effettivamente completati; un errore conserva la diagnosi
+e non viene trasformato in successo. Il tempo totale compare accanto a `PRONTO`.
+
 Per YouTube installare `yt-dlp[default]` (include EJS) e Node >=22 oppure Deno
 >=2.3 nel PATH. Il bot abilita entrambi i runtime. Il client predefinito è
 `web_safari`, modificabile con `YTDLP_YOUTUBE_CLIENTS`; preferisce HLS audio o
