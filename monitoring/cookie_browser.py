@@ -1,6 +1,6 @@
 """Maintain YouTube cookies from the dedicated, manually authenticated browser.
 
-Run as a user service; WebDriver and noVNC must remain on localhost.
+Run as a user service; noVNC must remain on localhost.
 Never logs cookie values or handles Google passwords.
 """
 from __future__ import annotations
@@ -9,42 +9,38 @@ import json
 import os
 import shutil
 import time
-import urllib.request
+import subprocess
 from dataclasses import replace
 from pathlib import Path
-from urllib.parse import urlsplit
 
-ENDPOINT = "http://127.0.0.1:14444"
 STATE = Path.home() / ".local/share/pytonazz-cookie-browser"
+CONTAINER = "pytonazz-cookie-browser"
 
 
-def request(method, path, payload=None):
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(ENDPOINT + path, data=data, method=method,
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=40) as response:
-        return json.load(response)["value"]
-
-
-def session():
-    saved = STATE / "session"
-    if saved.exists():
-        sid = saved.read_text().strip()
-        try:
-            request("GET", f"/session/{sid}/url")
-            return sid
-        except Exception:
-            pass
-    value = request("POST", "/session", {"capabilities": {"alwaysMatch": {
-        "browserName": "chrome", "goog:chromeOptions": {
-            "args": ["--user-data-dir=/home/seluser/pytonazz-profile", "--no-first-run", "--window-size=1280,900"],
-            "excludeSwitches": ["enable-automation"],
-        }}}})
-    sid = value["sessionId"]
-    saved.write_text(sid)
-    os.chmod(saved, 0o600)
-    request("POST", f"/session/{sid}/url", {"url": "https://www.youtube.com/"})
-    return sid
+def browser_cookies():
+    """Read only YouTube rows from a native Firefox profile, including HttpOnly."""
+    running = subprocess.run(["docker", "exec", CONTAINER, "pgrep", "-x", "firefox"],
+                             capture_output=True, timeout=10)
+    if running.returncode:
+        subprocess.run(["docker", "exec", "-d", "-u", "seluser", "-e", "DISPLAY=:99", CONTAINER,
+                        "firefox", "--no-remote", "--profile", "/home/seluser/pytonazz-profile",
+                        "https://www.youtube.com/"], check=True, capture_output=True, timeout=15)
+        return []
+    code = """
+import json,sqlite3
+from pathlib import Path
+p=Path('/home/seluser/pytonazz-profile/cookies.sqlite')
+result=[]
+if p.exists():
+    with sqlite3.connect(p.as_uri()+'?mode=ro',uri=True,timeout=5) as db:
+        for host,path,secure,expiry,name,value,http_only in db.execute(
+            "SELECT host,path,isSecure,expiry,name,value,isHttpOnly FROM moz_cookies WHERE host='youtube.com' OR host LIKE '%.youtube.com'"):
+            result.append(dict(domain=host,path=path,secure=bool(secure),expiry=expiry,name=name,value=value,httpOnly=bool(http_only)))
+print(json.dumps(result))
+"""
+    result = subprocess.run(["docker", "exec", "-u", "seluser", CONTAINER, "python3", "-c", code],
+                            check=True, capture_output=True, text=True, timeout=15)
+    return json.loads(result.stdout)
 
 
 def netscape(cookies):
@@ -72,17 +68,9 @@ def refresh_once():
     from config import Config
     from monitoring.cookie_watchdog import CookieWatchConfig, _run_ytdlp_cookie_probe_sync
 
-    sid = session()
-    url = request("GET", f"/session/{sid}/url")
-    if (urlsplit(url).hostname or "").removeprefix("www.") != "youtube.com":
-        return "LOGIN RICHIESTO · completa l'accesso nel browser", False
-    cookies = request("GET", f"/session/{sid}/cookie")
-    if not netscape(cookies):
-        return "LOGIN RICHIESTO · apri YouTube e accedi", False
-    request("POST", f"/session/{sid}/refresh", {})
-    content = netscape(request("GET", f"/session/{sid}/cookie"))
+    content = netscape(browser_cookies())
     if not content:
-        return "LOGIN RICHIESTO · sessione non autenticata", False
+        return "LOGIN RICHIESTO · apri YouTube e accedi", False
     candidate = STATE / "candidate.cookies.txt"
     candidate.write_text(content, encoding="utf-8")
     os.chmod(candidate, 0o600)
@@ -121,7 +109,7 @@ def main():
             try:
                 message, authenticated = refresh_once()
             except Exception as exc:
-                # Exception text from WebDriver may include session data.
+                # Exception text may include session data.
                 message, authenticated = f"BROWSER NON DISPONIBILE · {type(exc).__name__}", False
             if message != previous or authenticated:
                 print(message, flush=True)

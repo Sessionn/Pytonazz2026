@@ -3,8 +3,8 @@
 ## Browser dedicato sulla VM
 
 Eseguire `bash scripts/setup_cookie_browser.sh` dalla repository Linux. Richiede
-Docker, systemd utente e il venv del bot. L'immagine ufficiale Chromium è fissata
-a una versione e il profilo è conservato nel volume `pytonazz-cookie-profile`.
+Docker, systemd utente e il venv del bot. L'immagine ufficiale Firefox è fissata
+a una versione e il profilo è conservato nel volume `pytonazz-firefox-profile`.
 
 Dal PC aprire il tunnel:
 
@@ -14,15 +14,15 @@ ssh -N -L 17900:127.0.0.1:17900 pytonazz
 
 Visitare `http://127.0.0.1:17900/vnc.html`, password noVNC `secret`, e accedere
 manualmente a YouTube. Non chiudere il browser e lasciare la scheda su YouTube.
-Google può richiedere una nuova autenticazione o rifiutare un browser automatizzato:
+Firefox viene avviato normalmente, senza WebDriver. Google può richiedere una nuova autenticazione:
 il servizio non risolve CAPTCHA, non conserva password e non aggira queste richieste.
 
-Le porte 17900 (interfaccia) e 14444 (WebDriver) sono legate esclusivamente a
-127.0.0.1 sulla VM. Non pubblicarle attraverso firewall o reverse proxy.
+La porta 17900 (interfaccia) è legata esclusivamente a
+127.0.0.1 sulla VM. Non pubblicarla attraverso firewall o reverse proxy.
 
 `monitoring.cookie_browser` è eseguito dal servizio utente
 `pytonazz-cookie-browser.service`. Attende il login senza interromperlo, poi ogni
-15 minuti aggiorna la pagina, esporta soltanto i cookie YouTube e verifica
+15 minuti legge dal database SQLite del profilo soltanto i cookie YouTube e verifica
 l'audio usando la sonda del bot. Solo un risultato positivo sostituisce
 atomicamente `COOKIE_FILE`, con permessi 600 e backup `.last-good`. Un test
 negativo conserva il file precedente. Il resolver legge i cookie a ogni nuova
@@ -33,7 +33,7 @@ Arresto: `systemctl --user stop pytonazz-cookie-browser` e
 `docker stop pytonazz-cookie-browser`.
 
 Non è una garanzia di cookie perpetui o di accesso a ogni video. È rinnovo da una
-sessione autorizzata, soggetto alle decisioni di Google e ai controlli YouTube.
+sessione autorizzata lasciata aperta (il browser gestisce la rotazione), soggetto alle decisioni di Google e ai controlli YouTube.
 Riferimenti: [yt-dlp, cookie YouTube](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)
 e [immagini ufficiali Selenium](https://github.com/SeleniumHQ/docker-selenium).
 

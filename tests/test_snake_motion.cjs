@@ -2,6 +2,13 @@ const assert=require('node:assert/strict');
 require('../data/database/dashboard/static/js/snake-motion.js');
 const M=globalThis.PythonMotion;
 const out=new Float32Array(183),baseline=M.resting(new Float32Array(183));
+for(const kind of ['username','password']) {
+ const target=new Float32Array(183);
+ M.fieldPose(target,{x:920,y:580,w:370,h:50},kind,1);
+ M.transition(out,baseline,target,0);assert.deepEqual(out,baseline);
+ M.transition(out,baseline,target,1);assert.deepEqual(out,target);
+ for(let i=1;i<60;i++){M.transition(out,baseline,target,i/60);assert([...out].every(Number.isFinite));}
+}
 for(const t of [0,1]) {M.refresh(out,t);out.forEach((v,i)=>assert(Math.abs(v-baseline[i])<.0001));}
 let changedShape=false;
 for(let frame=1;frame<=252;frame++) {
