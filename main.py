@@ -266,10 +266,12 @@ def saved_presence():
             activity = discord.CustomActivity(name=data.get("state") or data.get("name", ""))
         elif data.get("type", 0) == 0:
             activity = discord.Game(name=data.get("name", ""))
+        elif data.get("type") == 1:
+            activity = discord.Streaming(name=data.get("name", ""), url=data.get("url", ""))
         else:
             activity = discord.Activity(**data)
         return {"status": discord.Status(saved.get("status", "online")), "activity": activity}
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         log.warning(tag("STATUS", "stato salvato non valido: uso rotazione"))
         return None
 
@@ -337,6 +339,7 @@ async def on_ready():
     if cfg.maintenance:
         try:
             await bot.apply_maintenance_presence()
+            log.info(tag("STATUS", "manutenzione ripristinata"))
         except Exception as e:
             log.error(tag("STATUS", f"errore apply_maintenance_presence  {e}"))
     else:
