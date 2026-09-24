@@ -11,7 +11,8 @@
   let renderer=null,loading=null,animal=null,frame=0,last=0,elapsed=0,scale=1,contextReady=true;
   let poster,toggle,resizeObserver,home,field,dirty=true,paused=reduced.matches;
   let pointer=null,focus=null,phase=0,arrival=null,refreshPending=false;
-  let dock=null,gestureEnergy=0,gestureKind='nod',gestureCount=0;
+  let gestureEnergy=0,gestureKind='nod',gestureCount=0;
+  let poseFrom=null,poseTime=0,poseKind=null,typingUntil=0,typingField=null;
   let viewportWidth=innerWidth,viewportHeight=innerHeight;
   try{paused ||= sessionStorage.getItem('snake-paused')==='1';phase=Number(sessionStorage.getItem('snake-phase'))||0;}catch(_){}
   canvas.setAttribute('aria-hidden','true');
@@ -67,16 +68,6 @@
     mountOverlay();wake();
   }
   function loginGoal(now) {
-    if(focus&&field) {
-      const rim=field.y-18*scale,head=animal.trail.head;
-      if(!dock)dock={side:head[0]<field.x+field.w/2?-1:1,arrived:false};
-      const entry=field.x+(dock.side<0?-24*scale:field.w+24*scale);
-      if(Math.hypot(head[0]-entry,head[1]-rim)<35*scale)dock.arrived=true;
-      if(!dock.arrived)return {x:entry,y:rim,z:2,settle:true};
-      // Settle on the upper rim; small breathing motion continues during typing.
-      return {x:field.x+field.w-(focus==='password'?60:90)*scale+Math.sin(phase*.7)*1.5*scale,
-        y:rim+Math.sin(phase*.9)*scale,z:2+Math.sin(phase*1.2)*.6,settle:true};
-    }
     if(pointer&&now-pointer.time<2200)return {x:pointer.x,y:pointer.y,z:2,chase:true};
     return {x:home.x+home.w*(.5+.31*Math.sin(phase*.31)),y:home.y+home.h*(.5+.27*Math.sin(phase*.47+.8)),z:2+Math.sin(phase*.6),pace:.8};
   }
@@ -85,20 +76,13 @@
     if(toggle)toggle.hidden=true;
     if(paused||!renderer||!animal){staticRest();return;}
     state='arrival';elapsed=0;last=0;scale=animal.scale;
-    arrival={from:Array.from(animal.trail.head),scale,duration:3.6};mountOverlay();wake();
+    arrival={from:points.slice(),scale,duration:3.6};pointer=null;focus=null;mountOverlay();wake();
   }
   function arrivalStep(dt) {
     elapsed+=dt;const t=Math.min(1,elapsed/arrival.duration),s=homeScale();
     motion.resting(destination,home.x+home.w/2,home.y+home.h/2,s);
-    if(t<.35) {
-      const p=motion.ease(t/.35),q=1-p,endX=destination[180],endY=destination[181];
-      const bend=Math.min(90,Math.abs(endX-arrival.from[0])*.2);
-      animal.trail.push(q*arrival.from[0]+p*endX,q*arrival.from[1]+p*endY-Math.sin(p*Math.PI)*bend,q*arrival.from[2]+p*destination[182]);
-    }else {
-      const p=(t-.35)/.65,index=(1-p)*60,i=Math.min(59,Math.floor(index)),a=index-i;
-      animal.trail.push(destination[i*3]*(1-a)+destination[(i+1)*3]*a,destination[i*3+1]*(1-a)+destination[(i+1)*3+1]*a,destination[i*3+2]*(1-a)+destination[(i+1)*3+2]*a);
-    }
-    scale=arrival.scale+(s-arrival.scale)*motion.ease(t);animal.trail.sample(points,motion.length*scale);
+    scale=arrival.scale+(s-arrival.scale)*motion.ease(t);
+    motion.transition(points,arrival.from,destination,t);
     if(t>=1){points.set(destination);drawOverlay();staticRest();if(refreshPending){refreshPending=false;startRefresh();}return false;}
     return true;
   }
@@ -128,7 +112,20 @@
     const dt=last?Math.min((now-last)/1000,.04):1/60;last=now;phase+=dt;stage.dataset.motion=state;
     canvas.dataset.pose=state==='login'?(focus||(pointer&&now-pointer.time<2200?'follow':'idle')):state;
     if(state==='login') {
-      animal.step(dt,loginGoal(now),Math.max(.55,Math.min(1.2,home.w/370)));scale=animal.scale;
+      const active=focused()||(now<typingUntil?typingField:null);
+      if(active!==focus){focus=active;dirty=true;measure();}
+      if(focus&&field) {
+        if(poseKind!==focus){poseFrom=points.slice();poseTime=0;poseKind=focus;}
+        poseTime+=dt;scale=animal.scale;
+        motion.fieldPose(destination,field,focus,scale);
+        motion.transition(points,poseFrom,destination,Math.min(1,poseTime/1.7));
+        canvas.dataset.pose=focus;
+        canvas.dataset.settled=String(poseTime>=1.7);
+      }else {
+        if(poseKind){animal=new motion.Animal(points,scale);animal.speed=0;poseKind=null;pointer=null;}
+        canvas.dataset.settled='false';
+        animal.step(dt,loginGoal(now),Math.max(.55,Math.min(1.2,home.w/370)));scale=animal.scale;
+      }
       gestureEnergy*=Math.exp(-dt*2.8);
       motion.gesture(points,phase,gestureKind,gestureEnergy,scale);
       canvas.dataset.gesture=gestureEnergy>.05?gestureKind:'none';drawOverlay();
@@ -142,13 +139,14 @@
   }
   function wake(){if(!frame&&!paused&&!document.hidden&&renderer&&['login','arrival','refresh'].includes(state))frame=requestAnimationFrame(tick);}
   function focused(){const el=document.activeElement;return el?.closest('.pwd-wrap')?'password':el?.id==='username'?'username':null;}
-  document.addEventListener('pointermove',event=>{if(state==='login'&&event.pointerType!=='touch')pointer={x:event.clientX+scrollX,y:event.clientY+scrollY,time:performance.now()};},{passive:true});
+  document.addEventListener('pointermove',event=>{if(state==='login'&&!focused()&&performance.now()>=typingUntil&&event.pointerType!=='touch')pointer={x:event.clientX+scrollX,y:event.clientY+scrollY,time:performance.now()};},{passive:true});
   document.addEventListener('pointerleave',()=>{pointer=null;});
-  function updateFocus(){if(state==='login'){const next=focused();if(next!==focus){dock=null;gestureEnergy=0;}focus=next;dirty=true;}}
+  function updateFocus(){if(state==='login'){const next=focused();if(next!==focus){gestureEnergy=0;}focus=next;if(next)pointer=null;dirty=true;}}
   document.addEventListener('focusin',updateFocus);
   document.addEventListener('focusout',()=>queueMicrotask(updateFocus));
   document.addEventListener('beforeinput',event=>{
     if(state!=='login'||paused||!['username','password'].includes(event.target.id))return;
+    typingField=event.target.id;typingUntil=performance.now()+1000;pointer=null;
     // Only an input event and field identity are used; never key/data/value.
     if(gestureEnergy<.15)gestureKind=event.target.id==='password'?'guard':['nod','look','ripple'][gestureCount++%3];
     gestureEnergy=Math.min(1,gestureEnergy+.4);

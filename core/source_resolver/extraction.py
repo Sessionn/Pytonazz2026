@@ -9,7 +9,7 @@ import yt_dlp
 from config import Config
 from core.log_colors import tag, b
 from core.source_resolver.models import TrackInfo
-from core.source_resolver.ytdlp import _make_opts, _strip_yt_radio, _is_soundcloud_url, _resolve_soundcloud_short_url, _strip_soundcloud_params
+from core.source_resolver.ytdlp import open_ytdlp, _make_opts, _strip_yt_radio, _is_soundcloud_url, _resolve_soundcloud_short_url, _strip_soundcloud_params
 
 log = logging.getLogger("pitonazz.resolver")
 
@@ -63,7 +63,7 @@ class ExtractionMixin:
                 cls._set_cached_ytdlp_results(cache_key, fast_search_results)
                 return fast_search_results
             try:
-                with yt_dlp.YoutubeDL(_make_opts()) as ydl:
+                with open_ytdlp(_make_opts()) as ydl:
                     info = ydl.extract_info(query, download=False)
             except yt_dlp.utils.ExtractorError as e:
                 err_str = str(e).lower()
@@ -105,12 +105,12 @@ class ExtractionMixin:
         if not re.match(r"^ytsearch1:", query, re.IGNORECASE):
             return None
         try:
-            with yt_dlp.YoutubeDL(_make_opts({"extract_flat": True, "format": "bestaudio/best"})) as ydl:
+            with open_ytdlp(_make_opts({"extract_flat": True, "format": "bestaudio/best"})) as ydl:
                 info = ydl.extract_info(query, download=False)
             direct_url = cls._first_ytdlp_webpage_url(info or {})
             if not direct_url:
                 return None
-            with yt_dlp.YoutubeDL(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
+            with open_ytdlp(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
                 direct_info = ydl.extract_info(direct_url, download=False)
             results = cls._tracks_from_ytdlp_info(direct_info or {}, requester, requester_id, origin_query)
             return results if results else None
@@ -191,7 +191,7 @@ class ExtractionMixin:
             return cls._get_cached_stream_url(normalized_webpage_url) or ""
         try:
             try:
-                with yt_dlp.YoutubeDL(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
+                with open_ytdlp(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
                     info = ydl.extract_info(normalized_webpage_url, download=False)
             except yt_dlp.utils.ExtractorError as e:
                 cls.invalidate_stream_cache(normalized_webpage_url)

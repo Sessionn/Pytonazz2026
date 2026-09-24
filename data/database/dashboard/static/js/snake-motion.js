@@ -114,6 +114,31 @@
       out[i*3+2]=(a.p[2]+(b.p[2]-a.p[2])*f)*scale;
     }
   }
+  function fieldPose(out,field,kind,scale=1) {
+    const password=kind==='password',rx=Math.min(field.w*.42,(password?105:145)*scale);
+    const ry=(password?18:22)*scale,cx=field.x+field.w*.55,cy=field.y-ry-14*scale;
+    for(let i=0;i<COUNT;i++) {
+      const u=i/(COUNT-1),a=.25+u*5.85,r=1-u*.22;
+      out[i*3]=cx+Math.cos(a)*rx*r;out[i*3+1]=cy+Math.sin(a)*ry*r;
+      out[i*3+2]=2+Math.sin(a)*2+(password?Math.pow(u,8)*22:0);
+      if(password&&u>.75) {
+        const cover=ease((u-.75)/.25);
+        out[i*3]+=(out[0]-8*scale-out[i*3])*cover;
+        out[i*3+1]+=(out[1]-out[i*3+1])*cover;
+      }
+    }
+  }
+  function transition(out,from,to,t) {
+    // Shared eased travel with a small wave travelling from neck to tail.
+    const p=ease(t),envelope=Math.sin(Math.PI*p);
+    const distance=Math.hypot(to[0]-from[0],to[1]-from[1]);
+    for(let i=0;i<COUNT;i++) {
+      const u=i/(COUNT-1),wave=Math.sin(p*Math.PI*2-u*3)*envelope*Math.min(12,distance*.025);
+      out[i*3]=from[i*3]+(to[i*3]-from[i*3])*p;
+      out[i*3+1]=from[i*3+1]+(to[i*3+1]-from[i*3+1])*p+wave;
+      out[i*3+2]=from[i*3+2]+(to[i*3+2]-from[i*3+2])*p;
+    }
+  }
   function gesture(points,time,kind,energy,scale=1) {
     for(let i=0;i<COUNT;i++) {
       const u=i/(COUNT-1),head=Math.exp(-u*8),tail=Math.pow(u,5);
@@ -124,5 +149,5 @@
       else {points[i*3+2]+=energy*scale*(tail*12-head*2);points[i*3+1]+=wave*5*tail;}
     }
   }
-  globalThis.PythonMotion={COUNT,length,rest,resting,uniforms,Trail,Animal,refresh,gesture,ease};
+  globalThis.PythonMotion={COUNT,length,rest,resting,uniforms,Trail,Animal,refresh,fieldPose,transition,gesture,ease};
 })();

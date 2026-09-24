@@ -3,6 +3,9 @@ Gestore centralizzato della configurazione runtime persistente.
 """
 
 import asyncio
+import copy
+import os
+import tempfile
 import json
 import logging
 
@@ -27,24 +30,33 @@ _DEFAULTS: dict = {
 
 def _load() -> dict:
     if not _PATH.exists():
-        return dict(_DEFAULTS)
+        return copy.deepcopy(_DEFAULTS)
     try:
         data = json.loads(_PATH.read_text(encoding="utf-8"))
-        return {**_DEFAULTS, **data}
+        return {**copy.deepcopy(_DEFAULTS), **data}
     except Exception as e:
         log.error(tag("ERR", f"bot_config.json corrotto: {e} — uso defaults"))
-        return dict(_DEFAULTS)
+        return copy.deepcopy(_DEFAULTS)
 
 
 def _save(data: dict) -> None:
     _PATH.parent.mkdir(parents=True, exist_ok=True)
-    _PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    descriptor, temporary = tempfile.mkstemp(prefix=".bot-config-", dir=_PATH.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(data, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, _PATH)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 async def _save_async(write_lock: asyncio.Lock, data: dict) -> None:
     """Salva la configurazione in modo thread-safe tramite asyncio.Lock + run_in_executor."""
     async with write_lock:
-        await asyncio.get_running_loop().run_in_executor(None, _save, data)
+        await asyncio.get_running_loop().run_in_executor(None, _save, copy.deepcopy(data))
 
 
 class BotConfig:
@@ -59,6 +71,15 @@ class BotConfig:
     async def _persist(self) -> None:
         """Persiste _data su disco in modo sicuro (lock + executor)."""
         await _save_async(self._write_lock, self._data)
+
+    @property
+    def last_presence(self) -> dict | None:
+        value = self._data.get("last_presence")
+        return copy.deepcopy(value) if isinstance(value, dict) else None
+
+    async def set_last_presence(self, value: dict) -> None:
+        self._data["last_presence"] = copy.deepcopy(value)
+        await self._persist()
 
     @property
     def status_interval(self) -> int:
@@ -157,7 +178,7 @@ class BotConfig:
 
     def snapshot(self) -> dict:
         """Restituisce una copia immutabile della configurazione attuale."""
-        return dict(self._data)
+        return copy.deepcopy(self._data)
 
     # ── Reload ────────────────────────────────────────────────────────────────
 

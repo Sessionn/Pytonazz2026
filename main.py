@@ -224,6 +224,7 @@ async def rotate_status():
 @rotate_status.before_loop
 async def before_rotate_status():
     await bot.wait_until_ready()
+    await asyncio.sleep(cfg.status_interval)
 
 
 async def apply_next_status():
@@ -234,10 +235,10 @@ async def apply_next_status():
     activity = _build_activity(chosen)
     status   = _build_status(chosen)
     await bot.change_presence(status=status, activity=activity)
-    bot.remember_normal_presence(status=status, activity=activity)
+    await bot.remember_normal_presence(status=status, activity=activity)
 
 
-def remember_normal_presence(
+async def remember_normal_presence(
     status: discord.Status | None = None,
     activity: discord.BaseActivity | None = None,
 ):
@@ -247,6 +248,30 @@ def remember_normal_presence(
         "activity": activity,
         "status": status or discord.Status.online,
     }
+    await cfg.set_last_presence({
+        "status": str(status or discord.Status.online),
+        "activity": activity.to_dict() if activity else None,
+    })
+
+
+def saved_presence():
+    saved = cfg.last_presence
+    if not saved:
+        return None
+    try:
+        data = saved.get("activity")
+        if not data:
+            activity = None
+        elif data.get("type") == 4:
+            activity = discord.CustomActivity(name=data.get("state") or data.get("name", ""))
+        elif data.get("type", 0) == 0:
+            activity = discord.Game(name=data.get("name", ""))
+        else:
+            activity = discord.Activity(**data)
+        return {"status": discord.Status(saved.get("status", "online")), "activity": activity}
+    except (ValueError, TypeError):
+        log.warning(tag("STATUS", "stato salvato non valido: uso rotazione"))
+        return None
 
 
 async def apply_maintenance_presence():
@@ -271,7 +296,7 @@ async def restore_presence_after_maintenance():
             status=prev.get("status") or discord.Status.online,
             activity=prev.get("activity"),
         )
-        bot.remember_normal_presence(
+        await bot.remember_normal_presence(
             status=prev.get("status") or discord.Status.online,
             activity=prev.get("activity"),
         )
@@ -306,6 +331,9 @@ async def on_ready():
         rotate_status.start()
     start_cookie_watchdog(bot, logger=logging.getLogger("pitonazz.cookie_watchdog"))
 
+    restored = getattr(bot, "_last_normal_presence", None) or saved_presence()
+    if restored:
+        bot._last_normal_presence = restored
     if cfg.maintenance:
         try:
             await bot.apply_maintenance_presence()
@@ -313,8 +341,11 @@ async def on_ready():
             log.error(tag("STATUS", f"errore apply_maintenance_presence  {e}"))
     else:
         try:
-            await asyncio.sleep(3)
-            await bot.apply_next_status()
+            if restored:
+                await bot.change_presence(**restored)
+                log.info(tag("STATUS", "ultimo stato ripristinato"))
+            else:
+                await bot.apply_next_status()
         except Exception as e:
             log.error(tag("STATUS", f"errore apply_next_status  {e}"))
 

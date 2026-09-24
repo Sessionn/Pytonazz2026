@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 
 from config import Config
 from core.log_colors import tag
@@ -25,6 +26,15 @@ _STREAM_URL_CACHE_TTL   = 45.0
 _STREAM_URL_CACHE_MAX   = 256
 
 log = logging.getLogger("pitonazz.resolver")
+
+
+@contextmanager
+def open_ytdlp(opts):
+    """Read the current cookie jar without overwriting a concurrent renewal."""
+    import yt_dlp
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.save_cookies = lambda: None
+        yield ydl
 
 
 # ── yt-dlp logger ─────────────────────────────────────────────────────────────

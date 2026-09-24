@@ -96,7 +96,6 @@ async def fetch_playlist_meta(query: str) -> tuple[str, int]:
                 nome = album.get("name") or "Album"
                 total = album.get("total_tracks", 0)
         elif RE_YT_PLAYLIST.search(query) or RE_SC_COLLECTION.search(query):
-            import yt_dlp
 
             ydl_opts = {
                 **Config.YDL_OPTIONS,
@@ -104,10 +103,11 @@ async def fetch_playlist_meta(query: str) -> tuple[str, int]:
                 "skip_download": True,
                 "quiet": True,
             }
-            info = await loop.run_in_executor(
-                None,
-                lambda current=query: yt_dlp.YoutubeDL(ydl_opts).extract_info(current, download=False),
-            )
+            from core.source_resolver.ytdlp import open_ytdlp
+            def extract_collection():
+                with open_ytdlp(ydl_opts) as ydl:
+                    return ydl.extract_info(query, download=False)
+            info = await loop.run_in_executor(None, extract_collection)
             if info:
                 entries = info.get("entries") or []
                 valid_entries = sum(1 for entry in entries if entry)

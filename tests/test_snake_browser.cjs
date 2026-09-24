@@ -27,8 +27,15 @@ assert(['localhost','127.0.0.1'].includes(new URL(base).hostname));
   }
   await page.getByLabel('Utente',{exact:true}).fill('preview');
   await page.waitForFunction(()=>document.querySelector('canvas').dataset.pose==='username');
+  await page.waitForFunction(()=>document.querySelector('canvas').dataset.settled==='true');
+  await page.mouse.move(10,10);
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator('canvas').getAttribute('data-pose'),'username','Focused input owns the pose, even after mouse movement');
   await page.getByLabel('Password',{exact:true}).fill('wrong');
   await page.waitForFunction(()=>document.querySelector('canvas').dataset.pose==='password');
+  await page.waitForFunction(()=>document.querySelector('canvas').dataset.settled==='true');
+  await page.mouse.move(1300,40);
+  assert.equal(await page.locator('canvas').getAttribute('data-pose'),'password');
   await page.locator('#password').pressSequentially('a');
   await page.waitForFunction(()=>document.querySelector('canvas').dataset.gesture==='guard');
   await page.locator('[type=submit]').click();await page.locator('.login-error').waitFor();

@@ -49,6 +49,9 @@ async def main():
             await config.set_tts_volume(2.345)
             await config.set_log_channel(12345)
             await config.disable_command("Play")
+            presence = {"status": "idle", "activity": {"type": 3, "name": "ultimo stato"}}
+            await config.set_last_presence(presence)
+            presence['activity']['name'] = 'mutazione esterna'
 
             restored = bot_config.BotConfig()
             assert restored.maintenance is True
@@ -56,6 +59,11 @@ async def main():
             assert restored.tts_volume == 2.35
             assert restored.log_channel_id == 12345
             assert restored.is_command_disabled("play") is True
+            assert restored.last_presence['activity']['name'] == 'ultimo stato'
+            assert restored.last_presence['status'] == 'idle'
+            snapshot = restored.snapshot()
+            snapshot['disabled_commands'].clear()
+            assert restored.is_command_disabled('play')
         finally:
             bot_config._PATH = original_path
 

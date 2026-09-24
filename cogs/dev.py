@@ -456,7 +456,7 @@ class Dev(commands.Cog):
         status = STAT_MAP.get(stato, discord.Status.online)
         await self.bot.change_presence(activity=activity, status=status)
         if hasattr(self.bot, "remember_normal_presence"):
-            self.bot.remember_normal_presence(status=status, activity=activity)
+            await self.bot.remember_normal_presence(status=status, activity=activity)
         log.info(tag("STATUS", f"set {b(nome)} tipo={tipo} stato={stato}"))
         await inter.response.send_message(
             f"\u2705 **{TYPE_LABEL.get(tipo, tipo)} {nome}** | {STATUS_LABEL.get(stato, stato)}\n"
