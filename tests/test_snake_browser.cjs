@@ -90,6 +90,6 @@ assert(['localhost','127.0.0.1'].includes(new URL(base).hostname));
   await fallback.locator('#username').fill('preview');await fallback.locator('#password').fill('preview-only');
   await fallback.locator('[type=submit]').click();await fallback.locator('.song-details').first().waitFor();
   assert(await fallback.locator('.snake-poster').isVisible());assert.deepEqual(errors,[]);
-  console.log('OK: autonomous login, continuous canvas arrival, real PNG rest, zero idle draws/assets, document scroll, clockwise finite refresh, varied typing reactions, reduced motion, fallback');
+  console.log('OK: autonomous login, continuous canvas arrival, real PNG rest, zero idle draws/assets, document scroll, finite crawling refresh, varied typing reactions, reduced motion, fallback');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});

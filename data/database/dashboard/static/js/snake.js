@@ -117,7 +117,7 @@
   }
   function paintRefresh(t) {
     const side=Math.max(home.w,home.h);
-    // Square drawing surface allows the unchanged silhouette to rotate unclipped.
+    // Square drawing surface allows the head to crawl around the resting body without clipping.
     canvas.style.width=side+'px';canvas.style.height=side+'px';
     canvas.style.left=(home.w-side)/2+'px';canvas.style.top=(home.h-side)/2+'px';
     motion.refresh(points,t,side/2,side/2,scale);motion.uniforms(points,spine);
@@ -135,8 +135,8 @@
     }else if(state==='arrival') {
       if(!arrivalStep(dt))return;drawOverlay();
     }else if(state==='refresh') {
-      elapsed+=dt;if(elapsed>=2.4){staticRest();return;}
-      scale=homeScale();paintRefresh(elapsed/2.4);
+      elapsed+=dt;if(elapsed>=4.2){staticRest();return;}
+      scale=homeScale();paintRefresh(elapsed/4.2);
     }else return;
     wake();
   }

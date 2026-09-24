@@ -90,12 +90,28 @@
       this.trail.sample(this.points,length*this.scale);
     }
   }
+  // One closed track: resting body from tail to head, then a tangent bridge
+  // back to the tail. Every body point follows the exact same travelled path.
+  const loop=raw.slice().reverse().map(({p})=>({p,d:0}));
+  // Continue around a broad inner coil rather than folding the neck through
+  // the short gap between head and tail. A full sweep keeps curvature gentle.
+  for(let i=1;i<=600;i++) {
+    const t=i/600,a=-.8-(Math.PI*4-6.7)*t,blend=ease(t);
+    loop.push({p:[185+Math.cos(a)*(145-55*blend),
+      85+Math.sin(a)*(43-12*blend),Math.sin(a)*3+Math.sin(t*Math.PI)*5],d:0});
+  }
+  for(let i=1;i<loop.length;i++)loop[i].d=loop[i-1].d+Math.hypot(loop[i].p[0]-loop[i-1].p[0],loop[i].p[1]-loop[i-1].p[1]);
+  const circuit=loop[loop.length-1].d;
   function refresh(out,t,cx=185,cy=85,scale=1) {
-    // Positive rotation in screen coordinates is clockwise. Preserve shape.
-    const spin=Math.PI*2*ease(t),c=Math.cos(spin),s=Math.sin(spin);
+    const travelled=ease(t)*circuit;
     for(let i=0;i<COUNT;i++) {
-      const x=rest[i*3]-185,y=rest[i*3+1]-85;
-      out[i*3]=cx+(x*c-y*s)*scale;out[i*3+1]=cy+(x*s+y*c)*scale;out[i*3+2]=rest[i*3+2]*scale;
+      const distance=((length+travelled-length*i/(COUNT-1))%circuit+circuit)%circuit;
+      let lo=0,hi=loop.length-1;
+      while(hi-lo>1){const mid=(lo+hi)>>1;if(loop[mid].d<distance)lo=mid;else hi=mid;}
+      const a=loop[lo],b=loop[hi],f=(distance-a.d)/(b.d-a.d||1);
+      out[i*3]=cx+(a.p[0]+(b.p[0]-a.p[0])*f-185)*scale;
+      out[i*3+1]=cy+(a.p[1]+(b.p[1]-a.p[1])*f-85)*scale;
+      out[i*3+2]=(a.p[2]+(b.p[2]-a.p[2])*f)*scale;
     }
   }
   function gesture(points,time,kind,energy,scale=1) {
