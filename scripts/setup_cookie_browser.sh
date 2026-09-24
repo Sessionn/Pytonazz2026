@@ -8,6 +8,7 @@ if ! docker container inspect pytonazz-cookie-browser >/dev/null 2>&1; then
     -p 127.0.0.1:17900:7900 \
     -v pytonazz-firefox-profile:/home/seluser/pytonazz-profile "$image"
   docker exec -u root pytonazz-cookie-browser chown seluser:seluser /home/seluser/pytonazz-profile
+  docker exec -u root pytonazz-cookie-browser chmod 700 /home/seluser/pytonazz-profile
 else
   docker start pytonazz-cookie-browser >/dev/null
 fi

@@ -19,7 +19,8 @@ CONTAINER = "pytonazz-cookie-browser"
 
 def browser_cookies():
     """Read only YouTube rows from a native Firefox profile, including HttpOnly."""
-    running = subprocess.run(["docker", "exec", CONTAINER, "pgrep", "-x", "firefox"],
+    running = subprocess.run(["docker", "exec", CONTAINER, "pgrep", "-f",
+                              "^firefox --no-remote --profile /home/seluser/pytonazz-profile"],
                              capture_output=True, timeout=10)
     if running.returncode:
         subprocess.run(["docker", "exec", "-d", "-u", "seluser", "-e", "DISPLAY=:99", CONTAINER,
