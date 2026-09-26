@@ -29,6 +29,8 @@ for status in ['online', 'idle', 'dnd', 'invisible']:
             assert restored['activity'].url == activity.url
 cfg.last_presence = {'status': 'invalid', 'activity': None}
 assert restore() is None
+cfg.last_presence = {'status': 'online', 'activity': None}
+assert restore() is None
 cfg.last_presence = {'status': 'online', 'activity': 'invalid'}
 assert restore() is None
 print('OK: stored presence types, visibility, streaming URL and malformed fallback')

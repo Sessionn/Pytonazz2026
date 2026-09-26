@@ -140,6 +140,18 @@ class Config:
     COOKIE_FILE: str           = _resolve_optional_file_path(_cookies_raw)
     EFFECTIVE_COOKIE_FILE: str = COOKIE_FILE if COOKIES_ENABLED else ""
     _cookies: str              = EFFECTIVE_COOKIE_FILE
+    # Lasciare decidere yt-dlp è più compatibile dei client forzati: alcuni
+    # client (in particolare web_safari) possono esporre solo storyboard per
+    # video perfettamente riproducibili dal client automatico.
+    _youtube_clients_raw: str = os.getenv("YTDLP_YOUTUBE_CLIENTS", "default").strip()
+    _youtube_clients: list[str] = [
+        client.strip() for client in _youtube_clients_raw.split(",")
+        if client.strip() and client.strip().lower() not in {"default", "auto"}
+    ]
+    _youtube_extractor_args: dict = (
+        {"youtube": {"player_client": _youtube_clients}}
+        if _youtube_clients else {}
+    )
 
     # ── Audio ──────────────────────────────────────────────────────────────────────────────────
     FFMPEG_OPTIONS: dict = {
@@ -161,9 +173,7 @@ class Config:
 
     YDL_OPTIONS: dict = {
         "js_runtimes": {"deno": {}, "node": {}},
-        "extractor_args": {"youtube": {"player_client": [
-            client.strip() for client in os.getenv("YTDLP_YOUTUBE_CLIENTS", "web_safari").split(",") if client.strip()
-        ]}},
+        "extractor_args": _youtube_extractor_args,
         "format": "bestaudio[protocol*=m3u8]/best[protocol*=m3u8][height<=360]/best[protocol*=m3u8]/bestaudio/best",
         "cookiefile": _cookies if _cookies else None,
         "noplaylist": False,

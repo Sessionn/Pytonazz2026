@@ -261,7 +261,9 @@ def saved_presence():
     try:
         data = saved.get("activity")
         if not data:
-            activity = None
+            # "online" senza attività può essere lasciato da una vecchia
+            # manutenzione. Non è una presence normale da ripristinare.
+            return None
         elif data.get("type") == 4:
             activity = discord.CustomActivity(name=data.get("state") or data.get("name", ""))
         elif data.get("type", 0) == 0:
@@ -293,7 +295,7 @@ async def restore_presence_after_maintenance():
     prev = getattr(bot, "_previous_presence", None)
     bot._maintenance_presence_saved = False
     bot._previous_presence = None
-    if prev:
+    if prev and prev.get("activity"):
         await bot.change_presence(
             status=prev.get("status") or discord.Status.online,
             activity=prev.get("activity"),

@@ -69,10 +69,11 @@ Mostra solo i controlli effettivamente completati; un errore conserva la diagnos
 e non viene trasformato in successo. Il tempo totale compare accanto a `PRONTO`.
 
 Per YouTube installare `yt-dlp[default]` (include EJS) e Node >=22 oppure Deno
->=2.3 nel PATH. Il bot abilita entrambi i runtime. Il client predefinito è
-`web_safari`, modificabile con `YTDLP_YOUTUBE_CLIENTS`; preferisce HLS audio o
-HLS con video fino a 360p, scartato da FFmpeg. Questo evita i formati progressivi
-che possono essere estratti correttamente ma rispondere 403 alla lettura.
+>=2.3 nel PATH. Il bot abilita entrambi i runtime. Per impostazione predefinita
+lascia che yt-dlp scelga il client; evita che un client forzato esponga solo
+storyboard per video altrimenti riproducibili. `YTDLP_YOUTUBE_CLIENTS` resta
+disponibile per un override esplicito. Il selettore preferisce HLS audio o HLS
+con video fino a 360p, scartato da FFmpeg, poi usa il miglior formato disponibile.
 
 ## Personalizzazione messaggi
 
