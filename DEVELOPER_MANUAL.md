@@ -51,7 +51,7 @@ Sequenza principale:
 5. Rispondi alle interaction con `defer()` se l'operazione puo' superare pochi secondi.
 6. Logga con `log.info(tag("LABEL", "..."))`, mai con messaggi grezzi.
 7. Aggiungi test statico o unitario in `tests/`.
-8. Se il comando deve apparire in help, aggiorna `embeds/help_embeds.py` o `ui/help`.
+8. Se il comando deve apparire in help, aggiorna `ui/help/embeds.py`.
 
 Pattern minimo:
 
@@ -229,10 +229,8 @@ Su Windows usa l'interprete richiesto:
 
 ```powershell
 & 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' -m compileall -q .
-Get-ChildItem tests -Filter *.py | ForEach-Object {
-  & 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' $_.FullName
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
+# Ogni test gira in un processo separato; riepilogo finale con i fallimenti.
+& 'C:\Users\Sergio\AppData\Local\Programs\Python\Python310\python.exe' tests\run_all.py
 ```
 
 Audit:
@@ -358,11 +356,12 @@ res
 Stato architetturale attuale:
 
 - `cogs/` non importa altri `cogs/`.
-- Wrapper legacy come `core/player.py`, `core/queue.py`, `core/music_input.py`,
-  `core/welcome_*.py` e `core/moderation_*.py` restano compatibili e delegano ai
-  moduli nuovi.
-- La logica nuova deve preferire i package `core/music/`, `core/welcome/` e
-  `core/moderation/`.
+- I vecchi wrapper (`core/player.py`, `core/queue.py`, `core/music_input.py`,
+  `core/welcome_*.py`, `core/moderation_*.py`, `views/`, `embeds/`) sono stati
+  rimossi: si importa direttamente dai package `core/music/`, `core/welcome/`,
+  `core/moderation/`, `core/devops/` e `ui/`.
+- I task asyncio "fire and forget" passano da `core.background.spawn()`, che
+  conserva il riferimento al task e logga le eccezioni.
 
 Prima di spostare file:
 
@@ -375,7 +374,7 @@ Prima di spostare file:
 
 - `git status --short` non contiene artifact runtime.
 - `python -m compileall -q .` passa.
-- Tutti i test in `tests/` passano.
+- Tutti i test in `tests/` passano (`python tests/run_all.py`).
 - `tools/check_logs.py --strict` passa.
 - `tools/audit_architecture.py` non segnala accoppiamenti o duplicazioni.
 - Se tocchi resolver/player, hai testato almeno un caso cache, uno Spotify e uno stream.

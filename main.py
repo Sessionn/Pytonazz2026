@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from config import Config
+from config import Config, validate_config
 from core.cache_db import init_db
 from core.bot_config import cfg
 from core.dj_access import init_dj_access_controller
@@ -39,6 +39,7 @@ logging.getLogger("pitonazz.spotify_enrich").setLevel(
 )
 logging.getLogger("asyncio").setLevel(logging.INFO)
 ensure_runtime_dirs()
+validate_config()
 
 # Silenzia librerie esterne che spammano log INFO inutili
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -61,13 +62,15 @@ if Config.CACHE_ENABLED:
 
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.all()
-#intents = discord.Intents.default()
-#intents.message_content = True
-#intents.guilds = True
-#intents.members = True 
-#intents.voice_states = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    # Default prudente: nessun @everyone/@here o ping di ruolo accidentale
+    # (titoli brani, testi utente, output AI). I comandi dev che devono
+    # menzionare lo dichiarano esplicitamente.
+    allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=True, replied_user=True),
+)
 init_dj_access_controller(bot)
 
 COGS = list(DEFAULT_COGS)
@@ -133,6 +136,44 @@ async def global_interaction_check(inter: discord.Interaction) -> bool:
             ephemeral=True,
         )
     raise app_commands.CheckFailure("channel blocks bot commands")
+
+
+_ERROR_REPLY = "\u26a0\ufe0f Si e' verificato un errore inatteso. Riprova tra poco."
+
+
+@bot.tree.error
+async def on_app_command_error(inter: discord.Interaction, error: app_commands.AppCommandError):
+    """Rete di sicurezza globale per gli slash command.
+
+    I cog con `cog_app_command_error` rispondono per primi: qui si risponde
+    solo se nessuno l'ha gia' fatto, cosi' l'utente non vede mai
+    "L'applicazione non ha risposto".
+    """
+    command_name = _interaction_command_slug(inter) or "?"
+    if isinstance(error, app_commands.CommandOnCooldown):
+        message = f"\u23f3 Attendi {error.retry_after:.1f}s prima di riutilizzare `/{command_name}`."
+    elif isinstance(error, (app_commands.MissingPermissions, app_commands.MissingAnyRole, app_commands.MissingRole)):
+        message = "\u274c Non hai i permessi necessari per usare questo comando."
+    elif isinstance(error, app_commands.BotMissingPermissions):
+        missing = ", ".join(error.missing_permissions)
+        message = f"\u274c Mi mancano i permessi necessari: `{missing}`."
+    elif isinstance(error, app_commands.NoPrivateMessage):
+        message = "\u274c Questo comando funziona solo in un server."
+    elif isinstance(error, app_commands.CheckFailure):
+        message = "\u274c Non hai i permessi per usare questo comando."
+    else:
+        original = getattr(error, "original", error)
+        detail = f"/{command_name}  user={inter.user}  {type(original).__name__}: {original}"
+        log.error(tag("CMD_ERR", detail), exc_info=original)
+        message = _ERROR_REPLY
+
+    try:
+        if not inter.response.is_done():
+            await inter.response.send_message(message, ephemeral=True)
+        elif not isinstance(error, app_commands.CheckFailure):
+            await inter.followup.send(message, ephemeral=True)
+    except discord.HTTPException:
+        pass
 
 
 async def load_cogs():
@@ -317,8 +358,14 @@ async def on_ready():
         except Exception as e:
             log.error(tag("STATUS", f"errore apply_next_status  {e}"))
 
+    # on_ready scatta anche a ogni reconnect del gateway: il sync globale va
+    # fatto una volta sola per processo (limite Discord sui comandi creati).
+    if getattr(bot, "_tree_synced", False):
+        log.info(tag("READY", f"{b(str(bot.user))}  riconnesso"))
+        return
     try:
         synced = await bot.tree.sync()
+        bot._tree_synced = True
         if bot.guilds:
             guild_info = f"{b(str(bot.guilds[0]))}  [{dim(str(bot.guilds[0].id))}]"
         else:

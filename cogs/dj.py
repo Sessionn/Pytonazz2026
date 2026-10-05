@@ -6,7 +6,7 @@ from discord.ext import commands
 
 from config import Config
 from core.dj_role_store import get_dj_role, set_dj_role
-from embeds.music_embeds import error_embed, success_embed
+from ui.music.embeds import error_embed, success_embed
 
 
 class DJ(commands.Cog):

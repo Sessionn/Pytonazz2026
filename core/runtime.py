@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -96,16 +97,23 @@ async def load_extensions(bot, cogs: list[str], log: logging.Logger) -> None:
             log.error(tag("COG", f"{cog} ERRORE  {exc}"))
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
 def cog_path(cog: str) -> Path:
-    return Path(*cog.split(".")).with_suffix(".py")
+    # Risolto dalla root progetto: l'hot-reload funziona anche se il bot
+    # viene avviato da un'altra working directory (es. systemd).
+    return (_PROJECT_ROOT / Path(*cog.split("."))).with_suffix(".py")
 
 
 def snapshot_extension_mtimes(cogs: list[str]) -> dict[str, float]:
     result: dict[str, float] = {}
     for cog in cogs:
         path = cog_path(cog)
-        if path.exists():
-            result[str(path)] = path.stat().st_mtime
+        try:
+            result[cog] = path.stat().st_mtime
+        except OSError:
+            continue
     return result
 
 
@@ -116,10 +124,9 @@ async def reload_modified_extensions(
     log: logging.Logger,
 ) -> dict[str, float]:
     current = snapshot_extension_mtimes(cogs)
-    for path, mtime in current.items():
-        if previous_mtimes.get(path, 0) == mtime:
+    for cog_name, mtime in current.items():
+        if previous_mtimes.get(cog_name, 0) == mtime:
             continue
-        cog_name = path.replace("\\", "/").replace("/", ".").removesuffix(".py")
         try:
             await bot.reload_extension(cog_name)
             log.info(tag("COG", f"hot-reload  {b(cog_name.split('.')[-1])}"))
@@ -146,7 +153,9 @@ def start_dashboard_thread(bot_getter, log: logging.Logger) -> None:
                 flask_app,
                 host=Config.DASHBOARD_HOST,
                 port=Config.DASHBOARD_PORT,
-                threads=8,
+                # Le connessioni SSE (dashboard + console DJ) tengono occupato un
+                # thread ciascuna: margine sufficiente per piu' tab aperte.
+                threads=int(os.getenv("DASH_THREADS", "24")),
                 clear_untrusted_proxy_headers=True,
             )
         except Exception:

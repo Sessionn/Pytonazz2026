@@ -8,8 +8,8 @@ from typing import Optional, Callable, Awaitable
 import discord
 from config import Config
 import core.cache_db as cache_db
+from core.background import spawn
 from core.audio_filters import (
-    BASE_FILTER_NAMES,
     EQ_DEFAULT,
     FX_FILTER_NAMES,
     TONE_FILTER_DEFAULT,
@@ -216,7 +216,7 @@ class MusicPlayer:
             self._filter_replay = True
             self.vc.stop()
             if was_paused:
-                asyncio.create_task(self._repause_after_filter())
+                spawn(self._repause_after_filter(), name="player-repause")
         self._notify_state_change()
 
     async def set_filter(self, filter_name: str):
@@ -403,7 +403,7 @@ class MusicPlayer:
         self._filter_replay = True
         self.vc.stop()
         if was_paused:
-            asyncio.create_task(self._repause_after_filter())
+            spawn(self._repause_after_filter(), name="player-repause")
         self._notify_state_change()
         return True
 
@@ -628,6 +628,7 @@ class MusicPlayer:
                     log.debug(tag("PLAYER", "Loop chiuso, skip play_next"))
 
             self.vc.play(source, after=_after)
+            self._cancel_idle()
             self._play_start   = time.monotonic()
             self._position_playback_rate = float(combine_live_filter_preset(self.base_filter_name, self.active_fx_names).get("playback_rate", 1.0) or 1.0)
             self._pause_at     = 0.0
@@ -688,12 +689,15 @@ class MusicPlayer:
             self._prefetch_task = None
         self.queue.reset()  # azzera coda + loop_mode + shuffle_mode
         self.current = None
-        if self._idle_task and not self._idle_task.done():
-            self._idle_task.cancel()
-            self._idle_task = None
+        self._cancel_idle()
         if self.vc and (self.vc.is_playing() or self.vc.is_paused()):
             self.vc.stop()
         self._notify_state_change()
+
+    def _cancel_idle(self):
+        if self._idle_task and not self._idle_task.done():
+            self._idle_task.cancel()
+        self._idle_task = None
 
     def _arm_idle(self):
         if self._loading_count > 0:

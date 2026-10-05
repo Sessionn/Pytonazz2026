@@ -9,7 +9,8 @@ import secrets
 import sqlite3
 import sys
 import time
-from urllib.parse import urlencode
+from datetime import timedelta
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, stream_with_context, url_for
@@ -26,6 +27,29 @@ _RE_SPOTIFY = re.compile(
     re.I,
 )
 _DISCORD_API = "https://discord.com/api/v10"
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# Connessioni SSE: chiuse lato server dopo questo intervallo, EventSource si
+# riconnette da solo. Evita che tab dimenticate occupino per sempre un thread
+# waitress.
+_SSE_MAX_SECONDS = 300
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    # Disattiva il buffering di nginx, altrimenti gli eventi arrivano a blocchi.
+    "X-Accel-Buffering": "no",
+}
+_CSP = (
+    "default-src 'self'; "
+    "img-src 'self' https: data:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "connect-src 'self'; "
+    "font-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
 
 
 def _extract_spotify_id(url: str) -> str:
@@ -43,7 +67,10 @@ def _hash(s: str) -> str:
 
 def create_app(db_path: str | None = None, bot=None) -> Flask:
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = db_path or os.path.join(base_dir, "..", "cache.db")
+    # Default: lo stesso DB del bot (DB_PATH nel .env), risolto dalla root progetto.
+    db_path = db_path or Config.DB_PATH
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(_PROJECT_ROOT, db_path)
     db_path = os.path.abspath(db_path)
     Config.DB_PATH = db_path
     secret_key = (os.getenv("DASH_SECRET_KEY") or os.getenv("DASHBOARD_SECRET") or "").strip()
@@ -54,6 +81,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
     session_samesite = (os.getenv("DASH_SESSION_SAMESITE", "Lax") or "Lax").strip().capitalize()
     login_window_seconds = max(60, int(os.getenv("DASH_LOGIN_WINDOW_SECONDS", "900")))
     login_max_attempts = max(1, int(os.getenv("DASH_LOGIN_MAX_ATTEMPTS", "5")))
+    session_hours = max(1, int(os.getenv("DASH_SESSION_HOURS", "12")))
     dashboard_auth_ready = bool(dashboard_user and dashboard_pw)
 
     if not secret_key:
@@ -73,11 +101,56 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE=session_samesite if session_samesite in {"Lax", "Strict", "None"} else "Lax",
         PREFERRED_URL_SCHEME="https" if session_secure else "http",
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=session_hours),
         DJ_OAUTH_FETCH_USER=None,
     )
     if trust_proxy:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     login_attempts: dict[str, list[float]] = {}
+
+    def _client_ip() -> str:
+        # Con DASH_TRUST_PROXY ProxyFix ha gia' riscritto remote_addr con l'IP
+        # reale del client. Leggere X-Forwarded-For a mano permetterebbe a chi
+        # attacca di inventarsi un IP diverso a ogni tentativo e aggirare il
+        # rate limit del login.
+        return request.remote_addr or "unknown"
+
+    def _prune_login_attempts(now: float) -> None:
+        stale = [ip for ip, stamps in login_attempts.items() if not stamps or now - stamps[-1] >= login_window_seconds]
+        for ip in stale:
+            login_attempts.pop(ip, None)
+
+    def _is_same_origin_request() -> bool:
+        fetch_site = (request.headers.get("Sec-Fetch-Site") or "").lower()
+        if fetch_site and fetch_site not in {"same-origin", "none"}:
+            return False
+        origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
+        if not origin:
+            # Client non-browser (curl, test): nessun rischio CSRF senza cookie di terze parti.
+            return True
+        return urlsplit(origin).netloc.lower() == request.host.lower()
+
+    @app.before_request
+    def _csrf_guard():
+        if request.method in _UNSAFE_METHODS and not _is_same_origin_request():
+            log.warning("Dashboard richiesta cross-origin bloccata: %s %s", request.method, request.path)
+            if request.path.startswith(("/api/", "/dj-console/")):
+                return jsonify({"ok": False, "error": "cross_origin_blocked"}), 403
+            return "Richiesta non consentita.", 403
+        return None
+
+    @app.after_request
+    def _security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("Content-Security-Policy", _CSP)
+        if request.path.startswith("/api/") or request.path in {"/login", "/"}:
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
+    def _sse_response(generator) -> Response:
+        return Response(generator, mimetype="text/event-stream", headers=_SSE_HEADERS)
 
     controller = init_dj_access_controller(bot) if bot else get_dj_access_controller()
 
@@ -174,7 +247,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             "state": oauth_state,
             "prompt": "consent",
         }
-        _dj_log("oauth_authorize_url_built", guild_id=guild_id, state=oauth_state)
+        _dj_log("oauth_authorize_url_built", level=logging.DEBUG, guild_id=guild_id)
         return f"{_DISCORD_API}/oauth2/authorize?{urlencode(params)}"
 
     def _exchange_discord_code(code: str) -> dict:
@@ -288,7 +361,6 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
 
     def _ensure_discord_auth_link(force_validate: bool = False) -> tuple[bool, str | None]:
         access_token = str(session.get("dj_access_token") or "")
-        refresh_token = str(session.get("dj_refresh_token") or "")
         expires_at = int(session.get("dj_token_expires_at") or 0)
         now = int(time.time())
         if not access_token:
@@ -398,7 +470,9 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         error = None
         if request.method == "POST":
             now = time.time()
-            client_ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "unknown")
+            client_ip = _client_ip()
+            if len(login_attempts) > 1024:
+                _prune_login_attempts(now)
             attempts = [ts for ts in login_attempts.get(client_ip, []) if now - ts < login_window_seconds]
             login_attempts[client_ip] = attempts
             if len(attempts) >= login_max_attempts:
@@ -409,6 +483,8 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             user_ok = (not dashboard_user) or secrets.compare_digest(username, dashboard_user)
             pw_ok = bool(dashboard_pw) and secrets.compare_digest(pw, dashboard_pw)
             if user_ok and pw_ok:
+                # Sessione nuova a ogni login: niente session fixation.
+                session.clear()
                 session["auth"] = True
                 session.permanent = True
                 login_attempts.pop(client_ip, None)
@@ -416,9 +492,12 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             attempts.append(now)
             login_attempts[client_ip] = attempts[-login_max_attempts:]
             error = "Credenziali errate."
+            log.warning("Dashboard login fallito da %s (%d/%d)", client_ip, len(attempts), login_max_attempts)
+        elif session.get("auth"):
+            return redirect(url_for("index"))
         return render_template("login.html", error=error)
 
-    @app.route("/logout")
+    @app.route("/logout", methods=["GET", "POST"])
     def logout():
         session.clear()
         return redirect(url_for("login"))
@@ -426,17 +505,8 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
     @app.route("/")
     @login_required
     def index():
-        stats = query_db(
-            """
-            SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN is_valid=1 THEN 1 ELSE 0 END) AS valid,
-                SUM(CASE WHEN is_valid=0 THEN 1 ELSE 0 END) AS invalid,
-                SUM(hit_count) AS hits
-            FROM song_cache
-            """
-        )[0]
-        aliases_count = query_db("SELECT COUNT(*) as c FROM query_aliases")[0]["c"]
+        stats = _stats_payload()
+        aliases_count = stats["aliases"]
         runtime_label = f"Python {sys.version_info.major}.{sys.version_info.minor}"
         runtime_stack = "Flask + SQLite"
         db_name = os.path.basename(db_path)
@@ -454,6 +524,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             runtime_stack=runtime_stack,
             db_name=db_name,
             bot_avatar_url=bot_avatar_url,
+            bot_name=str(getattr(getattr(bot, "user", None), "name", "") or "Pytonazz"),
         )
 
     @app.route("/dj-console")
@@ -600,17 +671,18 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
                 yield f"event: dj_state\ndata: {initial}\n\n"
                 if app.config.get("DJ_OAUTH_FETCH_USER"):
                     return
-                while True:
+                deadline = time.monotonic() + _SSE_MAX_SECONDS
+                while time.monotonic() < deadline:
                     try:
                         payload = sub.get(timeout=15.0)
                         yield f"event: dj_state\ndata: {payload}\n\n"
-                    except Exception:
+                    except queue.Empty:
                         yield ": keepalive\n\n"
             finally:
                 controller.unsubscribe(guild_id, sub)
                 _dj_log("events_unsubscribed", level=logging.DEBUG, guild_id=guild_id)
 
-        return Response(events(), mimetype="text/event-stream")
+        return _sse_response(events())
 
     @app.route("/api/stats")
     @login_required
@@ -627,8 +699,9 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             try:
                 payload = _stats_payload()
                 last_stats = json.dumps(payload, separators=(",", ":"))
-                yield f"event: stats\ndata: {last_stats}\n\n"
-                while True:
+                yield f"retry: 3000\nevent: stats\ndata: {last_stats}\n\n"
+                deadline = time.monotonic() + _SSE_MAX_SECONDS
+                while time.monotonic() < deadline:
                     try:
                         change = sub.get(timeout=15.0)
                     except queue.Empty:
@@ -646,7 +719,7 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             finally:
                 cache_db.unsubscribe_changes(sub)
 
-        return Response(events(), mimetype="text/event-stream")
+        return _sse_response(events())
 
     @app.route("/api/songs")
     @login_required
@@ -661,19 +734,6 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
         if sort not in allowed:
             sort = "created_at"
         order = "DESC" if order == "desc" else "ASC"
-
-        filters, params = [], []
-        if search:
-            filters.append("(LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(query_raw) LIKE ?)")
-            params += [f"%{search.lower()}%"] * 3
-        if source:
-            filters.append("source = ?")
-            params.append(source)
-        if valid in ("1", "0"):
-            filters.append("is_valid = ?")
-            params.append(int(valid))
-
-        where = ("WHERE " + " AND ".join(filters)) if filters else ""
         rows = cache_db.list_song_rows(search=search, source=source, valid=valid, sort=sort, order=order)
         return jsonify(rows)
 

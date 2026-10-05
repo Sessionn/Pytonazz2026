@@ -181,7 +181,7 @@ def build_all_pages(
     _is_admin: bool,
 ) -> dict[str, list]:
     """Ritorna {cog_key: [embed, ...]} ordinato per PRIORITY."""
-    from embeds.help_embeds import build_category_pages
+    from ui.help.embeds import build_category_pages
 
     groups = collect_groups(bot, include_dev, _is_dev, _is_admin)
     ordered = sorted(

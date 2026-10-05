@@ -1,8 +1,8 @@
 """Cog /help — solo Cog e autocomplete.
 
 Tutta la logica di raccolta comandi è in core/help_utils.py.
-Tutti gli embed sono costruiti da embeds/help_embeds.py.
-Le Views (UI interattiva) sono in views/help_views.py.
+Tutti gli embed sono costruiti da ui/help/embeds.py.
+Le Views (UI interattiva) sono in ui/help/views.py.
 """
 from __future__ import annotations
 

@@ -211,7 +211,7 @@ Get-ChildItem tests -Filter *.py | ForEach-Object { .\venv\Scripts\python.exe $_
 Esecuzione completa in bash:
 
 ```bash
-for f in tests/*.py; do python "$f"; done
+python tests/run_all.py
 ```
 
 ## Licenza e note

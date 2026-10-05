@@ -42,6 +42,36 @@ with tempfile.TemporaryDirectory() as td:
 
     print("OK: dashboard security config/login")
 
+    headers = ok.headers
+    assert headers.get("X-Frame-Options") == "DENY"
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+    assert "script-src 'self'" in headers.get("Content-Security-Policy", "")
+
+    blocked_cross_origin = client.delete(
+        "/api/delete/1",
+        headers={"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"},
+    )
+    assert blocked_cross_origin.status_code == 403, blocked_cross_origin.status_code
+    same_origin = client.delete("/api/delete/999999", headers={"Origin": "http://localhost"})
+    assert same_origin.status_code == 200, same_origin.status_code
+
+    print("OK: dashboard security headers/csrf")
+
+    # Il rate limit deve usare l'IP aggiunto dal proxy (ultimo hop), non il
+    # primo valore di X-Forwarded-For che il client puo' inventare a piacere.
+    limited = create_app(str(db_path)).test_client()
+    statuses = []
+    for attempt in range(7):
+        resp = limited.post(
+            "/login",
+            data={"username": "admin", "password": "wrong"},
+            headers={"X-Forwarded-For": f"10.0.0.{attempt}, 203.0.113.7"},
+        )
+        statuses.append(resp.status_code)
+    assert statuses[-1] == 429, statuses
+
+    print("OK: dashboard login rate limit not bypassable via X-Forwarded-For")
+
     os.environ.pop("DASH_SECRET_KEY", None)
     app_random_secret = create_app(str(db_path))
     assert app_random_secret.secret_key

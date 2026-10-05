@@ -761,13 +761,8 @@ class SourceResolver:
         try:
             return await asyncio.wait_for(asyncio.shield(task), timeout=soft_timeout)
         except asyncio.TimeoutError:
-            log.warning(
-                tag(
-                    "RESOLVE",
-                    f"soft budget {label} no fallback  {b(query)}  "
-                    f"budget={b(f'{soft_timeout:.2f}s')}  waiting",
-                )
-            )
+            budget = f"{soft_timeout:.2f}s"
+            log.warning(tag("RESOLVE", f"soft budget {label} no fallback  {b(query)}  budget={b(budget)}  waiting"))
 
         remaining = max_wait - soft_timeout
         if remaining <= 0:
@@ -777,13 +772,8 @@ class SourceResolver:
             return await asyncio.wait_for(task, timeout=remaining)
         except asyncio.TimeoutError:
             task.cancel()
-            log.warning(
-                tag(
-                    "RESOLVE",
-                    f"max wait {label} no fallback  {b(query)}  "
-                    f"max={b(f'{max_wait:.2f}s')}",
-                )
-            )
+            max_label = f"{max_wait:.2f}s"
+            log.warning(tag("RESOLVE", f"max wait {label} no fallback  {b(query)}  max={b(max_label)}"))
             return []
 
     @staticmethod

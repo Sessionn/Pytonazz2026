@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.audio_filters import get_filter_preset
-from embeds.music_embeds import error_embed, success_embed
+from ui.music.embeds import error_embed, success_embed
 
 log = logging.getLogger("pitonazz.filters")
 

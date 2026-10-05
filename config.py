@@ -206,7 +206,9 @@ class Config:
 
     _dashboard_socket_raw: str  = os.getenv("DASHBOARD_SOCKET", "").strip()
     DASHBOARD_ENABLED: bool     = bool(_dashboard_socket_raw)
-    DASHBOARD_HOST: str         = _dashboard_socket_raw.rsplit(":", 1)[0] if _dashboard_socket_raw else "0.0.0.0"
+    # Senza DASHBOARD_SOCKET la dashboard ascolta solo in locale: va esposta
+    # tramite reverse proxy HTTPS, mai direttamente su tutte le interfacce.
+    DASHBOARD_HOST: str         = _dashboard_socket_raw.rsplit(":", 1)[0] if _dashboard_socket_raw else "127.0.0.1"
     DASHBOARD_PORT: int         = int(_dashboard_socket_raw.rsplit(":", 1)[1]) if _dashboard_socket_raw else 5000
     DASHBOARD_PUBLIC_BASE_URL: str = os.getenv("DASHBOARD_PUBLIC_BASE_URL", "").strip().rstrip("/")
     DJ_CONSOLE_CALLBACK_URL: str = os.getenv("DJ_CONSOLE_CALLBACK_URL", "").strip()

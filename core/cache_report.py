@@ -52,7 +52,7 @@ def _read_db() -> tuple[list[dict], list[dict]]:
 
         conn.close()
         return songs, aliases
-    except Exception as e:
+    except Exception:
         return [], []
 
 

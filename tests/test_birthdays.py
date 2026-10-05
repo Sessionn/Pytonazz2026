@@ -1,10 +1,14 @@
 """Regression tests for birthday removal, using only temporary storage."""
 import asyncio
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cogs import birthdays
 from core import birthday_store

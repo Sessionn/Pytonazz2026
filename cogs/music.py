@@ -8,9 +8,9 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import Config
-import core.cache_db as cache_db
 from core.audio_backends import create_audio_backend
 from core.audio_backends.lavalink import LavalinkAudioBackend
+from core.background import spawn
 from core.dj_access import get_dj_access_controller
 from core.music.input import (
     fetch_playlist_meta,
@@ -124,9 +124,12 @@ class Music(commands.Cog):
         async with condition:
             self._play_commit_ticket[guild_id] = self._play_commit_ticket.get(guild_id, 1) + 1
             if self._play_commit_ticket[guild_id] > self._play_next_ticket.get(guild_id, 0):
+                # Nessun turno in attesa: libera lo stato del server. La Condition
+                # va rimossa solo qui, altrimenti chi e' ancora in wait() su
+                # quella vecchia non verrebbe mai piu' notificato (deadlock).
                 self._play_next_ticket.pop(guild_id, None)
                 self._play_commit_ticket.pop(guild_id, None)
-            self._play_turn_conditions.pop(guild_id, None)
+                self._play_turn_conditions.pop(guild_id, None)
             condition.notify_all()
 
     async def _resolve_play_track(self, query: str, requester: str, requester_id: int):
@@ -344,7 +347,7 @@ class Music(commands.Cog):
             await self._finish_play_turn(inter.guild_id)
         turn_started = False
         if not was_empty:
-            asyncio.create_task(self._warmup_track_stream_url(first))
+            spawn(self._warmup_track_stream_url(first), name="music-warmup")
 
         if cancel_view is None:
             cancel_view = CancelBatchView(cancel_event, inter.user.id)
@@ -381,7 +384,7 @@ class Music(commands.Cog):
 
         await start_if_idle(player, vc, was_empty)
 
-        asyncio.create_task(self._fill_queue(
+        spawn(self._fill_queue(
             gen, player, inter.channel,
             nome=nome, requester=inter.user,
             load_msg=load_msg, first_already_added=True,
@@ -390,7 +393,7 @@ class Music(commands.Cog):
             inter=inter if keep_loading_embed else None,
             cancel_event=cancel_event,
             cancel_view=cancel_view,
-        ))
+        ), name="music-fill-queue")
         if turn_started:
             await self._finish_play_turn(inter.guild_id)
 
@@ -729,7 +732,7 @@ class Music(commands.Cog):
                 added_so_far += 1
                 log.debug(tag("QUEUE", f"[{count+1:03d}] {b(track.title)}  -  {track.source}"))
                 if added_so_far <= _BATCH_WARMUP_LIMIT:
-                    asyncio.create_task(self._warmup_track_stream_url(track))
+                    spawn(self._warmup_track_stream_url(track), name="music-warmup")
                 if added_so_far % _QUEUE_PROGRESS_STEP == 0:
                     pct = f"{(100 * added_so_far / total):.0f}%" if total > 0 else "in corso"
                     log.info(tag("QUEUE", f"Progress  [{nome}]  {b(str(added_so_far))} tracce  ({pct})"))
@@ -798,7 +801,16 @@ class Music(commands.Cog):
                 embed=error_embed("Devi essere in un canale vocale!")
             )
 
-        vc = await self._ensure_voice_client(inter, vc_ch, allow_move=True)
+        ticket = self._reserve_play_turn(inter.guild_id)
+        try:
+            vc = await self._ensure_voice_client(inter, vc_ch, allow_move=True)
+        except Exception as e:
+            log.exception("artistshuffle voice connect error")
+            await self._wait_play_turn(inter.guild_id, ticket)
+            try:
+                return await inter.edit_original_response(embed=error_embed("Errore: " + str(e)))
+            finally:
+                await self._finish_play_turn(inter.guild_id)
 
         gen = SourceResolver.resolve_artist_stream(
             nome, inter.user.display_name, inter.user.id, limit=quantita
@@ -806,7 +818,7 @@ class Music(commands.Cog):
 
         await self._start_batch_stream(
             inter, vc, gen,
-            nome=nome, total=quantita,
+            nome=nome, total=quantita, ticket=ticket,
             do_spotify_shuffle=True,
         )
 

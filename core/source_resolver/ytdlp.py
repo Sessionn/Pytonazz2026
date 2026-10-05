@@ -175,6 +175,7 @@ def _resolve_soundcloud_short_url(url: str, timeout: float = 8.0) -> str:
     }
 
     # ── Tentativo 1: httpx (più robusto, gestisce HTTPS redirect correttamente) ──
+    httpx_error: Exception | None = None
     try:
         import httpx
         with httpx.Client(
@@ -189,6 +190,9 @@ def _resolve_soundcloud_short_url(url: str, timeout: float = 8.0) -> str:
         log.debug(tag("RESOLVE", f"SC short (httpx): {final_url}"))
         return final_url
     except Exception as exc_httpx:
+        # Python cancella il nome dell'eccezione a fine blocco except:
+        # va copiato per poterlo citare nel log del secondo tentativo.
+        httpx_error = exc_httpx
         log.debug(tag("RESOLVE", f"httpx fallback su urllib ({exc_httpx})"))
 
     # ── Tentativo 2: urllib con SSL non verificato ────────────────────────────
@@ -205,7 +209,7 @@ def _resolve_soundcloud_short_url(url: str, timeout: float = 8.0) -> str:
         return final_url
     except Exception as exc_urllib:
         log.warning(tag("RESOLVE",
-            f"SC short resolve fallito (httpx={exc_httpx}, urllib={exc_urllib})"
+            f"SC short resolve fallito (httpx={httpx_error}, urllib={exc_urllib})"
             f" — passo URL originale a yt-dlp"
         ))
         # Restituiamo comunque il target: yt-dlp con generic extractor

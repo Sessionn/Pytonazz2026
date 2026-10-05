@@ -379,7 +379,7 @@ python tests/test_dashboard_api.py
 Tutti i test in bash:
 
 ```bash
-for f in tests/*.py; do python "$f"; done
+python tests/run_all.py
 ```
 
 Tutti i test in PowerShell:

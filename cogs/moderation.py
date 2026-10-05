@@ -205,7 +205,7 @@ class Moderation(commands.Cog):
             log.info(tag("MOD", f"on_voice: canale quarantena eliminato — ricreazione '{base_name}'"))
             target_ch = await get_or_create_quarantine_channel(member.guild, base_name)
             if target_ch is None:
-                log.warning(tag("MOD", f"on_voice: impossibile ricreare canale — watchdog riproverà"))
+                log.warning(tag("MOD", "on_voice: impossibile ricreare canale — watchdog riproverà"))
                 return
             info["channel_id"] = target_ch.id
             self._save_quarantine_state()
@@ -311,6 +311,7 @@ class Moderation(commands.Cog):
 
     @app_commands.command(name="purge", description=f"{_CROWN} Elimina un numero di messaggi dal canale")
     @app_commands.describe(quantita="Messaggi da eliminare (1-100)")
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.checks.has_permissions(manage_messages=True)
     async def purge(self, inter: discord.Interaction, quantita: app_commands.Range[int, 1, 100]):
         await inter.response.defer(ephemeral=True)
@@ -331,9 +332,35 @@ class Moderation(commands.Cog):
 
     @app_commands.command(name="ruolo", description=f"{_CROWN} Assegna o rimuovi un ruolo a un utente")
     @app_commands.describe(utente="Utente", ruolo="Ruolo da assegnare o rimuovere")
+    @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
     async def ruolo(self, inter: discord.Interaction, utente: discord.Member, ruolo: discord.Role):
         bot_member = inter.guild.me
+        if ruolo.is_default() or ruolo.managed:
+            return await inter.response.send_message(
+                embed=discord.Embed(
+                    description=f"❌ Il ruolo **{ruolo.name}** è gestito da Discord o da un'integrazione e non può essere assegnato.",
+                    color=0xFF5555,
+                ),
+                ephemeral=True,
+            )
+        actor = inter.user
+        if (
+            isinstance(actor, discord.Member)
+            and actor.id != inter.guild.owner_id
+            and ruolo >= actor.top_role
+        ):
+            # Stessa regola di Discord: non si gestiscono ruoli pari o superiori al proprio.
+            return await inter.response.send_message(
+                embed=discord.Embed(
+                    description=(
+                        f"❌ Non puoi gestire il ruolo **{ruolo.name}**: è pari o superiore "
+                        f"al tuo ruolo più alto (**{actor.top_role.name}**)."
+                    ),
+                    color=0xFF5555,
+                ),
+                ephemeral=True,
+            )
         if ruolo >= bot_member.top_role:
             return await inter.response.send_message(
                 embed=discord.Embed(
@@ -1030,7 +1057,7 @@ class Moderation(commands.Cog):
         embed = discord.Embed(title="🔒 Gruppi di isolamento attivi", color=0xE67E22)
         for i, (gkey, info) in enumerate(q_groups.items(), 1):
             ch_obj  = inter.guild.get_channel(info["channel_id"])
-            ch_name = f"#{ch_obj.name}" if ch_obj else f"⚠️ canale eliminato"
+            ch_name = f"#{ch_obj.name}" if ch_obj else "⚠️ canale eliminato"
             nomi = []
             for uid in info["members"]:
                 m = inter.guild.get_member(uid)

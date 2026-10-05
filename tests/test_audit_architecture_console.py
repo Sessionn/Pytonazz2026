@@ -27,6 +27,10 @@ def run_tool(script_name: str) -> subprocess.CompletedProcess[str]:
         cwd=ROOT,
         env=env,
         text=True,
+        # L'output del tool e' in cp1252: va decodificato con lo stesso
+        # encoding, non con quello di default del sistema (UTF-8 su Linux).
+        encoding="cp1252",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=30,

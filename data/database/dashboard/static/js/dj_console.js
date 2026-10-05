@@ -177,6 +177,11 @@ function syncFilterSelect(value) {
   setActiveButton("[data-base-filter]", (button) => button.dataset.baseFilter === nextValue);
 }
 
+function safeHttpUrl(value) {
+  const raw = String(value || "").trim();
+  return /^https?:\/\//i.test(raw) ? raw : "";
+}
+
 function renderQueue(items) {
   els.queue.innerHTML = "";
   if (!items || !items.length) {
@@ -195,15 +200,31 @@ function renderQueue(items) {
     if (!queueKeys.has(key)) {
       li.classList.add("is-new");
     }
-    li.innerHTML = `
-      <div class="queue-art">
-        ${track.thumbnail ? `<img src="${track.thumbnail}" alt="">` : `<div class="queue-art-fallback">NO ART</div>`}
-      </div>
-      <div class="queue-copy">
-        <strong>${index + 1}. ${track.title}</strong>
-        <span>${track.artist || "Sconosciuto"}</span>
-      </div>
-    `;
+    // Titoli/artisti arrivano da sorgenti esterne (YouTube, Spotify):
+    // vanno inseriti come testo, mai come HTML.
+    const art = document.createElement("div");
+    art.className = "queue-art";
+    const thumb = safeHttpUrl(track.thumbnail);
+    if (thumb) {
+      const img = document.createElement("img");
+      img.src = thumb;
+      img.alt = "";
+      img.loading = "lazy";
+      art.appendChild(img);
+    } else {
+      const fallback = document.createElement("div");
+      fallback.className = "queue-art-fallback";
+      fallback.textContent = "NO ART";
+      art.appendChild(fallback);
+    }
+    const copy = document.createElement("div");
+    copy.className = "queue-copy";
+    const titleEl = document.createElement("strong");
+    titleEl.textContent = `${index + 1}. ${track.title || ""}`;
+    const artistEl = document.createElement("span");
+    artistEl.textContent = track.artist || "Sconosciuto";
+    copy.append(titleEl, artistEl);
+    li.append(art, copy);
     els.queue.appendChild(li);
   });
   queueKeys = nextKeys;

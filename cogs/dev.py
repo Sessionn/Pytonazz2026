@@ -503,7 +503,8 @@ class Dev(commands.Cog):
     async def say(self, inter: discord.Interaction, testo: str, canale: Optional[discord.TextChannel] = None):
         dest = canale or inter.channel
         try:
-            await dest.send(testo)
+            # Comando riservato ai dev: puo' menzionare liberamente (@everyone incluso).
+            await dest.send(testo, allowed_mentions=discord.AllowedMentions.all())
         except discord.Forbidden:
             log.warning(tag("DEV", f"say Forbidden #{dest.name}"))
             return await inter.response.send_message(

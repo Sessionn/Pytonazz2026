@@ -32,6 +32,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from core.background import spawn
 from core.birthday_store import (
     set_birthday,
     remove_birthday,
@@ -340,7 +341,7 @@ class Birthdays(commands.Cog):
         set_birthday(inter.guild_id, inter.user.id, giorno, mese, anno)
         date_str = _format_date(giorno, mese, anno)
         log.info(tag("BDAY", f"Set  {user(str(inter.user))}  →  {date_str}"))
-        asyncio.create_task(_refresh_list_in_channel(inter.guild))
+        spawn(_refresh_list_in_channel(inter.guild), name="bday-refresh-list")
         await inter.response.send_message(
             embed=self._ok(f"✅ Compleanno impostato: **{date_str}**."), ephemeral=True
         )
@@ -375,7 +376,7 @@ class Birthdays(commands.Cog):
         set_birthday(inter.guild_id, utente.id, giorno, mese, anno)
         date_str = _format_date(giorno, mese, anno)
         log.info(tag("BDAY", f"AdminSet  {user(str(inter.user))}  →  {utente}  {date_str}"))
-        asyncio.create_task(_refresh_list_in_channel(inter.guild))
+        spawn(_refresh_list_in_channel(inter.guild), name="bday-refresh-list")
         await inter.response.send_message(
             embed=self._ok(f"✅ Compleanno di **{utente.display_name}** impostato: **{date_str}**."),
             ephemeral=True,
@@ -385,7 +386,7 @@ class Birthdays(commands.Cog):
     async def bday_remove(self, inter: discord.Interaction):
         existed = remove_birthday(inter.guild_id, inter.user.id)
         if existed:
-            asyncio.create_task(_refresh_list_in_channel(inter.guild))
+            spawn(_refresh_list_in_channel(inter.guild), name="bday-refresh-list")
             await inter.response.send_message(
                 embed=self._ok("🗑️ Compleanno rimosso."), ephemeral=True
             )
@@ -429,7 +430,7 @@ class Birthdays(commands.Cog):
             target_label = f"**{utente.display_name}**"
         existed = remove_birthday(inter.guild_id, target_id)
         if existed:
-            asyncio.create_task(_refresh_list_in_channel(inter.guild))
+            spawn(_refresh_list_in_channel(inter.guild), name="bday-refresh-list")
             await inter.response.send_message(
                 embed=self._ok(f"🗑️ Compleanno di {target_label} rimosso."), ephemeral=True
             )

@@ -3,382 +3,222 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pytonazz Dashboard Control Room</title>
+<meta name="color-scheme" content="dark light">
+<title>Pytonazz · Cache console</title>
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/dashboard-favicon.svg') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </head>
 <body>
-<div class="page-orb page-orb-a" aria-hidden="true"></div>
-<div class="page-orb page-orb-b" aria-hidden="true"></div>
-<div class="shell">
-  <nav>
-    <div class="logo">
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></symbol>
+  <symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 12h3l2-6 4 12 2-6h5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3.5 8.5 4.5-8.5 4.5L3.5 8z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V6"/><path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="m10 16-4-4 4-4"/><path d="M6 12h10"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15"/><path d="M9.5 7V4.5h5V7"/><path d="M6.5 7l1 12.5h9L17.5 7"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.1"/></symbol>
+</svg>
+
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Navigazione">
+    <div class="brand">
       {% if bot_avatar_url %}
-      <img class="logo-avatar" src="{{ bot_avatar_url }}" alt="Avatar bot Pytonazz">
+      <img class="brand-avatar" src="{{ bot_avatar_url }}" alt="" width="36" height="36">
       {% else %}
-      <span class="logo-mark">PZ</span>
+      <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
       {% endif %}
-      <div class="logo-copy">
-        <strong>Pytonazz</strong>
-        <span>Cache Control</span>
+      <div class="brand-copy">
+        <strong>{{ bot_name }}</strong>
+        <span>Cache console</span>
       </div>
     </div>
 
-    <div class="nav-section-label">Workspace</div>
-    <a href="#" class="active" onclick="showSection('cache', this); return false;">
-      <span class="nav-icon" aria-hidden="true">&#x2301;</span>
-      <span>Vista operativa</span>
-    </a>
-    <a href="#" onclick="showSection('aliases', this); return false;">
-      <span class="nav-icon" aria-hidden="true">&#x26D3;</span>
-      <span>Vista alias</span>
-    </a>
-    <a href="#" onclick="showSection('tracks', this); return false;">
-      <span class="nav-icon" aria-hidden="true">&#x266A;</span>
-      <span>Tracce canoniche</span>
-    </a>
-    <a href="#" onclick="showSection('sources', this); return false;">
-      <span class="nav-icon" aria-hidden="true">&#x21AF;</span>
-      <span>Sorgenti risolte</span>
-    </a>
-    <a href="#" onclick="showSection('queries', this); return false;">
-      <span class="nav-icon" aria-hidden="true">&#x2315;</span>
-      <span>Query e alias</span>
-    </a>
-    <a href="#" onclick="showSection('schema', this); return false;">
-      <span class="nav-icon" aria-hidden="true">&#x25A6;</span>
-      <span>Struttura DB</span>
-    </a>
+    <nav class="nav" id="nav">
+      <p class="nav-label">Dati</p>
+      <button type="button" class="nav-item is-active" data-section="cache" aria-current="page">
+        <svg class="icon"><use href="#i-grid"/></svg><span>Panoramica cache</span><span class="nav-count" data-count="cache">–</span>
+      </button>
+      <button type="button" class="nav-item" data-section="tracks">
+        <svg class="icon"><use href="#i-disc"/></svg><span>Tracce canoniche</span><span class="nav-count" data-count="tracks">–</span>
+      </button>
+      <button type="button" class="nav-item" data-section="sources">
+        <svg class="icon"><use href="#i-signal"/></svg><span>Sorgenti risolte</span><span class="nav-count" data-count="sources">–</span>
+      </button>
+      <button type="button" class="nav-item" data-section="queries">
+        <svg class="icon"><use href="#i-search"/></svg><span>Query osservate</span><span class="nav-count" data-count="queries">–</span>
+      </button>
+      <button type="button" class="nav-item" data-section="aliases">
+        <svg class="icon"><use href="#i-link"/></svg><span>Alias</span><span class="nav-count" data-count="aliases">–</span>
+      </button>
+      <p class="nav-label">Sistema</p>
+      <button type="button" class="nav-item" data-section="schema">
+        <svg class="icon"><use href="#i-layers"/></svg><span>Struttura DB</span>
+      </button>
+    </nav>
 
-    <div class="nav-divider"></div>
-    <div class="nav-section-label">Runtime</div>
-    <a class="nav-static">
-      <span class="nav-icon" aria-hidden="true">&#x25EB;</span>
-      <span>{{ db_name }}</span>
-    </a>
-
-    <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">
-      <div class="toggle-track" id="toggle-track">
-        <div class="toggle-thumb"></div>
-      </div>
-      <span id="theme-label">Tema chiaro</span>
-    </button>
-  </nav>
-
-  <main>
-    <div class="page-header">
-      <div class="page-header-top">
-        <div class="page-copy">
-          <p class="eyebrow">Dashboard Database</p>
-          <h1><span aria-hidden="true">&#127899;&#65039;</span> Cache DB</h1>
-          <p class="page-sub">Monitoraggio della cache, delle query osservate e delle sorgenti risolte in tempo reale.</p>
-          <p id="gen-time" class="gen-time"></p>
-          <div class="signal-row">
-            <span class="signal-chip signal-chip-live">Aggiornamento live</span>
-            <span class="signal-chip signal-chip-cache">Schema normalizzato</span>
-            <span class="signal-chip signal-chip-audio">Sorgenti audio</span>
-          </div>
+    <div class="sidebar-foot">
+      <div class="runtime">
+        <svg class="icon"><use href="#i-db"/></svg>
+        <div>
+          <strong>{{ db_name }}</strong>
+          <span>{{ runtime_stack }} · {{ runtime_label }}</span>
         </div>
-        <div class="page-actions">
-          <div class="runtime-rack">
-            <div class="runtime-pill runtime-pill-live">
-              <span class="runtime-pill-label">Modalita</span>
-              <strong>Tempo reale</strong>
+      </div>
+      <div class="sidebar-actions">
+        <button type="button" class="icon-button" id="theme-toggle" aria-label="Cambia tema" title="Cambia tema">
+          <svg class="icon icon-sun"><use href="#i-sun"/></svg>
+          <svg class="icon icon-moon"><use href="#i-moon"/></svg>
+        </button>
+        <a class="icon-button" href="{{ url_for('logout') }}" aria-label="Esci" title="Esci">
+          <svg class="icon"><use href="#i-logout"/></svg>
+        </a>
+      </div>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <main class="main">
+    <header class="topbar">
+      <button type="button" class="icon-button menu-button" id="menu-toggle" aria-label="Apri menu" aria-controls="sidebar" aria-expanded="false">
+        <svg class="icon"><use href="#i-menu"/></svg>
+      </button>
+      <div class="topbar-title">
+        <p class="crumb">Cache DB</p>
+        <h1 id="section-title">Panoramica cache</h1>
+      </div>
+      <div class="topbar-meta">
+        <span class="live" id="live-status" data-state="connecting">
+          <span class="live-dot" aria-hidden="true"></span><span class="live-label">Connessione…</span>
+        </span>
+        <span class="updated" id="updated-at" aria-live="polite"></span>
+        <button type="button" class="button button-ghost" id="refresh-button" title="Aggiorna (R)">
+          <svg class="icon"><use href="#i-refresh"/></svg><span>Aggiorna</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="kpis" aria-label="Indicatori">
+      <article class="kpi">
+        <p class="kpi-label">Sorgenti in cache</p>
+        <p class="kpi-value" data-stat="total" data-initial="{{ stats.total or 0 }}">0</p>
+        <p class="kpi-foot"><span data-stat-derived="valid-rate">–</span> valide</p>
+        <div class="meter" aria-hidden="true"><span class="meter-fill" data-meter="valid-rate"></span></div>
+      </article>
+      <article class="kpi">
+        <p class="kpi-label">Valide</p>
+        <p class="kpi-value tone-success" data-stat="valid" data-initial="{{ stats.valid or 0 }}">0</p>
+        <p class="kpi-foot">pronte per il playback</p>
+      </article>
+      <article class="kpi">
+        <p class="kpi-label">Invalide</p>
+        <p class="kpi-value tone-danger" data-stat="invalid" data-initial="{{ stats.invalid or 0 }}">0</p>
+        <p class="kpi-foot">da rinnovare o eliminare</p>
+      </article>
+      <article class="kpi">
+        <p class="kpi-label">Hit totali</p>
+        <p class="kpi-value tone-warning" data-stat="hits" data-initial="{{ stats.hits or 0 }}">0</p>
+        <p class="kpi-foot"><span data-stat-derived="hits-per-source">–</span> per sorgente</p>
+      </article>
+      <article class="kpi">
+        <p class="kpi-label">Alias registrati</p>
+        <p class="kpi-value" data-stat="aliases" data-initial="{{ aliases_count or 0 }}">0</p>
+        <div class="mix" id="source-mix" aria-label="Distribuzione sorgenti">
+          <div class="mix-bar" id="source-mix-bar"></div>
+          <div class="mix-legend" id="source-mix-legend"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel" id="panel" aria-labelledby="section-title">
+      <div class="panel-head">
+        <p class="panel-desc" id="section-desc"></p>
+        <div class="toolbar">
+          <label class="search">
+            <svg class="icon"><use href="#i-search"/></svg>
+            <input type="search" id="search-input" placeholder="Cerca…" autocomplete="off" spellcheck="false" aria-label="Cerca nella tabella">
+            <kbd>/</kbd>
+          </label>
+          <div class="filters" id="filters">
+            <div class="segmented" role="group" aria-label="Sorgente" data-filter="source">
+              <button type="button" class="is-active" data-value="">Tutte</button>
+              <button type="button" data-value="youtube">YouTube</button>
+              <button type="button" data-value="spotify">Spotify</button>
+              <button type="button" data-value="soundcloud">SoundCloud</button>
             </div>
-            <div class="runtime-pill runtime-pill-runtime">
-              <span class="runtime-pill-label">Runtime</span>
-              <strong>{{ runtime_label }}</strong>
+            <div class="segmented" role="group" aria-label="Stato" data-filter="valid">
+              <button type="button" class="is-active" data-value="">Tutti</button>
+              <button type="button" data-value="1">Valide</button>
+              <button type="button" data-value="0">Invalide</button>
             </div>
-            <div class="runtime-pill runtime-pill-db">
-              <span class="runtime-pill-label">Database</span>
-              <strong>{{ db_name }}</strong>
-            </div>
-            <div class="runtime-footnote">{{ runtime_stack }}</div>
           </div>
-          <a href="{{ url_for('logout') }}" class="btn btn-ghost header-action">Logout</a>
-        </div>
-      </div>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card stat-card-primary">
-        <div class="stat-top">
-          <span class="stat-kicker">Entries</span>
-          <span class="stat-spark"></span>
-        </div>
-        <div class="val count-up" data-target="{{ stats.total or 0 }}" data-stat="total">0</div>
-        <div class="lbl">Entry totali</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-top">
-          <span class="stat-kicker">Valid</span>
-          <span class="stat-spark stat-green"></span>
-        </div>
-        <div class="val green count-up" data-target="{{ stats.valid or 0 }}" data-stat="valid">0</div>
-        <div class="lbl">Valide</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-top">
-          <span class="stat-kicker">Invalid</span>
-          <span class="stat-spark stat-red"></span>
-        </div>
-        <div class="val red count-up" data-target="{{ stats.invalid or 0 }}" data-stat="invalid">0</div>
-        <div class="lbl">Invalide</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-top">
-          <span class="stat-kicker">Hits</span>
-          <span class="stat-spark stat-amber"></span>
-        </div>
-        <div class="val yellow count-up" data-target="{{ stats.hits or 0 }}" data-stat="hits">0</div>
-        <div class="lbl">Hit totali</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-top">
-          <span class="stat-kicker">Aliases</span>
-          <span class="stat-spark"></span>
-        </div>
-        <div class="val count-up" data-target="{{ aliases_count }}" data-stat="aliases">0</div>
-        <div class="lbl">Alias registrati</div>
-      </div>
-    </div>
-
-    <div id="cache-section" class="section-stack">
-      <div class="section-banner section-banner-cache">
-        <div>
-          <p class="section-kicker">Vista compatibile</p>
-          <h2>song_cache operativa</h2>
-        </div>
-        <p>Vista derivata da <code>cache_sources</code> e <code>cache_tracks</code> per ricerca, filtri e interventi rapidi.</p>
-      </div>
-      <div class="toolbar">
-        <div class="toolbar-main">
-          <input type="text" id="search-input" placeholder="Cerca titolo, artista o query..." oninput="debouncedFetch()">
-          <div class="custom-select-wrap">
-            <select id="filter-source" onchange="fetchSongs()">
-              <option value="">Tutte le sorgenti</option>
-              <option value="youtube">YouTube</option>
-              <option value="spotify">Spotify</option>
-              <option value="soundcloud">SoundCloud</option>
-            </select>
-          </div>
-          <div class="custom-select-wrap">
-            <select id="filter-valid" onchange="fetchSongs()">
-              <option value="">Tutti gli stati</option>
-              <option value="1">Valide</option>
-              <option value="0">Invalide</option>
-            </select>
-          </div>
-        </div>
-        <div class="toolbar-actions">
-          <button class="btn btn-ghost" onclick="clearFilters()">Reset</button>
+          <button type="button" class="button button-ghost" id="reset-button">Reset</button>
         </div>
       </div>
 
-      <div class="table-wrap">
-        <table id="songs-table">
-          <thead>
-            <tr>
-              <th data-col="id" onclick="sortBy('id')"># <span class="arrow">&#8597;</span></th>
-              <th>Titolo / Artista</th>
-              <th data-col="query_raw" onclick="sortBy('query_raw')">Query <span class="arrow">&#8597;</span></th>
-              <th>Sorgente</th>
-              <th>Cover</th>
-              <th>Dur.</th>
-              <th data-col="hit_count" onclick="sortBy('hit_count')">Hits <span class="arrow">&#8597;</span></th>
-              <th data-col="created_at" onclick="sortBy('created_at')" class="sorted">Creata <span class="arrow">&#8595;</span></th>
-              <th data-col="last_used" onclick="sortBy('last_used')">Usata <span class="arrow">&#8597;</span></th>
-              <th>Stato</th>
-              <th>Azioni</th>
-            </tr>
-          </thead>
-          <tbody id="songs-body"></tbody>
+      <div class="table-wrap" id="table-wrap">
+        <table class="table" id="data-table">
+          <thead id="table-head"></thead>
+          <tbody id="table-body"></tbody>
         </table>
       </div>
-    </div>
 
-    <div id="aliases-section" class="section-stack" style="display:none">
-      <div class="section-banner section-banner-alias">
-        <div>
-          <p class="section-kicker">Vista compatibile</p>
-          <h2>query_aliases</h2>
+      <div class="schema" id="schema-view" hidden>
+        <div class="schema-grid" id="schema-grid"></div>
+        <div class="schema-notes">
+          <article>
+            <h3>Perché è normalizzato</h3>
+            <p>L'identità del brano (<code>cache_tracks</code>), la sorgente riproducibile (<code>cache_sources</code>) e le query che la richiamano (<code>cache_queries</code>) vivono in tabelle separate: un alias sbagliato si disattiva senza toccare la traccia.</p>
+          </article>
+          <article>
+            <h3>Viste compatibili</h3>
+            <p><code>song_cache</code> e <code>query_aliases</code> restano come viste in sola lettura per dashboard, resolver e strumenti legacy.</p>
+          </article>
+          <article>
+            <h3>Compattazione ID</h3>
+            <p>Dopo ogni eliminazione gli ID vengono ricompattati: la dashboard applica la nuova numerazione senza ricaricare la pagina.</p>
+          </article>
         </div>
-        <p>Vista rapida sugli alias esposti alla dashboard, derivata da <code>cache_queries</code>.</p>
-      </div>
-      <div class="toolbar table-toolbar">
-        <div class="toolbar-main">
-          <input type="text" id="aliases-search" placeholder="Cerca alias, tipo, titolo o artista..." oninput="debouncedTableSearch('aliases')">
-        </div>
-        <div class="toolbar-actions">
-          <button class="btn btn-ghost" onclick="clearTableSearch('aliases')">Reset</button>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th data-table="aliases" data-col="id" onclick="sortTable('aliases', 'id')" class="sorted"># <span class="arrow">&#8595;</span></th>
-              <th data-table="aliases" data-col="query_raw" onclick="sortTable('aliases', 'query_raw')">Query originale <span class="arrow">&#8597;</span></th>
-              <th data-table="aliases" data-col="alias_type" onclick="sortTable('aliases', 'alias_type')">Tipo <span class="arrow">&#8597;</span></th>
-              <th data-table="aliases" data-col="title" onclick="sortTable('aliases', 'title')">Canzone associata <span class="arrow">&#8597;</span></th>
-              <th data-table="aliases" data-col="cache_id" onclick="sortTable('aliases', 'cache_id')">Cache ID <span class="arrow">&#8597;</span></th>
-              <th>Azioni</th>
-            </tr>
-          </thead>
-          <tbody id="aliases-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div id="tracks-section" class="section-stack" style="display:none">
-      <div class="section-banner section-banner-tracks">
-        <div>
-          <p class="section-kicker">Tabella reale</p>
-          <h2>cache_tracks</h2>
-        </div>
-        <p>Una riga per identita canonica del brano. Qui si separa il brano logico dalle sue singole sorgenti.</p>
-      </div>
-      <div class="toolbar table-toolbar">
-        <div class="toolbar-main">
-          <input type="text" id="tracks-search" placeholder="Cerca titolo, artista o chiave normalizzata..." oninput="debouncedTableSearch('tracks')">
-        </div>
-        <div class="toolbar-actions">
-          <button class="btn btn-ghost" onclick="clearTableSearch('tracks')">Reset</button>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th data-table="tracks" data-col="id" onclick="sortTable('tracks', 'id')" class="sorted">ID <span class="arrow">&#8595;</span></th>
-              <th data-table="tracks" data-col="canonical_title" onclick="sortTable('tracks', 'canonical_title')">Titolo canonico <span class="arrow">&#8597;</span></th>
-              <th data-table="tracks" data-col="canonical_artist" onclick="sortTable('tracks', 'canonical_artist')">Artista canonico <span class="arrow">&#8597;</span></th>
-              <th data-table="tracks" data-col="normalized_query" onclick="sortTable('tracks', 'normalized_query')">Chiave normalizzata <span class="arrow">&#8597;</span></th>
-              <th data-table="tracks" data-col="source_count" onclick="sortTable('tracks', 'source_count')">Sorgenti <span class="arrow">&#8597;</span></th>
-              <th data-table="tracks" data-col="query_count" onclick="sortTable('tracks', 'query_count')">Query attive <span class="arrow">&#8597;</span></th>
-              <th data-table="tracks" data-col="created_at" onclick="sortTable('tracks', 'created_at')">Creata <span class="arrow">&#8597;</span></th>
-              <th data-table="tracks" data-col="updated_at" onclick="sortTable('tracks', 'updated_at')">Aggiornata <span class="arrow">&#8597;</span></th>
-              <th>Azioni</th>
-            </tr>
-          </thead>
-          <tbody id="tracks-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div id="sources-section" class="section-stack" style="display:none">
-      <div class="section-banner section-banner-sources">
-        <div>
-          <p class="section-kicker">Tabella reale</p>
-          <h2>cache_sources</h2>
-        </div>
-        <p>Una riga per sorgente risolta: URL, durata, validita, hit e legame con la traccia canonica.</p>
-      </div>
-      <div class="toolbar table-toolbar">
-        <div class="toolbar-main">
-          <input type="text" id="sources-search" placeholder="Cerca sorgente, titolo, artista o URL..." oninput="debouncedTableSearch('sources')">
-        </div>
-        <div class="toolbar-actions">
-          <button class="btn btn-ghost" onclick="clearTableSearch('sources')">Reset</button>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th data-table="sources" data-col="id" onclick="sortTable('sources', 'id')" class="sorted">ID <span class="arrow">&#8595;</span></th>
-              <th data-table="sources" data-col="track_id" onclick="sortTable('sources', 'track_id')">Track ID <span class="arrow">&#8597;</span></th>
-              <th data-table="sources" data-col="canonical_title" onclick="sortTable('sources', 'canonical_title')">Brano canonico <span class="arrow">&#8597;</span></th>
-              <th data-table="sources" data-col="source" onclick="sortTable('sources', 'source')">Sorgente <span class="arrow">&#8597;</span></th>
-              <th data-table="sources" data-col="resolved_title" onclick="sortTable('sources', 'resolved_title')">Risolto come <span class="arrow">&#8597;</span></th>
-              <th>Cover</th>
-              <th data-table="sources" data-col="duration" onclick="sortTable('sources', 'duration')">Durata <span class="arrow">&#8597;</span></th>
-              <th data-table="sources" data-col="hit_count" onclick="sortTable('sources', 'hit_count')">Hits <span class="arrow">&#8597;</span></th>
-              <th data-table="sources" data-col="is_valid" onclick="sortTable('sources', 'is_valid')">Stato <span class="arrow">&#8597;</span></th>
-              <th data-table="sources" data-col="last_used" onclick="sortTable('sources', 'last_used')">Usata <span class="arrow">&#8597;</span></th>
-              <th>Azioni</th>
-            </tr>
-          </thead>
-          <tbody id="sources-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div id="queries-section" class="section-stack" style="display:none">
-      <div class="section-banner section-banner-queries">
-        <div>
-          <p class="section-kicker">Tabella reale</p>
-          <h2>cache_queries</h2>
-        </div>
-        <p>Una riga per query osservata o alias confermato, con confidence, tipo e puntamento a track/source.</p>
-      </div>
-      <div class="toolbar table-toolbar">
-        <div class="toolbar-main">
-          <input type="text" id="queries-search" placeholder="Cerca query, alias, titolo o artista..." oninput="debouncedTableSearch('queries')">
-        </div>
-        <div class="toolbar-actions">
-          <button class="btn btn-ghost" onclick="clearTableSearch('queries')">Reset</button>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th data-table="queries" data-col="id" onclick="sortTable('queries', 'id')" class="sorted">ID <span class="arrow">&#8595;</span></th>
-              <th data-table="queries" data-col="track_id" onclick="sortTable('queries', 'track_id')">Track / Source <span class="arrow">&#8597;</span></th>
-              <th data-table="queries" data-col="query_raw" onclick="sortTable('queries', 'query_raw')">Query grezza <span class="arrow">&#8597;</span></th>
-              <th data-table="queries" data-col="alias_type" onclick="sortTable('queries', 'alias_type')">Tipo alias <span class="arrow">&#8597;</span></th>
-              <th data-table="queries" data-col="confidence" onclick="sortTable('queries', 'confidence')">Confidence <span class="arrow">&#8597;</span></th>
-              <th data-table="queries" data-col="hit_count" onclick="sortTable('queries', 'hit_count')">Hits <span class="arrow">&#8597;</span></th>
-              <th data-table="queries" data-col="is_active" onclick="sortTable('queries', 'is_active')">Stato <span class="arrow">&#8597;</span></th>
-              <th data-table="queries" data-col="last_seen" onclick="sortTable('queries', 'last_seen')">Ultima vista <span class="arrow">&#8597;</span></th>
-              <th>Azioni</th>
-            </tr>
-          </thead>
-          <tbody id="queries-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div id="schema-section" class="section-stack" style="display:none">
-      <div class="section-banner section-banner-schema">
-        <div>
-          <p class="section-kicker">Spiegazione architettura</p>
-          <h2>Perche il database e cambiato</h2>
-        </div>
-        <p>Il vecchio modello mescolava identita del brano, sorgente fisica e alias. Il nuovo schema li separa per ridurre associazioni errate e rendere il dato piu auditabile.</p>
       </div>
 
-      <div class="schema-grid" id="schema-grid"></div>
-
-      <div class="table-wrap schema-notes">
-        <div class="schema-note-list">
-          <div class="schema-note">
-            <h3>Scopo</h3>
-            <p>Tenere distinta l'identita canonica del brano dalla singola risoluzione tecnica e dalle query che l'hanno prodotta.</p>
-          </div>
-          <div class="schema-note">
-            <h3>Perche migliora</h3>
-            <p>Una query sporca o un alias dubbio non sporca direttamente la traccia canonica e puo essere disattivato o corretto senza perdere storico.</p>
-          </div>
-          <div class="schema-note">
-            <h3>Compatibilita</h3>
-            <p><code>song_cache</code> e <code>query_aliases</code> restano come viste compatibili per dashboard, debug e integrazioni legacy.</p>
-          </div>
+      <footer class="panel-foot" id="panel-foot">
+        <p class="result-count" id="result-count"></p>
+        <div class="pager" id="pager">
+          <button type="button" class="icon-button" data-page="prev" aria-label="Pagina precedente"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+          <span id="page-label">1 / 1</span>
+          <button type="button" class="icon-button" data-page="next" aria-label="Pagina successiva"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
         </div>
-      </div>
-    </div>
+      </footer>
+    </section>
   </main>
 </div>
 
-<div class="modal-bg" id="modal-bg">
-  <div class="modal">
-    <button class="close" onclick="closeModal()">x</button>
-    <div id="modal-content"></div>
+<aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title" role="dialog" aria-modal="true">
+  <div class="drawer-backdrop" data-close-drawer></div>
+  <div class="drawer-panel" tabindex="-1">
+    <header class="drawer-head">
+      <p class="crumb" id="drawer-kicker">Dettaglio</p>
+      <button type="button" class="icon-button" data-close-drawer aria-label="Chiudi"><svg class="icon"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="drawer-body" id="drawer-body">
+      <h2 id="drawer-title"></h2>
+    </div>
   </div>
-</div>
+</aside>
 
-<div class="toast-container" id="toast-container"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
 </body>

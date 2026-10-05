@@ -13,7 +13,6 @@ from typing import Iterable
 
 from core.source_resolver.scoring import (
     _compute_enrich_confidence,
-    _duration_similarity,
     _enrich_sim,
     _is_music_video,
     _is_probably_non_music_query,

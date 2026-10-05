@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import queue
 import re
 import sqlite3
@@ -30,7 +29,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from config import Config
-from core.log_colors import tag, b, hi, dim, _BGRN, _BYEL, _BRED, _CYN, _TEAL, _GRY
+from core.log_colors import tag, b, hi, dim, _BGRN, _BYEL, _BRED, _TEAL, _GRY
 from core.stream_expiry import stream_expiry_epoch
 
 log = logging.getLogger("pitonazz.cache_db")
