@@ -15,6 +15,7 @@ Formato normalizzato di una traccia ("meta"):
 from __future__ import annotations
 
 import html
+import json
 import logging
 import re
 import threading
@@ -60,6 +61,9 @@ _SHORT_LINK_HOSTS = frozenset({
     "deezer.page.link",
     "link.deezer.com",
     "dzr.page.link",
+    # Va espanso prima del routing: un set condiviso come link breve
+    # altrimenti non viene riconosciuto come playlist.
+    "on.soundcloud.com",
     "youtu.be",  # gestito da yt-dlp, ma lo normalizziamo comunque altrove
 })
 # Host di cui yt-dlp gestisce direttamente l'audio: nessun fallback da metadati.
@@ -115,6 +119,38 @@ def parse_platform_url(url: str) -> PlatformRef | None:
     if m := _RE_TIDAL.match(raw):
         return PlatformRef("tidal", m.group(1).lower(), m.group(2))
     return None
+
+
+_RE_SC_PROFILE = re.compile(
+    r"^https?://(?:www\.|m\.)?soundcloud\.com/([^/?#]+)"
+    r"(?:/(?:tracks|popular-tracks|albums|sets|reposts))?/?(?:[?#]|$)",
+    re.IGNORECASE,
+)
+_SC_RESERVED_PATHS = frozenset({
+    "discover", "search", "stream", "feed", "you", "charts", "upload", "pages",
+    "settings", "messages", "notifications", "people", "tags", "terms-of-use",
+    "mobile", "jobs", "imprint", "pro", "premium", "go", "artists", "for-artists",
+    "connect", "signin", "logout", "home",
+})
+
+
+def is_soundcloud_profile(url: str) -> bool:
+    """Profilo SoundCloud (o sua scheda brani): va letto in modalita' flat come
+    una playlist. Estrarre ogni brano per intero fa scattare il 403 di SoundCloud."""
+    m = _RE_SC_PROFILE.match((url or "").strip())
+    return bool(m and m.group(1).lower() not in _SC_RESERVED_PATHS)
+
+
+def unsupported_platform(url: str) -> str:
+    """Nome della piattaforma se il link non e' leggibile in alcun modo, altrimenti ""."""
+    host = _host(url)
+    path = urllib.parse.urlparse(url).path if host else ""
+    # Amazon Music serve solo una pagina JavaScript: nessun metadato lato server.
+    if host.startswith("music.amazon.") or (host.startswith(("amazon.", "www.amazon.")) and path.startswith("/music/")):
+        return "Amazon Music"
+    if (ref := parse_platform_url(url)) and ref.platform == "tidal" and ref.kind != "track":
+        return f"Tidal ({ref.kind})"
+    return ""
 
 
 def is_platform_collection(url: str) -> bool:
@@ -322,6 +358,50 @@ def apple_lookup(ref: PlatformRef, limit: int) -> Collection:
     if not tracks:
         raise LookupError("playlist Apple Music vuota o non leggibile")
     return Collection(name, tracks)
+
+
+# ── Spotify: pagina embed pubblica ───────────────────────────────────────────
+# Le playlist editoriali/algoritmiche di Spotify (id 37i9dQZF...) rispondono 404
+# alla Web API per le app sviluppatore. La pagina embed pubblica le espone
+# comunque (max ~100 brani) dentro __NEXT_DATA__.
+
+_RE_NEXT_DATA = re.compile(r"<script[^>]+id=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>", re.DOTALL)
+
+
+def spotify_embed_playlist(playlist_id: str, limit: int) -> tuple[str, list[dict]]:
+    """Nome e brani di una playlist Spotify, nel formato oggetto-traccia della
+    Web API (name, artists, duration_ms, album.images, external_urls, id)."""
+    page = _get_html(f"https://open.spotify.com/embed/playlist/{playlist_id}")
+    m = _RE_NEXT_DATA.search(page)
+    if not m:
+        raise LookupError("pagina embed Spotify senza dati")
+    try:
+        entity = json.loads(m.group(1))["props"]["pageProps"]["state"]["data"]["entity"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise LookupError(f"pagina embed Spotify non leggibile: {exc}") from exc
+    images = [
+        {"url": src["url"]}
+        for src in ((entity.get("coverArt") or {}).get("sources") or [])
+        if isinstance(src, dict) and src.get("url")
+    ]
+    tracks: list[dict] = []
+    for item in entity.get("trackList") or []:
+        uri = item.get("uri") or ""
+        if not uri.startswith("spotify:track:") or item.get("isPlayable") is False:
+            continue
+        track_id = uri.rsplit(":", 1)[1]
+        tracks.append({
+            "id": track_id,
+            "type": "track",
+            "name": item.get("title") or "",
+            "artists": [{"name": a.strip()} for a in (item.get("subtitle") or "").split(",") if a.strip()],
+            "duration_ms": int(item.get("duration") or 0),
+            "album": {"images": images},
+            "external_urls": {"spotify": f"https://open.spotify.com/track/{track_id}"},
+        })
+        if len(tracks) >= limit:
+            break
+    return (entity.get("name") or entity.get("title") or "Playlist Spotify"), tracks
 
 
 # ── Fallback generico: titolo della pagina ───────────────────────────────────

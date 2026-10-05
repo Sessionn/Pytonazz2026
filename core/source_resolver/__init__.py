@@ -1537,7 +1537,11 @@ class SourceResolver:
             for t in await cls._platform_collection(ref, requester, requester_id):
                 yield t
             return
-        if query.startswith("http") and (_RE_YT_COLLECTION.search(query) or _RE_SC_COLLECTION.search(query)):
+        if query.startswith("http") and (
+            _RE_YT_COLLECTION.search(query)
+            or _RE_SC_COLLECTION.search(query)
+            or platforms.is_soundcloud_profile(query)
+        ):
             loop = asyncio.get_running_loop()
             flat = await loop.run_in_executor(None, cls._ytdlp_flat_collection, query, requester, requester_id)
             if flat:
@@ -1925,7 +1929,11 @@ class SourceResolver:
                     None, lambda o=offset: sp.playlist_tracks(pid, limit=100, offset=o)
                 )
             except Exception as e:
-                log.error(tag("ERR", f"playlist_tracks: {e}"))
+                if offset == 0:
+                    for t in await loop.run_in_executor(None, cls._sp_playlist_embed_tracks, pid, e):
+                        yield cls._lazy_track(t, "", "spotify", requester, requester_id)
+                else:
+                    log.error(tag("ERR", f"playlist_tracks: {e}"))
                 return
             for item in page.get("items", []):
                 track = item.get("track") if item else None
@@ -2310,8 +2318,26 @@ class SourceResolver:
                     break
                 offset += 100
         except Exception as e:
-            log.error(tag("ERR", f"playlist_tracks: {e}"))
+            if offset == 0:
+                out = [
+                    cls._lazy_track(t, "", "spotify", requester, requester_id)
+                    for t in cls._sp_playlist_embed_tracks(pid, e)
+                ]
+            else:
+                log.error(tag("ERR", f"playlist_tracks: {e}"))
         return out[:Config.MAX_QUEUE]
+
+    @classmethod
+    def _sp_playlist_embed_tracks(cls, pid: str, api_error: Exception) -> list:
+        """Fallback per le playlist che la Web API rifiuta (editoriali Spotify):
+        brani letti dalla pagina embed pubblica."""
+        try:
+            name, tracks = platforms.spotify_embed_playlist(pid, Config.MAX_QUEUE)
+        except Exception as e:
+            log.error(tag("ERR", f"playlist_tracks: {api_error} | embed: {e}"))
+            return []
+        log.info(tag("RESOLVE", f"playlist Spotify da embed  {b(name)}  brani={b(len(tracks))}  (API: {api_error.__class__.__name__})"))
+        return tracks
 
     @classmethod
     def _sp_album(cls, aid: str, requester: str, requester_id: int) -> list:

@@ -85,7 +85,11 @@ def is_multi_url(query: str) -> bool:
         return False
     if platforms.is_platform_collection(normalized):
         return True
-    return bool(RE_YT_PLAYLIST.search(normalized) or RE_SC_COLLECTION.search(normalized))
+    return bool(
+        RE_YT_PLAYLIST.search(normalized)
+        or RE_SC_COLLECTION.search(normalized)
+        or platforms.is_soundcloud_profile(normalized)
+    )
 
 
 async def fetch_playlist_meta(query: str) -> tuple[str, int]:
@@ -101,12 +105,19 @@ async def fetch_playlist_meta(query: str) -> tuple[str, int]:
         elif pid := extract_spotify_playlist_id(query):
             sp = SourceResolver._sp_client()
             if sp:
-                playlist = await loop.run_in_executor(
-                    None,
-                    lambda _id=pid: sp.playlist(_id, fields="name,tracks.total"),
-                )
-                nome = playlist.get("name") or "Playlist"
-                total = playlist.get("tracks", {}).get("total", 0)
+                try:
+                    playlist = await loop.run_in_executor(
+                        None,
+                        lambda _id=pid: sp.playlist(_id, fields="name,tracks.total"),
+                    )
+                    nome = playlist.get("name") or "Playlist"
+                    total = playlist.get("tracks", {}).get("total", 0)
+                except Exception:
+                    # Playlist editoriali: la Web API risponde 404, la pagina embed no.
+                    nome, tracks = await loop.run_in_executor(
+                        None, platforms.spotify_embed_playlist, pid, Config.MAX_QUEUE,
+                    )
+                    total = len(tracks)
         elif aid := extract_spotify_album_id(query):
             sp = SourceResolver._sp_client()
             if sp:
@@ -116,7 +127,11 @@ async def fetch_playlist_meta(query: str) -> tuple[str, int]:
                 )
                 nome = album.get("name") or "Album"
                 total = album.get("total_tracks", 0)
-        elif RE_YT_PLAYLIST.search(query) or RE_SC_COLLECTION.search(query):
+        elif (
+            RE_YT_PLAYLIST.search(query)
+            or RE_SC_COLLECTION.search(query)
+            or platforms.is_soundcloud_profile(query)
+        ):
             import yt_dlp
 
             ydl_opts = {

@@ -540,6 +540,14 @@ class Music(commands.Cog):
                 embed=error_embed("I link di canali YouTube non sono supportati."),
             )
 
+        if unsupported := platforms.unsupported_platform(query):
+            return await inter.edit_original_response(
+                embed=error_embed(
+                    f"I link **{unsupported}** non sono supportati.\n"
+                    "Cerca il brano per titolo oppure usa un link YouTube, Spotify, Deezer o Apple Music."
+                ),
+            )
+
         is_multi = is_multi_url(query)
         ticket = self._reserve_play_turn(inter.guild_id)
 

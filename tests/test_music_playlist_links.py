@@ -64,6 +64,10 @@ assert is_multi_url(spotify_playlist)
 assert is_multi_url(spotify_album)
 assert is_multi_url(youtube_playlist)
 assert is_multi_url(soundcloud_set)
+# Profilo SoundCloud: raccolta flat, non estrazione completa di ogni brano.
+assert is_multi_url("https://soundcloud.com/forss")
+assert is_multi_url("soundcloud.com/forss/tracks")
+assert not is_multi_url("https://soundcloud.com/forss/flickermood")
 
 is_text_search = music_input.is_text_search
 
