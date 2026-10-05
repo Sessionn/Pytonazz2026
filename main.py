@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import random
+import sys
 
 import discord
 from discord import app_commands
@@ -412,4 +413,8 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Il thread audio rilascia il GIL a ogni pacchetto (opus, UDP, buffer):
+    # con lo switch interval di default (5 ms) un thread occupato, es. yt-dlp,
+    # puo' ritardarlo di parecchi ms. 1 ms tiene l'invio regolare.
+    sys.setswitchinterval(0.001)
     asyncio.run(main())

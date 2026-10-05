@@ -1,24 +1,27 @@
+"""
+Elaborazione live del PCM (volume, EQ, filtri, preset) tra FFmpeg e Discord.
+
+read() gira nel thread audio di discord.py e deve restare ben sotto i 20 ms
+di un pacchetto anche quando altri thread Python (yt-dlp, dashboard) tengono
+il GIL: per questo il DSP lavora a blocchi con numpy e i biquad passano da
+scipy.signal.lfilter, che gira in C. Coefficienti e stato dei filtri sono
+gli stessi della vecchia versione campione-per-campione.
+"""
 from __future__ import annotations
 
 import math
 import threading
-from array import array
 
 import discord
+import numpy as np
+from scipy.signal import lfilter
 
 _SAMPLE_RATE = 48_000.0
 _CHANNELS = 2
 _PCM_MIN = -32768
 _PCM_MAX = 32767
 _BIQUAD_Q = 0.7071067811865476
-
-
-def _clamp_sample(value: float) -> int:
-    if value < _PCM_MIN:
-        return _PCM_MIN
-    if value > _PCM_MAX:
-        return _PCM_MAX
-    return int(round(value))
+_EMPTY = np.zeros((0, _CHANNELS), dtype=np.float64)
 
 
 class _Biquad:
@@ -28,17 +31,13 @@ class _Biquad:
         self.b2 = 0.0
         self.a1 = 0.0
         self.a2 = 0.0
-        self.z1_l = 0.0
-        self.z2_l = 0.0
-        self.z1_r = 0.0
-        self.z2_r = 0.0
+        # Forma diretta II trasposta: riga 0 = z1, riga 1 = z2, una colonna
+        # per canale. E' esattamente il formato "zi" di lfilter.
+        self.state = np.zeros((2, _CHANNELS), dtype=np.float64)
         self.enabled = False
 
     def reset(self) -> None:
-        self.z1_l = 0.0
-        self.z2_l = 0.0
-        self.z1_r = 0.0
-        self.z2_r = 0.0
+        self.state[:] = 0.0
 
     def _apply_coeffs(self, b0: float, b1: float, b2: float, a0: float, a1: float, a2: float) -> None:
         self.b0 = b0 / a0
@@ -129,20 +128,13 @@ class _Biquad:
 
         self._disable()
 
-    def process_left(self, sample: float) -> float:
-        if not self.enabled:
-            return sample
-        out = sample * self.b0 + self.z1_l
-        self.z1_l = sample * self.b1 + self.z2_l - self.a1 * out
-        self.z2_l = sample * self.b2 - self.a2 * out
-        return out
-
-    def process_right(self, sample: float) -> float:
-        if not self.enabled:
-            return sample
-        out = sample * self.b0 + self.z1_r
-        self.z1_r = sample * self.b1 + self.z2_r - self.a1 * out
-        self.z2_r = sample * self.b2 - self.a2 * out
+    def process(self, block: np.ndarray) -> np.ndarray:
+        """Filtra un blocco (frame, canali) portando lo stato al blocco successivo."""
+        if not self.enabled or not len(block):
+            return block
+        out, self.state = lfilter(
+            (self.b0, self.b1, self.b2), (1.0, self.a1, self.a2), block, axis=0, zi=self.state,
+        )
         return out
 
 
@@ -154,7 +146,7 @@ class LivePCMTransform(discord.AudioSource):
         self._lock = threading.Lock()
         self._source_ended = False
         self._output_chunk_frames = 960
-        self._pcm_buffer = array("h")
+        self._pcm_buffer = _EMPTY
         self._buffer_cursor = 0.0
 
         self._target_volume = float(volume)
@@ -204,8 +196,8 @@ class LivePCMTransform(discord.AudioSource):
         self._current_reverb_mix = 0.0
         self._target_reverb_decay = 0.0
         self._current_reverb_decay = 0.0
-        self._reverb_delay_l = [0.0] * int(_SAMPLE_RATE * 0.11)
-        self._reverb_delay_r = [0.0] * int(_SAMPLE_RATE * 0.17)
+        self._reverb_delay_l = np.zeros(int(_SAMPLE_RATE * 0.11), dtype=np.float64)
+        self._reverb_delay_r = np.zeros(int(_SAMPLE_RATE * 0.17), dtype=np.float64)
         self._reverb_pos_l = 0
         self._reverb_pos_r = 0
 
@@ -237,10 +229,10 @@ class LivePCMTransform(discord.AudioSource):
             cleanup()
 
     def _append_pcm_chunk(self, chunk: bytes) -> int:
-        pcm = array("h")
-        pcm.frombytes(chunk)
-        self._pcm_buffer.extend(pcm)
-        return len(pcm) // _CHANNELS
+        usable = len(chunk) - (len(chunk) % (2 * _CHANNELS))
+        frames = np.frombuffer(chunk[:usable], dtype=np.int16).reshape(-1, _CHANNELS)
+        self._pcm_buffer = np.concatenate((self._pcm_buffer, frames.astype(np.float64)))
+        return len(frames)
 
     def _pull_source_chunk(self) -> int:
         if self._source_ended:
@@ -255,7 +247,7 @@ class LivePCMTransform(discord.AudioSource):
         return frames
 
     def _buffer_frames(self) -> int:
-        return len(self._pcm_buffer) // _CHANNELS
+        return len(self._pcm_buffer)
 
     def _ensure_frames_for_rate(self, rate: float) -> int:
         if self._buffer_frames() == 0:
@@ -267,31 +259,47 @@ class LivePCMTransform(discord.AudioSource):
                 break
         return frames_out
 
-    def _sample_at(self, frame_index: float) -> tuple[float, float]:
+    def _resample(self, frames_out: int, rate: float) -> np.ndarray:
+        """frames_out frame letti dal buffer a passo `rate` (interpolazione lineare)."""
         total_frames = self._buffer_frames()
-        if total_frames <= 0:
-            return 0.0, 0.0
         if total_frames == 1:
-            return float(self._pcm_buffer[0]), float(self._pcm_buffer[1])
+            return np.repeat(self._pcm_buffer, frames_out, axis=0)
+        positions = self._buffer_cursor + rate * np.arange(frames_out, dtype=np.float64)
+        np.clip(positions, 0.0, (total_frames - 1) - 1e-6, out=positions)
+        base = positions.astype(np.intp)
+        frac = (positions - base)[:, None]
+        start = self._pcm_buffer[base]
+        return start + (self._pcm_buffer[np.minimum(base + 1, total_frames - 1)] - start) * frac
 
-        clamped = max(0.0, min((total_frames - 1) - 1e-6, frame_index))
-        base = int(clamped)
-        frac = clamped - base
-        next_frame = min(base + 1, total_frames - 1)
-        left_a = float(self._pcm_buffer[(base * _CHANNELS)])
-        right_a = float(self._pcm_buffer[(base * _CHANNELS) + 1])
-        left_b = float(self._pcm_buffer[(next_frame * _CHANNELS)])
-        right_b = float(self._pcm_buffer[(next_frame * _CHANNELS) + 1])
-        left = left_a + ((left_b - left_a) * frac)
-        right = right_a + ((right_b - right_a) * frac)
-        return left, right
+    def _apply_reverb(self, block: np.ndarray) -> np.ndarray:
+        """Due linee di ritardo con feedback. Ogni linea e' piu' lunga di un
+        segmento, quindi in un segmento non si rileggono mai campioni appena
+        scritti: il calcolo a vettori e' identico a quello campione per campione."""
+        decay = self._current_reverb_decay
+        mix = self._current_reverb_mix
+        dry_gain = 1.0 - (mix * 0.22)
+        out = np.empty_like(block)
+        seg = min(len(self._reverb_delay_l), len(self._reverb_delay_r))
+        for start in range(0, len(block), seg):
+            part = block[start:start + seg]
+            n = len(part)
+            idx_l = (self._reverb_pos_l + np.arange(n)) % len(self._reverb_delay_l)
+            idx_r = (self._reverb_pos_r + np.arange(n)) % len(self._reverb_delay_r)
+            wet_l = self._reverb_delay_l[idx_l]
+            wet_r = self._reverb_delay_r[idx_r]
+            self._reverb_delay_l[idx_l] = part[:, 0] + (wet_l * decay)
+            self._reverb_delay_r[idx_r] = part[:, 1] + (wet_r * decay)
+            self._reverb_pos_l = (self._reverb_pos_l + n) % len(self._reverb_delay_l)
+            self._reverb_pos_r = (self._reverb_pos_r + n) % len(self._reverb_delay_r)
+            out[start:start + n, 0] = (part[:, 0] * dry_gain) + (wet_l * mix)
+            out[start:start + n, 1] = (part[:, 1] * dry_gain) + (wet_r * mix)
+        return out
 
     def _trim_buffer(self) -> None:
         drop_frames = max(0, int(self._buffer_cursor) - 2)
         if drop_frames <= 0:
             return
-        drop_samples = drop_frames * _CHANNELS
-        del self._pcm_buffer[:drop_samples]
+        self._pcm_buffer = self._pcm_buffer[drop_frames:]
         self._buffer_cursor -= drop_frames
 
     def set_volume(self, volume: float) -> None:
@@ -356,8 +364,8 @@ class LivePCMTransform(discord.AudioSource):
                 self._current_reverb_mix = self._target_reverb_mix
                 self._current_reverb_decay = self._target_reverb_decay
                 if self._target_reverb_mix <= 1e-4:
-                    self._reverb_delay_l = [0.0] * len(self._reverb_delay_l)
-                    self._reverb_delay_r = [0.0] * len(self._reverb_delay_r)
+                    self._reverb_delay_l[:] = 0.0
+                    self._reverb_delay_r[:] = 0.0
                     self._reverb_pos_l = 0
                     self._reverb_pos_r = 0
 
@@ -366,7 +374,6 @@ class LivePCMTransform(discord.AudioSource):
         if self._buffer_frames() <= 0:
             return b""
 
-        pcm = array("h")
         with self._lock:
             self._current_volume = self._slew(self._current_volume, self._target_volume, 0.28)
             self._current_highpass_hz = self._slew(self._current_highpass_hz, self._target_highpass_hz, 0.18)
@@ -415,93 +422,39 @@ class LivePCMTransform(discord.AudioSource):
                 if available < needed_for_full_chunk:
                     return b""
 
-            for _ in range(frames_out):
-                dry_left, dry_right = self._sample_at(self._buffer_cursor)
-                self._buffer_cursor += playback_rate
-                left = dry_left
-                right = dry_right
+            block = self._resample(frames_out, playback_rate)
+            self._buffer_cursor += playback_rate * frames_out
 
-                if self._low_eq.enabled:
-                    left = self._low_eq.process_left(left)
-                    right = self._low_eq.process_right(right)
-                if self._mid_eq.enabled:
-                    left = self._mid_eq.process_left(left)
-                    right = self._mid_eq.process_right(right)
-                if self._high_eq.enabled:
-                    left = self._high_eq.process_left(left)
-                    right = self._high_eq.process_right(right)
-                if self._presence_eq.enabled:
-                    left = self._presence_eq.process_left(left)
-                    right = self._presence_eq.process_right(right)
-                if self._preset_low_eq.enabled:
-                    left = self._preset_low_eq.process_left(left)
-                    right = self._preset_low_eq.process_right(right)
-                if self._preset_mid_eq.enabled:
-                    left = self._preset_mid_eq.process_left(left)
-                    right = self._preset_mid_eq.process_right(right)
-                if self._preset_high_eq.enabled:
-                    left = self._preset_high_eq.process_left(left)
-                    right = self._preset_high_eq.process_right(right)
+            for eq in (
+                self._low_eq, self._mid_eq, self._high_eq, self._presence_eq,
+                self._preset_low_eq, self._preset_mid_eq, self._preset_high_eq,
+            ):
+                block = eq.process(block)
 
-                eq_left = left
-                eq_right = right
+            # Filtri con mix dry/wet: lo stato avanza solo quando il mix e' attivo.
+            for flt, mix in (
+                (self._preset_highpass, preset_highpass_mix),
+                (self._preset_lowpass, preset_lowpass_mix),
+                (self._highpass, highpass_mix),
+                (self._lowpass, lowpass_mix),
+            ):
+                if flt.enabled and mix > 1e-4:
+                    block = block + ((flt.process(block) - block) * mix)
 
-                if self._preset_highpass.enabled and preset_highpass_mix > 1e-4:
-                    wet_left = self._preset_highpass.process_left(eq_left)
-                    wet_right = self._preset_highpass.process_right(eq_right)
-                    left = eq_left + ((wet_left - eq_left) * preset_highpass_mix)
-                    right = eq_right + ((wet_right - eq_right) * preset_highpass_mix)
-                else:
-                    left = eq_left
-                    right = eq_right
+            if self._current_pan_depth > 1e-4 and self._current_pan_rate_hz > 1e-4:
+                step = (2.0 * math.pi * self._current_pan_rate_hz) / _SAMPLE_RATE
+                phases = self._pan_phase + (step * np.arange(frames_out, dtype=np.float64))
+                angle = ((np.sin(phases) * self._current_pan_depth) + 1.0) * (math.pi / 4.0)
+                block = block * (np.column_stack((np.cos(angle), np.sin(angle))) * math.sqrt(2.0))
+                self._pan_phase = math.fmod(self._pan_phase + (step * frames_out), 2.0 * math.pi)
 
-                if self._preset_lowpass.enabled and preset_lowpass_mix > 1e-4:
-                    wet_left = self._preset_lowpass.process_left(left)
-                    wet_right = self._preset_lowpass.process_right(right)
-                    left = left + ((wet_left - left) * preset_lowpass_mix)
-                    right = right + ((wet_right - right) * preset_lowpass_mix)
+            if self._current_reverb_mix > 1e-4:
+                block = self._apply_reverb(block)
 
-                if self._highpass.enabled and highpass_mix > 1e-4:
-                    wet_left = self._highpass.process_left(left)
-                    wet_right = self._highpass.process_right(right)
-                    left = left + ((wet_left - left) * highpass_mix)
-                    right = right + ((wet_right - right) * highpass_mix)
+            if abs(volume - 1.0) > 1e-6:
+                block = block * volume
 
-                if self._lowpass.enabled and lowpass_mix > 1e-4:
-                    wet_left = self._lowpass.process_left(left)
-                    wet_right = self._lowpass.process_right(right)
-                    left = left + ((wet_left - left) * lowpass_mix)
-                    right = right + ((wet_right - right) * lowpass_mix)
-
-                if self._current_pan_depth > 1e-4 and self._current_pan_rate_hz > 1e-4:
-                    pan = math.sin(self._pan_phase) * self._current_pan_depth
-                    angle = (pan + 1.0) * (math.pi / 4.0)
-                    left_gain = math.cos(angle) * math.sqrt(2.0)
-                    right_gain = math.sin(angle) * math.sqrt(2.0)
-                    left *= left_gain
-                    right *= right_gain
-                    self._pan_phase += (2.0 * math.pi * self._current_pan_rate_hz) / _SAMPLE_RATE
-                    if self._pan_phase >= (2.0 * math.pi):
-                        self._pan_phase -= (2.0 * math.pi)
-
-                if self._current_reverb_mix > 1e-4:
-                    wet_left = self._reverb_delay_l[self._reverb_pos_l]
-                    wet_right = self._reverb_delay_r[self._reverb_pos_r]
-                    self._reverb_delay_l[self._reverb_pos_l] = left + (wet_left * self._current_reverb_decay)
-                    self._reverb_delay_r[self._reverb_pos_r] = right + (wet_right * self._current_reverb_decay)
-                    self._reverb_pos_l = (self._reverb_pos_l + 1) % len(self._reverb_delay_l)
-                    self._reverb_pos_r = (self._reverb_pos_r + 1) % len(self._reverb_delay_r)
-                    dry_gain = 1.0 - (self._current_reverb_mix * 0.22)
-                    left = (left * dry_gain) + (wet_left * self._current_reverb_mix)
-                    right = (right * dry_gain) + (wet_right * self._current_reverb_mix)
-
-                if abs(volume - 1.0) > 1e-6:
-                    left *= volume
-                    right *= volume
-
-                pcm.append(_clamp_sample(left))
-                pcm.append(_clamp_sample(right))
-
+            pcm = np.clip(np.rint(block), _PCM_MIN, _PCM_MAX).astype(np.int16)
             self._trim_buffer()
 
         return pcm.tobytes()

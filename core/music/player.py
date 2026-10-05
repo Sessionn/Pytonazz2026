@@ -26,6 +26,7 @@ from core.audio_filters import (
     normalize_eq,
     normalize_tone_filters,
 )
+from core.music.audio_buffer import PrefetchedAudioSource
 from core.music.live_fx import LivePCMTransform
 from core.music.queue import MusicQueue
 from core.source_resolver import TrackInfo, SourceResolver
@@ -627,7 +628,9 @@ class MusicPlayer:
                 except RuntimeError:
                     log.debug(tag("PLAYER", "Loop chiuso, skip play_next"))
 
-            self.vc.play(source, after=_after)
+            # Pacchetti preparati in anticipo: il thread audio di discord.py non
+            # aspetta piu' FFmpeg ne' il DSP quando altri thread tengono il GIL.
+            self.vc.play(PrefetchedAudioSource(source), after=_after)
             self._cancel_idle()
             self._play_start   = time.monotonic()
             self._position_playback_rate = float(combine_live_filter_preset(self.base_filter_name, self.active_fx_names).get("playback_rate", 1.0) or 1.0)
