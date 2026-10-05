@@ -305,6 +305,14 @@ _RE_YT_COLLECTION = re.compile(
     re.IGNORECASE,
 )
 _RE_SC_COLLECTION = re.compile(r"soundcloud\.com/[^/?#]+/(?:sets|albums)/[^/?#]+", re.IGNORECASE)
+def _title_from_slug(url: str) -> str:
+    """"gimme-twice-mastered" -> "Gimme Twice Mastered". Vuoto se il link non
+    ha uno slug leggibile (es. api-v2.soundcloud.com/tracks/<id>)."""
+    parsed = urllib.parse.urlparse(url)
+    slug = parsed.path.rstrip("/").rsplit("/", 1)[-1]
+    if not slug or slug.isdigit() or (parsed.hostname or "").startswith("api"):
+        return ""
+    return " ".join(w.capitalize() for w in slug.replace("_", "-").split("-") if w)
 
 
 def _source_label(webpage_url: str, entry: dict) -> str:
@@ -2016,6 +2024,8 @@ class SourceResolver:
                 webpage_url = f"https://www.youtube.com/watch?v={webpage_url}"
             if not webpage_url.startswith(("http://", "https://")):
                 continue
+            # I set SoundCloud in flat non hanno titoli: meglio lo slug del link.
+            entry_title = entry_title or _title_from_slug(webpage_url)
             src = _source_label(webpage_url, entry)
             thumbnail = _entry_thumbnail(entry, webpage_url, src)
             results.append(TrackInfo(

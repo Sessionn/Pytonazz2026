@@ -227,3 +227,22 @@ assert flat[1].webpage_url == "https://www.youtube.com/watch?v=ccccccccccc"
 assert all(t.source == "youtube" and not t.stream_url for t in flat)
 
 print("OK: playlist YouTube flat")
+
+
+# Set SoundCloud flat: yt-dlp non restituisce i titoli, si usa lo slug.
+class FakeSoundCloudSetYDL(FakeYDL):
+    def extract_info(self, url, download=False):
+        return {"entries": [
+            {"_type": "url_transparent", "ie_key": "Soundcloud", "id": "1", "title": None,
+             "url": "https://soundcloud.com/the-concept-band/gimme-twice-mastered"},
+            {"_type": "url_transparent", "ie_key": "Soundcloud", "id": "2", "title": None,
+             "url": "https://api-v2.soundcloud.com/tracks/47127631"},
+        ]}
+
+
+resolver_module.yt_dlp.YoutubeDL = FakeSoundCloudSetYDL
+flat = SourceResolver._ytdlp_flat_collection("https://soundcloud.com/the-concept-band/sets/ep", "tester", 7)
+assert [t.title for t in flat] == ["Gimme Twice Mastered", "Senza titolo"], flat
+assert flat[1].webpage_url == "https://api-v2.soundcloud.com/tracks/47127631"
+
+print("OK: set SoundCloud flat con titoli dallo slug")
