@@ -25,7 +25,14 @@ def _safe_http_url(url: str) -> str:
 
 
 def _track_web_url(track) -> str:
-    return _safe_http_url(getattr(track, "webpage_url", "") or "")
+    # Brani lazy (playlist Spotify/Deezer/...) non hanno ancora un URL audio:
+    # si linka la pagina originale della piattaforma.
+    return _safe_http_url(getattr(track, "webpage_url", "") or getattr(track, "source_url", "") or "")
+
+
+def _link_text(text: str) -> str:
+    # Titoli con [ ] * _ ` rompono il markdown dei link Discord.
+    return discord.utils.escape_markdown(text or "").replace("[", "(").replace("]", ")")
 
 
 def now_playing_embed(player: "MusicPlayer") -> discord.Embed:
@@ -59,7 +66,7 @@ def queue_notification_embed(
     dur = _fmt_dur(track.duration) if track.duration else "?"
     context_label = collection_name.strip() if collection_name else (getattr(track, "artist", "") or "").strip()
     url = _track_web_url(track)
-    track_line = f"[{track.title}]({url})" if url else f"**{track.title}**"
+    track_line = f"[{_link_text(track.title)}]({url})" if url else f"**{discord.utils.escape_markdown(track.title)}**"
 
     if context_label:
         track_line += f" | {context_label}"
@@ -82,7 +89,7 @@ def _queue_line(idx: int, track) -> str:
     url = _track_web_url(track)
     dur = _fmt_dur(track.duration)
     if url:
-        return f"`{idx}.` [{short_title}]({url}) - `{dur}` | {requester}"
+        return f"`{idx}.` [{_link_text(short_title)}]({url}) - `{dur}` | {requester}"
     return f"`{idx}.` {short_title} - `{dur}` | {requester}"
 
 
@@ -101,7 +108,7 @@ def queue_embed(player: "MusicPlayer", page: int = 0) -> discord.Embed:
         short_title = track.title[:60] + ("..." if len(track.title) > 60 else "")
         url = _track_web_url(track)
         value = (
-            f"[{short_title}]({url}) - `{_fmt_dur(track.duration)}` | {requester}"
+            f"[{_link_text(short_title)}]({url}) - `{_fmt_dur(track.duration)}` | {requester}"
             if url
             else f"{short_title} - `{_fmt_dur(track.duration)}` | {requester}"
         )
@@ -170,7 +177,7 @@ def versions_embed(track_title: str) -> discord.Embed:
 
 def history_embed(tracks: list) -> discord.Embed:
     lines = [
-        f"`{i + 1}.` [{track.title}]({_track_web_url(track)})"
+        f"`{i + 1}.` [{_link_text(track.title)}]({_track_web_url(track)})"
         if _track_web_url(track)
         else f"`{i + 1}.` {track.title}"
         for i, track in enumerate(tracks)

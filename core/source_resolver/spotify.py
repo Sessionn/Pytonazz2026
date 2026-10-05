@@ -22,12 +22,6 @@ from core.source_resolver.scoring import (
 
 log = logging.getLogger("pitonazz.resolver")
 
-# ── Concurrency constants ─────────────────────────────────────────────────────
-
-_SPOTIFY_BATCH_CONCURRENCY     = 6
-_SPOTIFY_BATCH_MAX_CONCURRENCY = 10
-
-
 # ── Spotify client factory ────────────────────────────────────────────────────
 
 def _spotify_client() -> Optional[object]:

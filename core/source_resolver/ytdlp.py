@@ -83,7 +83,7 @@ def _strip_yt_radio(url: str) -> str:
     Returns the cleaned URL, or the original URL if no radio params are present.
     """
     parsed = urllib.parse.urlparse(url)
-    if parsed.netloc in ("www.youtube.com", "youtube.com"):
+    if parsed.netloc in ("www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com"):
         params = urllib.parse.parse_qs(parsed.query)
         lst = params.get("list", [""])[0]
         if lst.startswith("RD") or "start_radio" in params:

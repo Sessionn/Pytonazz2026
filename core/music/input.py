@@ -6,6 +6,7 @@ import re
 
 from config import Config
 from core.log_colors import b, tag
+from core.source_resolver import platforms
 from core.source_resolver import (
     SourceResolver,
     extract_spotify_album_id,
@@ -16,13 +17,25 @@ from core.source_resolver import (
 
 log = logging.getLogger("pitonazz.music_input")
 
+# list= prefix comuni nelle raccolte YouTube (anche music.youtube.com):
+# PL playlist, OLAK album, RDCLAK radio curate, UU upload canale, LL/FL liked.
+# Mix automatici (RD...) e Watch Later (WL, privata) non sono raccolte riproducibili.
 RE_YT_PLAYLIST = re.compile(
-    r"(?:youtube\.com/playlist|[?&]list=(?:PL|OLAK|RDCLAK|UU|LL|FL|WL))",
+    r"(?:youtube\.com/playlist|[?&]list=(?:PL|OLAK|RDCLAK|UU|LL|FL))",
     re.IGNORECASE,
 )
 RE_SC_COLLECTION = re.compile(r"soundcloud\.com/[^/?#]+/(?:sets|albums)/[^/?#]+", re.IGNORECASE)
+# Domini musicali riconosciuti anche senza "https://" davanti.
 RE_URL_LIKE = re.compile(
-    r"^(?:https?://)?(?:(?:www\.)?(?:open\.)?spotify\.com|(?:www\.)?youtube\.com|youtu\.be|(?:www\.)?soundcloud\.com|on\.soundcloud\.com)(?:/|$)",
+    r"^(?:https?://)?(?:"
+    r"(?:www\.)?(?:open\.)?spotify\.com|spotify\.link|spotify\.app\.link"
+    r"|(?:www\.|m\.|music\.)?youtube\.com|youtu\.be"
+    r"|(?:www\.|m\.)?soundcloud\.com|on\.soundcloud\.com"
+    r"|(?:www\.)?deezer\.com|deezer\.page\.link|link\.deezer\.com"
+    r"|(?:geo\.)?music\.apple\.com"
+    r"|(?:www\.|listen\.)?tidal\.com"
+    r"|[a-z0-9-]+\.bandcamp\.com"
+    r")(?:/|$)",
     re.IGNORECASE,
 )
 
@@ -59,6 +72,8 @@ def spotify_kind(query: str) -> str | None:
 
 def is_text_search(query: str) -> bool:
     normalized = (query or "").strip().lower()
+    if normalized.startswith(("http://", "https://")):
+        return False
     return not (RE_URL_LIKE.match(normalized) or is_spotify_uri(normalized))
 
 
@@ -68,6 +83,8 @@ def is_multi_url(query: str) -> bool:
         return True
     if not normalized.startswith(("http://", "https://")):
         return False
+    if platforms.is_platform_collection(normalized):
+        return True
     return bool(RE_YT_PLAYLIST.search(normalized) or RE_SC_COLLECTION.search(normalized))
 
 
@@ -77,7 +94,11 @@ async def fetch_playlist_meta(query: str) -> tuple[str, int]:
     loop = asyncio.get_running_loop()
 
     try:
-        if pid := extract_spotify_playlist_id(query):
+        if (ref := platforms.parse_platform_url(query)) and ref.kind in {"album", "playlist"}:
+            collection = await loop.run_in_executor(None, platforms.lookup, ref)
+            nome = collection.name or platforms.PLATFORM_LABELS.get(ref.platform, "Playlist")
+            total = len(collection.tracks)
+        elif pid := extract_spotify_playlist_id(query):
             sp = SourceResolver._sp_client()
             if sp:
                 playlist = await loop.run_in_executor(
@@ -101,6 +122,7 @@ async def fetch_playlist_meta(query: str) -> tuple[str, int]:
             ydl_opts = {
                 **Config.YDL_OPTIONS,
                 "extract_flat": True,
+                "playlistend": Config.MAX_QUEUE,
                 "skip_download": True,
                 "quiet": True,
             }

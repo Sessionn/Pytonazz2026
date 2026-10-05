@@ -20,6 +20,7 @@ from core.music.input import (
     spotify_kind,
 )
 from core.music.player import MusicPlayer
+from core.source_resolver import platforms
 from core.source_resolver import (
     SourceResolver,
     _is_yt_channel_url,
@@ -67,6 +68,16 @@ _normalize_url_like = normalize_url_like
 
 # list= prefix comuni nelle raccolte YouTube:
 # PL playlist, OLAK album/topic, RDCLAK radio/mix, UU upload canale, LL liked, FL favorites, WL watch later.
+
+
+def _track_identity(track) -> str:
+    """Chiave di deduplica: URL audio, oppure link piattaforma / titolo+artista per i brani lazy."""
+    url = (getattr(track, "webpage_url", "") or getattr(track, "source_url", "") or "").strip()
+    if url:
+        return url
+    title_ = (getattr(track, "title", "") or "").strip().lower()
+    artist = (getattr(track, "artist", "") or "").strip().lower()
+    return f"{title_}|{artist}" if title_ else ""
 
 
 class Music(commands.Cog):
@@ -185,7 +196,7 @@ class Music(commands.Cog):
         return (now - last) <= _PLAY_DEBOUNCE_WINDOW_SECONDS
 
     async def _warmup_track_stream_url(self, track) -> None:
-        if not track or track.stream_url or not track.webpage_url:
+        if not track or track.stream_url or not (track.webpage_url or getattr(track, "pending_meta", None)):
             return
         async with self._warmup_sem:
             t0 = time.perf_counter()
@@ -206,7 +217,7 @@ class Music(commands.Cog):
         requester = getattr(seed_track, "requester", "Autoplay")
         requester_id = int(getattr(seed_track, "requester_id", 0) or 0)
         existing_urls = {
-            (getattr(t, "webpage_url", "") or "").strip()
+            _track_identity(t)
             for t in ([player.current] + player.queue.items + list(player.queue.history))
             if t
         }
@@ -218,7 +229,7 @@ class Music(commands.Cog):
                     seed_artist, requester, requester_id, limit=_AUTOPLAY_REFILL_LIMIT
                 )
                 async for track in gen:
-                    url = (getattr(track, "webpage_url", "") or "").strip()
+                    url = _track_identity(track)
                     if not url or url in existing_urls:
                         continue
                     if not player.queue.put(track):
@@ -231,7 +242,7 @@ class Music(commands.Cog):
                 query = f"{seed_track.title} audio"
                 tracks = await SourceResolver.resolve(query, requester, requester_id)
                 for track in tracks:
-                    url = (getattr(track, "webpage_url", "") or "").strip()
+                    url = _track_identity(track)
                     if not url or url in existing_urls:
                         continue
                     if not player.queue.put(track):
@@ -471,7 +482,7 @@ class Music(commands.Cog):
         await inter.response.send_message(embed=success_embed(f"Entrato in **{vc_ch.name}**."), ephemeral=True)
         log.info(tag("JOIN", f"{guild(inter.guild.name)}  →  {ch(vc_ch.name)}  (da {user(str(inter.user))})"))
 
-    @app_commands.command(name="play", description="Riproduci da YouTube, Spotify, SoundCloud o testo (risultato diretto)")
+    @app_commands.command(name="play", description="Riproduci da YouTube, Spotify, SoundCloud, Deezer, Apple Music, Bandcamp o testo")
     @app_commands.describe(query="Link o titolo della canzone / playlist / album")
     async def play(self, inter: discord.Interaction, query: str):
         t_cmd = time.perf_counter()
@@ -494,6 +505,11 @@ class Music(commands.Cog):
         except discord.NotFound:
             log.warning(tag("CMD", f"/play interaction scaduta prima del defer  {b(query)}"))
             return
+
+        # Link brevi di condivisione (spotify.link, deezer.page.link, ...):
+        # vanno espansi prima di capire se sono brano, album o playlist.
+        if platforms.is_short_link(query):
+            query = await asyncio.get_running_loop().run_in_executor(None, platforms.expand_short_link, query)
 
         vc = inter.guild.voice_client
         if vc and vc.channel:

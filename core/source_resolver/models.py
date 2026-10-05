@@ -19,6 +19,15 @@ class TrackInfo:
     popularity: int = field(default=0, repr=False)
     thumbnail_source: str = field(default="", repr=False)
     thumbnail_confidence: float = field(default=0.0, repr=False)
+    # Link originale della piattaforma (Spotify, Deezer, Apple Music, ...).
+    source_url: str = field(default="", repr=False)
+    # Metadati non ancora abbinati a una sorgente audio: la ricerca su YouTube
+    # avviene solo quando il brano sta per essere riprodotto (risoluzione lazy).
+    pending_meta: dict | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def is_pending(self) -> bool:
+        return self.pending_meta is not None
 
 
 def clone_track(track: TrackInfo) -> TrackInfo:
@@ -37,4 +46,6 @@ def clone_track(track: TrackInfo) -> TrackInfo:
         popularity=track.popularity,
         thumbnail_source=track.thumbnail_source,
         thumbnail_confidence=track.thumbnail_confidence,
+        source_url=track.source_url,
+        pending_meta=track.pending_meta,
     )

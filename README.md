@@ -13,7 +13,11 @@ Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
 
 ## Funzioni principali
 
-- Musica Discord: `/play`, `/search`, playlist/album Spotify, YouTube, SoundCloud, queue, loop, seek, history, autoplay e filtri live.
+- Musica Discord: `/play`, `/search`, queue, loop, seek, history, autoplay e filtri live.
+- Sorgenti: YouTube e YouTube Music, SoundCloud, Bandcamp e gli altri siti supportati da yt-dlp (audio diretto);
+  Spotify, Deezer, Apple Music e Tidal (solo brani) tramite metadati abbinati a YouTube; link brevi
+  (`spotify.link`, `deezer.page.link`) e pagine musicali generiche tramite il titolo della pagina.
+- Playlist e album entrano in coda subito: la sorgente audio di ogni brano viene cercata solo quando sta per partire.
 - Resolve musicale: `yt-dlp` per sorgenti audio, Spotify per canonicalizzazione e cover, FFmpeg per playback voice.
 - Cache DB musicale: SQLite normalizzato con tracce canoniche, sorgenti risolte, query/alias osservati, stream URL temporanei e viste compatibili.
 - Dashboard web: Flask + Waitress, login, statistiche DB, tabelle cache, associazioni Spotify, eliminazioni, schema DB e console DJ.

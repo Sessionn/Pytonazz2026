@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import logging
 import random
 import re
@@ -18,7 +18,7 @@ from core.source_resolver.selection import (
     select_best_track,
 )
 
-# â”€â”€ Sub-module imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Sub-module imports ─────────────────────────────────────────────────────────────────────────────
 from core.source_resolver.scoring import (
     _MV_KEYWORDS,
     _VARIANT_KEYWORDS,
@@ -68,9 +68,8 @@ from core.source_resolver.ytdlp import (
     _strip_soundcloud_params,
 )
 
+from core.source_resolver import platforms
 from core.source_resolver.spotify import (
-    _SPOTIFY_BATCH_CONCURRENCY,
-    _SPOTIFY_BATCH_MAX_CONCURRENCY,
     _spotify_client,
     _spotify_item_name,
     _spotify_item_popularity,
@@ -299,6 +298,24 @@ def _prefer_studio(
         best = select_best_track(user_query, candidates, meta or None)
         return best if best else candidates[0]
     return candidates[0]
+
+
+_RE_YT_COLLECTION = re.compile(
+    r"(?:youtube\.com/playlist|[?&]list=(?:PL|OLAK|RDCLAK|UU|LL|FL))",
+    re.IGNORECASE,
+)
+_RE_SC_COLLECTION = re.compile(r"soundcloud\.com/[^/?#]+/(?:sets|albums)/[^/?#]+", re.IGNORECASE)
+
+
+def _source_label(webpage_url: str, entry: dict) -> str:
+    """Nome della sorgente audio: youtube, soundcloud o l'extractor yt-dlp (bandcamp, ...)."""
+    if _is_soundcloud_url(webpage_url):
+        return "soundcloud"
+    host = (urllib.parse.urlparse(webpage_url or "").hostname or "").lower()
+    key = str(entry.get("extractor_key") or entry.get("ie_key") or "").lower()
+    if not key or "youtube" in key or host.endswith(("youtube.com", "youtu.be")):
+        return "youtube"
+    return re.sub(r"[^a-z0-9]+", "", key)[:20] or "web"
 
 
 def _is_url_like_query(query: str) -> bool:
@@ -656,7 +673,7 @@ def _spotify_enrich_mode(score: dict) -> str:
     return "skip"
 
 
-# â”€â”€ Query Cache singleton (lazy init) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
 _FAST_STREAM_EXTRACT_OPTS = {
@@ -1085,12 +1102,12 @@ class SourceResolver:
             except Exception as _ce:
                 log.debug(tag("CACHE", f"direct-url read path error (ignorato): {_ce}"))
 
-        # â”€â”€ Spotify track singola â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Spotify track singola ──────────────────────────────────────────────
         if track_id := extract_spotify_track_id(query):
             results = await loop.run_in_executor(
                 None, cls._sp_track, track_id, requester, requester_id
             )
-            # 6.2 â€” cache per link Spotify diretto
+            # 6.2 — cache per link Spotify diretto
             if results and results[0].title:
                 try:
                     qc = _get_query_cache()
@@ -1100,7 +1117,7 @@ class SourceResolver:
                     log.debug(tag("CACHE", f"write path spotify-direct (ignorato): {_we}"))
             return results
 
-        # â”€â”€ Spotify playlist / album / artista â†’ no cache (multi-traccia) â”€â”€â”€â”€
+        # ── Spotify playlist / album / artista → no cache (multi-traccia) ────
         if playlist_id := extract_spotify_playlist_id(query):
             return await loop.run_in_executor(
                 None, cls._sp_playlist, playlist_id, requester, requester_id
@@ -1117,11 +1134,28 @@ class SourceResolver:
                 tracks.append(t)
             return tracks
 
-        # â”€â”€ URL YouTube / SoundCloud diretto â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Deezer / Apple Music / Tidal: metadati -> sorgente audio ──────────
+        if ref := platforms.parse_platform_url(query):
+            tracks = await cls._platform_collection(ref, requester, requester_id)
+            if ref.kind == "track" and tracks:
+                # Singolo brano: abbinamento immediato, cosi' /play mostra subito il risultato.
+                matched = await loop.run_in_executor(None, cls._materialize_pending, tracks[0])
+                return tracks[:1] if matched else []
+            return tracks
+
+        # ── URL YouTube / SoundCloud diretto ──────────────────────────────────
         results = await loop.run_in_executor(
             None, cls._search_or_url, query, requester, requester_id
         )
-        # 6.2 â€” cache per URL diretto (YT/SC): salva solo se Ã¨ effettivamente un URL
+        # URL di siti senza audio estraibile (Amazon Music, pagine di
+        # artisti/etichette, ...): si cerca il titolo della pagina.
+        if not results and query.startswith("http") and not platforms.has_direct_audio(query):
+            search_text = await loop.run_in_executor(None, platforms.page_search_query, query)
+            if search_text:
+                log.info(tag("RESOLVE", f"URL senza audio diretto  {b(query)}  ->  ricerca {b(search_text)}"))
+                return await cls._resolve_choices_impl(search_text, requester, requester_id, n=1)
+
+        # 6.2 — cache per URL diretto (YT/SC): salva solo se è effettivamente un URL
         if results and results[0].title and _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
@@ -1168,7 +1202,7 @@ class SourceResolver:
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
 
-        # â”€â”€ READ PATH: cache-first lookup (solo per n==1, query testuale) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── READ PATH: cache-first lookup (solo per n==1, query testuale) ─────────────────────
         if n == 1 and not _is_url_like_query(query):
             try:
                 cached_track = await cls._resolve_cached_track(query, requester, requester_id)
@@ -1180,7 +1214,7 @@ class SourceResolver:
                     log.info(tag("CACHE", f"{b(query)}  \u2192  stale url, ricerca fresca"))
             except Exception as _ce:
                 log.debug(tag("CACHE", f"read path error (ignorato): {_ce}"))
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ─────────────────────────────────────────────────────────────────────────────
 
         search_n = max(n, _YT_CANDIDATES)
         canonical_search_n = 1 if n == 1 else search_n
@@ -1482,7 +1516,7 @@ class SourceResolver:
                         None, cls._enrich_with_spotify, results, query
                     )
 
-        # â”€â”€ WRITE PATH: salva il risultato in cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── WRITE PATH: salva il risultato in cache ─────────────────────────────────────────────
         if n == 1 and results and not _is_url_like_query(query):
             try:
                 qc = _get_query_cache()
@@ -1490,7 +1524,7 @@ class SourceResolver:
                     qc.store(query, results[0])
             except Exception as _we:
                 log.debug(tag("CACHE", f"write path error (ignorato): {_we}"))
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ─────────────────────────────────────────────────────────────────────────────
 
         elapsed = (time.perf_counter() - t0) * 1000
         log.info(tag("RESOLVE", f"{b(query)}  \u2192  {b(str(len(results)))} risultati  {ms(elapsed)}"))
@@ -1498,6 +1532,18 @@ class SourceResolver:
 
     @classmethod
     async def resolve_stream(cls, query: str, requester: str, requester_id: int = 0):
+        ref = platforms.parse_platform_url(query)
+        if ref is not None and ref.kind in {"album", "playlist"}:
+            for t in await cls._platform_collection(ref, requester, requester_id):
+                yield t
+            return
+        if query.startswith("http") and (_RE_YT_COLLECTION.search(query) or _RE_SC_COLLECTION.search(query)):
+            loop = asyncio.get_running_loop()
+            flat = await loop.run_in_executor(None, cls._ytdlp_flat_collection, query, requester, requester_id)
+            if flat:
+                for t in flat:
+                    yield t
+                return
         if playlist_id := extract_spotify_playlist_id(query):
             async for t in cls._sp_playlist_stream(playlist_id, requester, requester_id):
                 yield t
@@ -1634,11 +1680,7 @@ class SourceResolver:
         log.info(tag("SPOTIFY", f"popularity-tier shuffle  {b(found_name)}  {len(pairs)} tracce"))
 
         for sp_track, art_name in pairs:
-            resolved = await loop.run_in_executor(
-                None, cls._sp_track_from_obj, sp_track, art_name, requester, requester_id
-            )
-            if resolved:
-                yield resolved
+            yield cls._lazy_track(sp_track, art_name, "spotify", requester, requester_id)
 
     @staticmethod
     def _best_artist_match(query: str, artists: list) -> tuple:
@@ -1652,8 +1694,19 @@ class SourceResolver:
 
     @classmethod
     def _sp_track_from_obj(
-        cls, sp_track: dict, artist_name: str, requester: str, requester_id: int
+        cls,
+        sp_track: dict,
+        artist_name: str,
+        requester: str,
+        requester_id: int,
+        platform: str = "spotify",
     ) -> Optional["TrackInfo"]:
+        """Abbina i metadati di un brano (formato Spotify) alla sorgente audio migliore.
+
+        Usato anche per Deezer/Apple Music: i loro metadati vengono convertiti
+        nello stesso formato da `_meta_to_sp_shape`.
+        """
+        is_spotify = platform == "spotify"
         artists_str = ", ".join(a["name"] for a in sp_track.get("artists", [])) or artist_name
         sp_dur      = (sp_track.get("duration_ms") or 0) / 1000
         sp_title    = sp_track.get("name", "Senza titolo")
@@ -1683,7 +1736,7 @@ class SourceResolver:
                 if _should_accept_spotify_direct_fast_match(sp_title, fast_candidates[0], fast_score):
                     candidates = fast_candidates
                     for c in candidates:
-                        c.source = "spotify"
+                        c.source = platform
                     chosen = _prefer_studio(
                         candidates,
                         sp_dur,
@@ -1699,10 +1752,13 @@ class SourceResolver:
                         chosen.thumbnail_confidence = 0.95
                     chosen.artist = artists_str
                     chosen.origin_query = query_with_artist
-                    chosen.spotify_url = sp_url
+                    chosen.spotify_url = sp_url if is_spotify else ""
+                    chosen.source_url = sp_url
+                    if sp_thumb:
+                        chosen.thumbnail_source = platform
 
-                    log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  →  {hi(chosen.webpage_url, _BBLU)}"))
-                    if sp_url:
+                    log.info(tag(platform.upper(), f"{hi(sp_title, _TEAL)}  →  {hi(chosen.webpage_url, _BBLU)}"))
+                    if sp_url and is_spotify:
                         try:
                             qc = _get_query_cache()
                             if qc is not None:
@@ -1733,7 +1789,7 @@ class SourceResolver:
             log.info(tag("FALLBACK", f"{b(sp_title)}  trovata al passo {used_step}"))
 
         for c in candidates:
-            c.source = "spotify"
+            c.source = platform
 
         chosen = _prefer_studio(
             candidates,
@@ -1751,21 +1807,109 @@ class SourceResolver:
             chosen.thumbnail_confidence = 0.95
         chosen.artist      = artists_str
         chosen.origin_query = query_with_artist
-        chosen.spotify_url = sp_url
+        chosen.spotify_url = sp_url if is_spotify else ""
+        chosen.source_url = sp_url
+        if sp_thumb:
+            chosen.thumbnail_source = platform
 
-        log.info(tag("SPOTIFY", f"{hi(sp_title, _TEAL)}  \u2192  {hi(chosen.webpage_url, _BBLU)}"))
+        log.info(tag(platform.upper(), f"{hi(sp_title, _TEAL)}  \u2192  {hi(chosen.webpage_url, _BBLU)}"))
 
-        # â”€â”€ WRITE PATH Spotify: salva in cache DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        if sp_url:
+        # ── WRITE PATH Spotify: salva in cache DB ────────────────────────────────────────────
+        if sp_url and is_spotify:
             try:
                 qc = _get_query_cache()
                 if qc is not None:
                     qc.link_spotify(sp_url, query_with_artist, "")
             except Exception:
                 pass
-        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ─────────────────────────────────────────────────────────────────────────────
 
         return chosen
+
+    # ── Risoluzione lazy ────────────────────────────────────────────────────
+    # Le collezioni (playlist/album Spotify, Deezer, Apple Music) entrano in coda
+    # subito con i soli metadati; la ricerca della sorgente audio avviene quando
+    # il brano sta per partire (prefetch/play_next), come nei bot professionali.
+    # Una playlist da 200 brani non richiede piu' 200 ricerche YouTube in anticipo.
+
+    @staticmethod
+    def _meta_to_sp_shape(meta: dict) -> dict:
+        artists = [a.strip() for a in (meta.get("artist") or "").split(",") if a.strip()]
+        thumb = meta.get("thumbnail") or ""
+        return {
+            "name": meta.get("title") or "Senza titolo",
+            "artists": [{"name": name} for name in artists],
+            "duration_ms": int(float(meta.get("duration") or 0) * 1000),
+            "album": {"images": [{"url": thumb}] if thumb else []},
+            "external_urls": {"spotify": meta.get("url") or ""},
+            "popularity": 0,
+        }
+
+    @classmethod
+    def _lazy_track(
+        cls,
+        sp_track: dict,
+        artist_name: str,
+        platform: str,
+        requester: str,
+        requester_id: int,
+    ) -> "TrackInfo":
+        artists = ", ".join(a["name"] for a in sp_track.get("artists", []) if a.get("name")) or artist_name
+        images = (sp_track.get("album") or {}).get("images") or []
+        thumb = images[0]["url"] if images else ""
+        url = (sp_track.get("external_urls") or {}).get("spotify", "")
+        name = sp_track.get("name") or "Senza titolo"
+        return TrackInfo(
+            title=name,
+            webpage_url="",
+            duration=int(round((sp_track.get("duration_ms") or 0) / 1000)),
+            thumbnail=thumb,
+            requester=requester,
+            requester_id=requester_id,
+            source=platform,
+            artist=artists,
+            origin_query=f"{name} {artists}".strip(),
+            spotify_url=url if platform == "spotify" else "",
+            popularity=int(sp_track.get("popularity") or 0),
+            thumbnail_source=platform if thumb else "",
+            thumbnail_confidence=0.95 if thumb else 0.0,
+            source_url=url,
+            pending_meta={
+                "sp": sp_track,
+                "artist": artist_name or artists,
+                "platform": platform,
+                "lock": threading.Lock(),
+            },
+        )
+
+    @classmethod
+    def _materialize_pending(cls, track) -> bool:
+        """Abbina un brano lazy alla sua sorgente audio. Thread-safe e idempotente."""
+        pending = getattr(track, "pending_meta", None)
+        if pending is None:
+            return bool(getattr(track, "webpage_url", ""))
+        with pending["lock"]:
+            if track.pending_meta is None:
+                return bool(track.webpage_url)
+            resolved = cls._sp_track_from_obj(
+                pending["sp"],
+                pending["artist"],
+                track.requester,
+                track.requester_id,
+                platform=pending["platform"],
+            )
+            track.pending_meta = None
+            if not resolved or not resolved.webpage_url:
+                log.warning(tag("RESOLVE", f"nessuna sorgente audio per {b(track.title)}"))
+                return False
+            track.webpage_url = resolved.webpage_url
+            track.stream_url = resolved.stream_url or ""
+            if not track.thumbnail and resolved.thumbnail:
+                track.thumbnail = resolved.thumbnail
+                track.thumbnail_source = resolved.thumbnail_source
+            if not track.duration and resolved.duration:
+                track.duration = resolved.duration
+            return True
 
     @classmethod
     async def _sp_playlist_stream(cls, pid: str, requester: str, requester_id: int):
@@ -1773,28 +1917,26 @@ class SourceResolver:
         sp = cls._sp_client()
         if not sp:
             return
-        try:
-            all_items = []
-            offset = 0
-            while True:
+        offset = 0
+        yielded = 0
+        while yielded < Config.MAX_QUEUE:
+            try:
                 page = await loop.run_in_executor(
-                    None, lambda o=offset: sp.playlist_tracks(pid, limit=50, offset=o)
+                    None, lambda o=offset: sp.playlist_tracks(pid, limit=100, offset=o)
                 )
-                items = page.get("items", [])
-                all_items.extend(items)
-                if not page.get("next"):
-                    break
-                offset += 50
-        except Exception as e:
-            log.error(tag("ERR", f"playlist_tracks: {e}"))
-            return
-        ids = [
-            item["track"]["id"]
-            for item in all_items
-            if item.get("track") and item["track"] and item["track"].get("id")
-        ]
-        async for t in cls._resolve_ids_batched(ids, requester, requester_id):
-            yield t
+            except Exception as e:
+                log.error(tag("ERR", f"playlist_tracks: {e}"))
+                return
+            for item in page.get("items", []):
+                track = item.get("track") if item else None
+                # Esclude file locali (id None) ed episodi podcast.
+                if not track or not track.get("id") or track.get("type", "track") != "track":
+                    continue
+                yield cls._lazy_track(track, "", "spotify", requester, requester_id)
+                yielded += 1
+            if not page.get("next"):
+                return
+            offset += 100
 
     @classmethod
     async def _sp_album_stream(cls, aid: str, requester: str, requester_id: int):
@@ -1803,81 +1945,100 @@ class SourceResolver:
         if not sp:
             return
         try:
-            all_tracks = []
-            offset = 0
-            while True:
-                page = await loop.run_in_executor(
-                    None, lambda o=offset: sp.album_tracks(aid, limit=50, offset=o)
-                )
-                tracks = page.get("items", [])
-                all_tracks.extend(tracks)
-                if not page.get("next"):
-                    break
-                offset += 50
+            album = await loop.run_in_executor(None, lambda: sp.album(aid))
         except Exception as e:
-            log.error(tag("ERR", f"album_tracks: {e}"))
+            log.error(tag("ERR", f"album: {e}"))
             return
-        ids = [t["id"] for t in all_tracks if t.get("id")]
-        async for t in cls._resolve_ids_batched(ids, requester, requester_id):
-            yield t
+        images = album.get("images") or []
+        page = album.get("tracks") or {}
+        yielded = 0
+        while page and yielded < Config.MAX_QUEUE:
+            for item in page.get("items", []):
+                if not item or not item.get("id"):
+                    continue
+                # album_tracks non include la copertina: la prendiamo dall'album.
+                yield cls._lazy_track({**item, "album": {"images": images}}, "", "spotify", requester, requester_id)
+                yielded += 1
+            if not page.get("next"):
+                return
+            try:
+                page = await loop.run_in_executor(None, lambda p=page: sp.next(p))
+            except Exception as e:
+                log.error(tag("ERR", f"album_tracks: {e}"))
+                return
 
     @classmethod
-    async def _resolve_ids_batched(
-        cls, ids: list, requester: str, requester_id: int, batch: int = _SPOTIFY_BATCH_CONCURRENCY
-    ):
+    async def _platform_collection(cls, ref, requester: str, requester_id: int) -> list:
         loop = asyncio.get_running_loop()
-        if not ids:
-            return
-
-        max_concurrent = max(1, min(_SPOTIFY_BATCH_MAX_CONCURRENCY, int(batch)))
-
-        async def _resolve_one(track_id: str):
-            return await loop.run_in_executor(
-                None, cls._sp_track, track_id, requester, requester_id
-            )
-
-        ids_iter = iter(ids)
-        in_flight: set[asyncio.Task] = set()
-
-        def _schedule_next() -> bool:
-            try:
-                tid = next(ids_iter)
-            except StopIteration:
-                return False
-            in_flight.add(asyncio.create_task(_resolve_one(tid)))
-            return True
-
-        for _ in range(max_concurrent):
-            if not _schedule_next():
-                break
-
         try:
-            while in_flight:
-                done_set, _ = await asyncio.wait(
-                    in_flight, return_when=asyncio.FIRST_COMPLETED
-                )
-                in_flight.difference_update(done_set)
-                for done in done_set:
-                    try:
-                        res = done.result()
-                    except Exception as exc:
-                        log.warning(tag("WARN", f"_resolve_ids_batched: traccia saltata: {exc}"))
-                        _schedule_next()
-                        continue
-                    if isinstance(res, list):
-                        for t in res:
-                            yield t
-                    _schedule_next()
-        finally:
-            for t in in_flight:
-                t.cancel()
-            await asyncio.gather(*in_flight, return_exceptions=True)
+            collection = await loop.run_in_executor(None, platforms.lookup, ref)
+        except Exception as exc:
+            label = platforms.PLATFORM_LABELS.get(ref.platform, ref.platform)
+            log.warning(tag("RESOLVE", f"{label} {ref.kind} {b(ref.entity_id)} non risolto: {exc}"))
+            return []
+        return [
+            cls._lazy_track(cls._meta_to_sp_shape(meta), meta.get("artist", ""), ref.platform, requester, requester_id)
+            for meta in collection.tracks
+            if meta.get("title")
+        ]
+
+    @classmethod
+    def _ytdlp_flat_collection(cls, url: str, requester: str, requester_id: int) -> list:
+        """Playlist YouTube/SoundCloud in modalita' flat: solo elenco, stream al momento del play."""
+        target = _strip_soundcloud_params(_resolve_soundcloud_short_url(url))
+        try:
+            with yt_dlp.YoutubeDL(_make_opts({
+                "extract_flat": "in_playlist",
+                "playlistend": Config.MAX_QUEUE,
+                "skip_download": True,
+            })) as ydl:
+                info = ydl.extract_info(target, download=False)
+        except Exception as exc:
+            log.warning(tag("RESOLVE", f"playlist flat fallita  {b(url)}  {exc}"))
+            return []
+        results = []
+        for entry in (info or {}).get("entries") or []:
+            if not entry:
+                continue
+            entry_title = (entry.get("title") or "").strip()
+            if entry_title in {"[Private video]", "[Deleted video]"}:
+                continue
+            webpage_url = (entry.get("webpage_url") or entry.get("url") or "").strip()
+            if re.fullmatch(r"[A-Za-z0-9_-]{11}", webpage_url):
+                webpage_url = f"https://www.youtube.com/watch?v={webpage_url}"
+            if not webpage_url.startswith(("http://", "https://")):
+                continue
+            src = _source_label(webpage_url, entry)
+            thumbnail = _entry_thumbnail(entry, webpage_url, src)
+            results.append(TrackInfo(
+                title=entry_title or "Senza titolo",
+                webpage_url=webpage_url,
+                duration=int(entry.get("duration") or 0),
+                thumbnail=thumbnail,
+                requester=requester,
+                requester_id=requester_id,
+                source=src,
+                artist=entry.get("artist") or entry.get("uploader") or entry.get("channel") or "",
+                origin_query=entry_title,
+                thumbnail_source=src if thumbnail else "",
+                thumbnail_confidence=0.45 if thumbnail else 0.0,
+            ))
+        return results
 
     @classmethod
     async def resolve_fresh_url(cls, track) -> str:
         loop = asyncio.get_running_loop()
         t0   = time.perf_counter()
-        url  = await loop.run_in_executor(None, cls._fetch_stream_url, track.webpage_url)
+        if getattr(track, "pending_meta", None) is not None:
+            matched = await loop.run_in_executor(None, cls._materialize_pending, track)
+            if not matched:
+                return ""
+        if getattr(track, "stream_url", ""):
+            # Lo stream e' appena arrivato dall'abbinamento lazy: niente seconda estrazione.
+            url = track.stream_url
+            track.stream_url = ""
+        else:
+            url = await loop.run_in_executor(None, cls._fetch_stream_url, track.webpage_url)
         if url:
             webpage_url = (getattr(track, "webpage_url", "") or "").strip()
             if webpage_url.startswith(("https://", "http://")):
@@ -1943,7 +2104,7 @@ class SourceResolver:
                     log.warning(tag("WARN", f"video non disponibile, fallback search: {b(query)}"))
                     # Se era un URL diretto, proviamo una ricerca testuale con il titolo
                     if query.startswith("http"):
-                        return []  # per URL diretti non c'Ã¨ fallback sicuro
+                        return []  # per URL diretti non c'è fallback sicuro
                     # Per query ytsearch, logghiamo e restituiamo vuoto
                     return []
                 log.error(tag("ERR", f"yt-dlp ExtractorError: {e}"))
@@ -2015,7 +2176,7 @@ class SourceResolver:
             if not url:
                 continue
             webpage_url = e.get("webpage_url", "")
-            src    = "soundcloud" if _is_soundcloud_url(webpage_url) else "youtube"
+            src    = _source_label(webpage_url, e)
             artist = e.get("artist") or e.get("creator") or e.get("uploader", "")
             thumbnail = _entry_thumbnail(e, webpage_url, src)
             results.append(TrackInfo(
@@ -2136,46 +2297,37 @@ class SourceResolver:
         sp = cls._sp_client()
         if not sp:
             return []
+        out = []
+        offset = 0
         try:
-            all_items = []
-            offset = 0
-            while True:
-                page = sp.playlist_tracks(pid, limit=50, offset=offset)
-                all_items.extend(page.get("items", []))
+            while len(out) < Config.MAX_QUEUE:
+                page = sp.playlist_tracks(pid, limit=100, offset=offset)
+                for item in page.get("items", []):
+                    t = item.get("track") if item else None
+                    if t and t.get("id") and t.get("type", "track") == "track":
+                        out.append(cls._lazy_track(t, "", "spotify", requester, requester_id))
                 if not page.get("next"):
                     break
-                offset += 50
+                offset += 100
         except Exception as e:
             log.error(tag("ERR", f"playlist_tracks: {e}"))
-            return []
-        out = []
-        for item in all_items:
-            t = item.get("track")
-            if t and t.get("id"):
-                out.extend(cls._sp_track(t["id"], requester, requester_id))
-        return out
+        return out[:Config.MAX_QUEUE]
 
     @classmethod
     def _sp_album(cls, aid: str, requester: str, requester_id: int) -> list:
         sp = cls._sp_client()
         if not sp:
             return []
+        out = []
         try:
-            all_tracks = []
-            offset = 0
-            while True:
-                page = sp.album_tracks(aid, limit=50, offset=offset)
-                all_tracks.extend(page.get("items", []))
-                if not page.get("next"):
-                    break
-                offset += 50
+            album = sp.album(aid)
+            images = album.get("images") or []
+            page = album.get("tracks") or {}
+            while page and len(out) < Config.MAX_QUEUE:
+                for t in page.get("items", []):
+                    if t and t.get("id"):
+                        out.append(cls._lazy_track({**t, "album": {"images": images}}, "", "spotify", requester, requester_id))
+                page = sp.next(page) if page.get("next") else None
         except Exception as e:
             log.error(tag("ERR", f"album_tracks: {e}"))
-            return []
-        out = []
-        for t in all_tracks:
-            if t.get("id"):
-                out.extend(cls._sp_track(t["id"], requester, requester_id))
-        return out
-
-
+        return out[:Config.MAX_QUEUE]
