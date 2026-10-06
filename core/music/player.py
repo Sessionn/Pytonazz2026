@@ -29,6 +29,7 @@ from core.audio_filters import (
 from core.music.audio_buffer import PrefetchedAudioSource
 from core.music.live_fx import LivePCMTransform
 from core.music.queue import MusicQueue
+from core.music.stream_ready import wait_until_ready
 from core.source_resolver import TrackInfo, SourceResolver
 from core.log_colors import tag, b, ms, title, hi, _CYN
 
@@ -418,6 +419,9 @@ class MusicPlayer:
         if url and not nxt.stream_url:
             nxt.stream_url = url
             log.debug(tag("PREFETCH", f"{title(nxt.title)}  {ms(elapsed)}"))
+            # Il link appena estratto puo' rispondere 403 per 1-2 s: aspettarlo
+            # qui, a brano in corso, rende istantaneo il passaggio al prossimo.
+            await wait_until_ready(url)
 
     def _schedule_prefetch_next(self):
         if self._prefetch_task and not self._prefetch_task.done():
@@ -578,6 +582,8 @@ class MusicPlayer:
                 await self.play_next(_depth=_depth + 1)
                 return
 
+            # Evita i ~4 s di silenzio dei retry FFmpeg su un link appena generato.
+            await wait_until_ready(stream_url)
             ffmpeg_opts = self._build_ffmpeg_opts(seek_to)
 
             t_start_play = time.perf_counter()
