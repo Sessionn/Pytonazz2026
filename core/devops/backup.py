@@ -12,15 +12,18 @@ from core.paths import (
     BIRTHDAYS_PATH,
     BOT_CONFIG_PATH,
     CUSTOM_STATUSES_PATH,
+    DJ_ROLE_CONFIG_PATH,
     WELCOME_CONFIG_PATH,
     WELCOME_IMAGES_DIR,
 )
 
+# Tutta la configurazione persistente impostabile da comando.
 BACKUP_FILES = [
     BOT_CONFIG_PATH,
     CUSTOM_STATUSES_PATH,
     WELCOME_CONFIG_PATH,
     BIRTHDAYS_PATH,
+    DJ_ROLE_CONFIG_PATH,
 ]
 
 MAX_RESTORE_BYTES = 10 * 1024 * 1024  # 10 MB
