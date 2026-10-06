@@ -1,6 +1,16 @@
+"""Allarmi ntfy sui cookie YouTube e test audio isolato.
+
+Il rinnovo e il controllo periodico dei cookie li fa il servizio esterno
+monitoring/cookie_browser.py (fuori dal processo del bot, mai durante la
+riproduzione). Qui restano:
+- classify_cookie_probe_output: classifica l'output di yt-dlp;
+- notify_ytdlp_cookie_error: allarme immediato quando un /play reale fallisce
+  per i cookie (chiamato dal logger yt-dlp del resolver);
+- run_audio_probe_isolated: test audio in un processo separato, usato dal
+  servizio dei cookie prima di installarli.
+"""
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -9,16 +19,13 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Mapping, Protocol
+from typing import Mapping, Protocol
 
-from core.log_colors import _BGRN, _CYN, b, hi, tag
 from monitoring.log_monitor import Alert, format_notification, load_alert_profiles
 from monitoring.notifier import NtfyConfig, NtfyNotifier
 
 
 DEFAULT_TEST_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-DEFAULT_INTERVAL_SECONDS = 3600
-DEFAULT_STARTUP_DELAY_SECONDS = 30
 DEFAULT_COOLDOWN_SECONDS = 21600
 DEFAULT_INLINE_COOLDOWN_SECONDS = 300
 _last_inline_cookie_alert_at = 0.0
@@ -34,8 +41,6 @@ class CookieWatchConfig:
     enabled: bool
     cookie_file: str
     alert_url: str
-    interval_seconds: int
-    startup_delay_seconds: int
     cooldown_seconds: int
     test_url: str
     profiles_path: Path | None = None
@@ -59,12 +64,6 @@ class CookieWatchConfig:
             enabled=enabled,
             cookie_file=cookie_file,
             alert_url=alert_url,
-            interval_seconds=_int_env(values, "PYTONAZZ_COOKIE_WATCH_INTERVAL_SECONDS", DEFAULT_INTERVAL_SECONDS),
-            startup_delay_seconds=_int_env(
-                values,
-                "PYTONAZZ_COOKIE_WATCH_STARTUP_DELAY_SECONDS",
-                DEFAULT_STARTUP_DELAY_SECONDS,
-            ),
             cooldown_seconds=_int_env(values, "PYTONAZZ_COOKIE_WATCH_COOLDOWN_SECONDS", DEFAULT_COOLDOWN_SECONDS),
             test_url=(values.get("PYTONAZZ_COOKIE_WATCH_TEST_URL") or DEFAULT_TEST_URL).strip(),
             profiles_path=Path(values["PYTONAZZ_ALERT_PROFILES"]) if values.get("PYTONAZZ_ALERT_PROFILES") else None,
@@ -76,14 +75,6 @@ class CookieProbeResult:
     ok: bool
     rule_name: str
     detail: str
-
-
-@dataclass
-class CookieWatchState:
-    last_failure_alert_at: float = 0.0
-
-
-ProbeFunc = Callable[[CookieWatchConfig], Awaitable[CookieProbeResult]]
 
 
 def _alert_url_from_mapping(values: Mapping[str, str]) -> str:
@@ -178,61 +169,6 @@ def notify_ytdlp_cookie_error(
     return True
 
 
-async def run_ytdlp_cookie_probe(config: CookieWatchConfig) -> CookieProbeResult:
-    if not config.cookie_file:
-        return CookieProbeResult(False, "youtube_cookie", "COOKIE_FILE non configurato.")
-    if not Path(config.cookie_file).exists():
-        return CookieProbeResult(False, "youtube_cookie", f"COOKIE_FILE non trovato: {config.cookie_file}")
-
-    return await asyncio.to_thread(_run_ytdlp_cookie_probe_sync, config)
-
-
-def _run_ytdlp_cookie_probe_sync(config: CookieWatchConfig) -> CookieProbeResult:
-    try:
-        import yt_dlp
-    except Exception as exc:
-        return CookieProbeResult(False, "error", f"yt-dlp non importabile: {exc}")
-
-    messages: list[str] = []
-
-    class ProbeLogger:
-        def debug(self, msg: str) -> None:
-            if msg and not msg.startswith("[debug]"):
-                messages.append(msg)
-
-        def info(self, msg: str) -> None:
-            if msg:
-                messages.append(msg)
-
-        def warning(self, msg: str) -> None:
-            if msg:
-                messages.append(msg)
-
-        def error(self, msg: str) -> None:
-            if msg:
-                messages.append(msg)
-
-    opts = {
-        "cookiefile": config.cookie_file,
-        "extract_flat": True,
-        "format": "bestaudio/best",
-        "ignoreerrors": False,
-        "logger": ProbeLogger(),
-        "noplaylist": True,
-        "quiet": True,
-        "skip_download": True,
-        "socket_timeout": 10,
-    }
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(config.test_url, download=False)
-        title = info.get("title", "video raggiungibile") if isinstance(info, dict) else "video raggiungibile"
-        return CookieProbeResult(True, "cookie_ok", f"yt-dlp cookie probe OK: {title}")
-    except Exception as exc:
-        messages.append(str(exc))
-        return classify_cookie_probe_output(returncode=1, output="\n".join(messages))
-
-
 def run_audio_probe_isolated(cookie_file: str, test_url: str, *, timeout: int = 45) -> CookieProbeResult:
     """Real playback test (extraction + 1s FFmpeg decode) in a bounded worker process."""
     root = Path(__file__).resolve().parents[1]
@@ -251,35 +187,6 @@ def run_audio_probe_isolated(cookie_file: str, test_url: str, *, timeout: int = 
         return CookieProbeResult(False, "error", "Impossibile eseguire il test audio isolato.")
 
 
-async def run_cookie_check_once(
-    *,
-    config: CookieWatchConfig,
-    state: CookieWatchState,
-    notifier: AlertNotifier,
-    probe: ProbeFunc = run_ytdlp_cookie_probe,
-    now: float | None = None,
-) -> bool:
-    if not config.enabled:
-        return False
-    now = time.time() if now is None else now
-    result = await probe(config)
-    if result.ok:
-        return False
-    if now - state.last_failure_alert_at < config.cooldown_seconds:
-        return False
-
-    notification = _build_cookie_failure_notification(config, result)
-    await asyncio.to_thread(
-        notifier.send,
-        title=notification.title,
-        message=notification.message,
-        priority=notification.priority,
-        tags=notification.tags,
-    )
-    state.last_failure_alert_at = now
-    return True
-
-
 def _build_cookie_failure_notification(config: CookieWatchConfig, result: CookieProbeResult):
     profiles = load_alert_profiles(config.profiles_path)
     line = (
@@ -291,46 +198,3 @@ def _build_cookie_failure_notification(config: CookieWatchConfig, result: Cookie
         Path(config.cookie_file or "COOKIE_FILE"),
         profiles=profiles,
     )
-
-
-async def cookie_watch_loop(
-    *,
-    config: CookieWatchConfig,
-    notifier: AlertNotifier,
-    state: CookieWatchState | None = None,
-    probe: ProbeFunc = run_ytdlp_cookie_probe,
-    logger=None,
-) -> None:
-    state = CookieWatchState() if state is None else state
-    if not config.enabled:
-        if logger:
-            logger.info("cookie watchdog disabilitato")
-        return
-    if config.startup_delay_seconds:
-        await asyncio.sleep(config.startup_delay_seconds)
-    while True:
-        try:
-            await run_cookie_check_once(config=config, state=state, notifier=notifier, probe=probe)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            if logger:
-                logger.warning("cookie watchdog check fallito: %s", exc)
-        await asyncio.sleep(max(1, config.interval_seconds))
-
-
-def start_cookie_watchdog(bot, *, logger=None):
-    config = CookieWatchConfig.from_env()
-    if not config.enabled:
-        if logger:
-            logger.info("cookie watchdog non avviato: COOKIE_FILE o ntfy non configurati")
-        return None
-    task = getattr(bot, "_cookie_watchdog_task", None)
-    if task and not task.done():
-        return task
-    notifier = NtfyNotifier(NtfyConfig.from_env())
-    task = asyncio.create_task(cookie_watch_loop(config=config, notifier=notifier, logger=logger))
-    bot._cookie_watchdog_task = task
-    if logger:
-        logger.info(tag("COOKIE", f"{hi('watchdog avviato', _BGRN)}: ogni {b(hi(str(config.interval_seconds) + 's', _CYN))}"))
-    return task

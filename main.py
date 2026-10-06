@@ -14,6 +14,7 @@ from config import Config, validate_config
 from core.cache_db import init_db
 from core.bot_config import cfg
 from core.dj_access import init_dj_access_controller
+from core.log_channel import install_log_channel
 from core.log_colors import setup_logging
 from core.banner import print_banner
 from core.paths import ensure_runtime_dirs
@@ -26,7 +27,6 @@ from core.runtime import (
     snapshot_extension_mtimes,
     start_dashboard_thread,
 )
-from monitoring.cookie_watchdog import start_cookie_watchdog
 from assets.status_messages import STATUS_CYCLE
 from core.constants import TYPE_MAP, UNDISABLEABLE, command_slug
 from core.devops.status_store import load_custom_statuses
@@ -346,7 +346,7 @@ async def on_ready():
         log.error(tag("STATUS", f"errore status_interval salvato  {e}"))
     if not rotate_status.is_running():
         rotate_status.start()
-    start_cookie_watchdog(bot, logger=logging.getLogger("pitonazz.cookie_watchdog"))
+    install_log_channel(bot)
 
     if cfg.maintenance:
         try:

@@ -38,15 +38,13 @@ PYTONAZZ_ALERT_TOPIC=topic-lungo-random-non-indovinabile
 PYTONAZZ_MONITOR_LOG=/home/sessionn/Pytonazz2026/monitoring/bot.log
 PYTONAZZ_ALERT_PROFILES=/home/sessionn/Pytonazz2026/monitoring/alert_profiles.json
 PYTONAZZ_COOKIE_WATCH_ENABLED=true
-PYTONAZZ_COOKIE_WATCH_INTERVAL_SECONDS=3600
-PYTONAZZ_COOKIE_WATCH_STARTUP_DELAY_SECONDS=30
 PYTONAZZ_COOKIE_WATCH_COOLDOWN_SECONDS=21600
 PYTONAZZ_COOKIE_WATCH_TEST_URL=https://www.youtube.com/watch?v=dQw4w9WgXcQ
 ```
 
 `PYTONAZZ_ALERT_TOKEN` resta vuoto se proteggi il topic solo con nome lungo e HTTPS. Se abiliti auth ntfy, metti qui il token bearer.
 
-Il cookie watchdog interno al bot legge anche `monitoring/.env` all'avvio, senza sovrascrivere le variabili gia presenti nel `.env` principale. Parte quando trova `COOKIE_FILE` e ntfy configurato. Controlla i cookie ogni `PYTONAZZ_COOKIE_WATCH_INTERVAL_SECONDS`; se fallisce manda ntfy direttamente, senza dipendere dal file log o dallo script esterno.
+Il bot legge anche `monitoring/.env`, senza sovrascrivere le variabili gia presenti nel `.env` principale. Quando un `/play` reale fallisce per i cookie ("Sign in to confirm you're not a bot") manda subito un ntfy, al massimo uno ogni 5 minuti. Il controllo periodico e il rinnovo dei cookie non girano nel bot: li fa il servizio `pytonazz-cookie-browser` (`monitoring/cookie_browser.py`), fuori dal processo del bot e senza test pesanti durante la riproduzione. `PYTONAZZ_COOKIE_WATCH_TEST_URL` e' il video usato dal suo test audio.
 
 ## Personalizzazione messaggi
 

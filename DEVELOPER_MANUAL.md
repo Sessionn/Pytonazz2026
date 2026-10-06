@@ -26,7 +26,7 @@ Sequenza principale:
 5. `init_db(enabled=Config.CACHE_ENABLED)` inizializza SQLite.
 6. `start_dashboard_thread()` avvia Waitress se cache/dashboard sono abilitate.
 7. `load_extensions()` carica i cogs da `core/runtime.py`.
-8. `on_ready()` avvia hot reload, cookie watchdog, status rotation e sync comandi.
+8. `on_ready()` avvia hot reload, status rotation, inoltro errori al canale log (`/set_log_channel`) e sync comandi.
 
 ## 3. Struttura file
 
