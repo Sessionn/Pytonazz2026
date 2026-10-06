@@ -907,7 +907,7 @@ class SourceResolver:
 
     @classmethod
     def _set_cached_stream_url(cls, webpage_url: str, stream_url: str) -> None:
-        if not stream_url:
+        if not stream_url or not webpage_url:
             return
         ttl = stream_ttl_seconds(stream_url, fallback_ttl=int(_STREAM_URL_CACHE_TTL))
         with cls._cache_lock:
@@ -1072,6 +1072,8 @@ class SourceResolver:
         stream_expires_at = int(hit.get("stream_expires_at") or 0)
         if cached_stream and stream_expires_at > now_ts + 60:
             log.info(tag("STREAM", f"DB hit  {b(hit['webpage_url'])}"))
+            # Anche in memoria: seek e filtri riusano il link senza rifare yt-dlp.
+            cls._set_cached_stream_url(hit["webpage_url"].strip(), cached_stream)
             return _cache_hit_to_track(hit, requester, requester_id, cached_stream)
 
         refresh_t0 = time.perf_counter()
@@ -2055,6 +2057,8 @@ class SourceResolver:
             # Lo stream e' appena arrivato dall'abbinamento lazy: niente seconda estrazione.
             url = track.stream_url
             track.stream_url = ""
+            # Come per _fetch_stream_url: seek e filtri riusano il link in memoria.
+            cls._set_cached_stream_url((getattr(track, "webpage_url", "") or "").strip(), url)
         else:
             url = await loop.run_in_executor(None, cls._fetch_stream_url, track.webpage_url)
         if url:
