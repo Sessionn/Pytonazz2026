@@ -69,13 +69,6 @@ def get_cog_meta(bot: commands.Bot, key: str) -> tuple[str, str]:
     return "⚙️", key.capitalize()
 
 
-def get_cog_type(bot: commands.Bot, key: str) -> str:
-    for cog in bot.cogs.values():
-        if type(cog).__name__.lower() == key:
-            return getattr(type(cog), "COG_TYPE", "public")
-    return "public"
-
-
 # ── Helpers permesso per comando ─────────────────────────────────────────────
 
 def cmd_perm(cmd) -> str:

@@ -426,11 +426,6 @@ def _reset_sqlite_sequence(conn: sqlite3.Connection, table: str) -> None:
         conn.execute("INSERT INTO sqlite_sequence(name, seq) VALUES(?, ?)", (table, max_id))
 
 
-def _source_row(cur: sqlite3.Cursor, source_id: int) -> Optional[sqlite3.Row]:
-    cur.execute("SELECT * FROM song_cache WHERE id = ? LIMIT 1", (int(source_id),))
-    return cur.fetchone()
-
-
 def _track_for_query(cur: sqlite3.Cursor, canonical_query: str) -> Optional[sqlite3.Row]:
     h = _hash(canonical_query)
     cur.execute(

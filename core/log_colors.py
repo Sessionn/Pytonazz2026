@@ -198,61 +198,6 @@ def tag(label: str, msg: str) -> str:
     return f"{_BOLD}{c}{t:<8}{_R} {msg}"
 
 
-# ── Messaggi di sistema centralizzati ────────────────────────────────────
-
-def fmt_cog_loaded(cog_name: str) -> str:
-    short = cog_name.split(".")[-1]
-    return tag("BOOT", f"Loaded  {b(short)}{_GRY}  ←  {cog_name}{_R}")
-
-def fmt_cog_failed(cog_name: str, error: Exception) -> str:
-    short = cog_name.split(".")[-1]
-    return tag("ERR", f"Failed  {b(short)}  →  {_BRED}{error}{_R}")
-
-def fmt_sync_guild(guild_id: int, guild_name: str, count: int) -> str:
-    return tag("SYNC", f"{_TEAL}{guild_name}{_R}  {_GRY}[{guild_id}]{_R}  →  {b(count)} comandi")
-
-def fmt_sync_global(count: int) -> str:
-    return tag("SYNC", f"Global  →  {b(count)} comandi")
-
-def fmt_ready(bot_name: str, bot_id: int) -> str:
-    return tag("READY", f"{_BOLD}{_BGRN}{bot_name}{_R}  online  {_GRY}ID: {bot_id}{_R}")
-
-def fmt_status_interval(seconds: int) -> str:
-    mins = seconds / 60
-    return tag("BOOT", f"Status interval  →  {b(seconds)}s  {_GRY}({mins:.0f} min){_R}")
-
-def fmt_disabled_commands(names: list[str]) -> str:
-    if not names:
-        return tag("BOOT", f"Comandi disabilitati: {_GRY}nessuno{_R}")
-    formatted = "  ".join(f"{_BRED}●{_R} {_BOLD}{n}{_R}" for n in names)
-    return tag("BOOT", f"Comandi disabilitati: {formatted}")
-
-def fmt_maintenance(active: bool) -> str:
-    if active:
-        return tag("WARN", f"Modalità {_BOLD}{_BYEL}MANUTENZIONE{_R} attiva")
-    return tag("BOOT", f"Manutenzione {_GRN}disattivata{_R}")
-
-def fmt_reload(cog_name: str) -> str:
-    short = cog_name.split(".")[-1]
-    return tag("RELOAD", f"{b(short)}  {_GRY}← {cog_name}{_R}")
-
-def fmt_reload_failed(cog_name: str, error: Exception) -> str:
-    return tag("ERR", f"Reload fallito  {b(cog_name)}  →  {_BRED}{error}{_R}")
-
-def fmt_watch_modified(cog_name: str) -> str:
-    return tag("WATCH", f"Modifica rilevata  →  {b(cog_name)}")
-
-def fmt_watch_skipped(cog_name: str) -> str:
-    return tag("WATCH", f"{_YEL}Reload posticipato{_R}  {b(cog_name)}  {_GRY}(player attivo){_R}")
-
-def fmt_interaction_disabled(cmd_name: str, user_name: str) -> str:
-    return tag("WARN", f"Bloccato  {b(cmd_name)}  {_GRY}→ {user_name}{_R}")
-
-def fmt_botconfig_loaded(data: dict) -> str:
-    keys = list(data.keys())
-    return tag("BOOT", f"bot_config  {_GRY}{len(keys)} chiavi{_R}  {dim(str(keys))[:80]}")
-
-
 # ── Setup ──────────────────────────────────────────────────────────────────────
 def setup_logging(level: int = logging.INFO) -> None:
     import io, sys

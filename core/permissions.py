@@ -22,7 +22,7 @@ Livelli:
 import discord
 from discord import app_commands
 from config import Config
-from core.cmd_perm import perm
+from core.cmd_perm import perm  # noqa: F401  riesportato: i cog fanno `from core.permissions import perm`
 
 
 # ── check functions ───────────────────────────────────────────────────────────

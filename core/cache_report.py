@@ -6,7 +6,6 @@ Usato da /cache-export in cogs/dev_cache.py.
 """
 
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 import sqlite3
@@ -215,10 +214,3 @@ def build_html() -> str:
     {alias_table}
 </body>
 </html>"""
-
-
-def export_to_file(path: Path) -> Path:
-    """Scrive il report HTML su disco e restituisce il path."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_html(), encoding="utf-8")
-    return path

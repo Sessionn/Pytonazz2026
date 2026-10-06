@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import queue
-import sqlite3
 import sys
 import tempfile
 from pathlib import Path

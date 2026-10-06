@@ -10,7 +10,7 @@ from typing import Optional, Callable, TypeVar
 
 import yt_dlp
 from config import Config
-from core.log_colors import tag, b, ms, title, hi, dim, _GRN, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
+from core.log_colors import tag, b, ms, title, hi, dim, _CYN, _BGRN, _BYEL, _BRED, _BBLU, _TEAL
 from core.stream_expiry import stream_ttl_seconds
 from core.source_resolver.models import TrackInfo, clone_track as _clone_track
 from core.source_resolver.selection import (
@@ -20,38 +20,18 @@ from core.source_resolver.selection import (
 
 # ── Sub-module imports ─────────────────────────────────────────────────────────────────────────────
 from core.source_resolver.scoring import (
-    _MV_KEYWORDS,
-    _VARIANT_KEYWORDS,
-    _NOISE_WORDS,
-    _NON_MUSIC_QUERY_KEYWORDS,
-    _ENRICH_CONFIDENCE_HIGH,
-    _ENRICH_CONFIDENCE_MEDIUM,
-    _ENRICH_CONFIDENCE_EXTREME_LOW,
-    _ENRICH_DURATION_GOOD,
     _DURATION_DEFAULT_SCORE,
     _ARTIST_MISMATCH_THRESHOLD,
-    _ENRICH_EXTREME_LOW_SIM_THRESHOLD,
-    _ENRICH_WEIGHT_QUERY,
-    _ENRICH_WEIGHT_YT,
-    _ENRICH_WEIGHT_DURATION,
-    _ENRICH_WEIGHT_ARTIST_HINT,
-    _NON_MUSIC_QUERY_MAX_WORDS,
     _SPOTIFY_RETRY_BASE_DELAY_SECONDS,
     _ARTIST_TOKEN_MIN_LENGTH,
-    _NON_MUSIC_QUERY_PENALTY,
-    _JUNK_WORD_PENALTY,
-    _MAX_JUNK_PENALTY,
     _is_music_video,
     _is_variant,
     _query_requests_variant,
     _str_sim,
     _normalize_for_sim,
     _enrich_sim,
-    _duration_similarity,
     _contains_token,
-    _dynamic_variant_penalty,
     _query_artist_signal,
-    _is_probably_non_music_query,
     _compute_enrich_confidence,
 )
 
@@ -60,7 +40,6 @@ from core.source_resolver.ytdlp import (
     _YTDLP_QUERY_CACHE_MAX,
     _STREAM_URL_CACHE_TTL,
     _STREAM_URL_CACHE_MAX,
-    _YdlLogger,
     _make_opts,
     _strip_yt_radio,
     _is_soundcloud_url,
@@ -71,10 +50,7 @@ from core.source_resolver.ytdlp import (
 from core.source_resolver import platforms
 from core.source_resolver.spotify import (
     _spotify_client,
-    _spotify_item_name,
     _spotify_item_popularity,
-    _spotify_item_artists,
-    _spotify_item_query_similarity,
     _choose_spotify_track_item,
 )
 
@@ -151,10 +127,6 @@ def _bucket_shuffle(items: list[_T], key_fn: Callable[[_T], str]) -> list[_T]:
 
 def spotify_style_shuffle(tracks: list["TrackInfo"]) -> list["TrackInfo"]:
     return _bucket_shuffle(tracks, lambda t: getattr(t, "artist", "") or "unknown")
-
-
-def _shuffle_pairs(pairs: list[tuple]) -> list[tuple]:
-    return _bucket_shuffle(pairs, lambda p: p[1])
 
 
 def _drop_unrequested_variants(
@@ -803,7 +775,6 @@ class SourceResolver:
 
     @staticmethod
     def _apply_spotify_meta(track: "TrackInfo", meta: dict, score: dict) -> None:
-        decision = score["decision"]
         enrich_mode = _spotify_enrich_mode(score)
         apply_spotify_link = enrich_mode in ("full", "cover_only", "cover_link", "link_only")
         apply_cover_and_spotify = enrich_mode in ("full", "cover_only", "cover_link")

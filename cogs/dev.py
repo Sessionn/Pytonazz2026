@@ -31,17 +31,6 @@ _OWN = "\U0001f527"
 _CTX_ICON = "\U0001f4cb"
 
 
-def _check_cache_env() -> list[str]:
-    """
-    Controlla che le variabili minime per la cache siano presenti.
-    Ritorna lista di variabili mancanti (vuota = tutto OK).
-    """
-    missing = []
-    if not Config.DB_PATH:
-        missing.append("DB_PATH")
-    return missing
-
-
 class Dev(commands.Cog):
     COG_ICON = "\U0001f527"
     COG_LABEL = "Sviluppo"

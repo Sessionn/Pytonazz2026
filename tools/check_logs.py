@@ -20,7 +20,6 @@ Uso:
 """
 
 import argparse
-import ast
 import re
 import sys
 from dataclasses import dataclass, field

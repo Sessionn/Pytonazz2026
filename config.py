@@ -1,22 +1,11 @@
 import logging
 import os
-import socket
-import threading
 from pathlib import Path
-from urllib.parse import urlsplit
 from dotenv import load_dotenv
-from core.log_colors import tag, b, hi
 
 load_dotenv()
 
 log = logging.getLogger("pitonazz.config")
-
-_CLR_ON   = "\033[92m"
-_CLR_OFF  = "\033[91m"
-_CLR_WARN = "\033[93m"
-_CLR_GRAY = "\033[90m"
-_UNCONFIGURED_PROXY  = "(non configurata in env)"
-_UNCONFIGURED_COOKIE = "(non configurato in env)"
 
 _DB_PATH_DEFAULT = "data/database/cache.db"
 _PROJECT_ROOT = Path(__file__).resolve().parent
@@ -25,44 +14,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parent
 def _is_http_proxy_url(value: str) -> bool:
     normalized_url = (value or "").strip().lower()
     return normalized_url.startswith("http://") or normalized_url.startswith("https://")
-
-
-def _default_port_for_scheme(scheme: str) -> int | None:
-    scheme = (scheme or "").lower()
-    defaults = {
-        "http":   80,
-        "https":  443,
-        "socks5": 1080,
-        "socks5h": 1080,
-        "socks4": 1080,
-    }
-    return defaults.get(scheme)
-
-
-def _proxy_endpoint(proxy_url: str) -> tuple[str, int] | None:
-    raw = (proxy_url or "").strip()
-    if not raw:
-        return None
-    parsed = urlsplit(raw)
-    host = parsed.hostname
-    if not host:
-        return None
-    port = parsed.port or _default_port_for_scheme(parsed.scheme)
-    if not port:
-        return None
-    return host, port
-
-
-def _probe_proxy(proxy_url: str, timeout: float = 2.0) -> bool:
-    endpoint = _proxy_endpoint(proxy_url)
-    if endpoint is None:
-        return False
-    host, port = endpoint
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
 
 
 def _resolve_db_path(raw: str) -> str:
@@ -229,101 +180,3 @@ def validate_config() -> None:
             "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET mancanti: "
             "le ricerche Spotify non funzioneranno."
         )
-
-
-def _validate_cookie_file(path: str) -> tuple[bool, str]:
-    """Verifica esistenza, leggibilita' e formato Netscape del file cookie.
-
-    Returns
-    -------
-    (ok: bool, messaggio: str)
-    """
-    import os as _os
-    if not path:
-        return False, "nessun path specificato"
-    if not _os.path.exists(path):
-        return False, f"file non trovato: {path}"
-    if not _os.access(path, _os.R_OK):
-        return False, f"file non leggibile (permessi): {path}"
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            first_line = f.readline().strip()
-            if not first_line.startswith("# Netscape HTTP Cookie File") and \
-               not first_line.startswith("# HTTP Cookie File"):
-                return False, f"header Netscape mancante (prima riga: {first_line[:60]!r})"
-            data_lines = sum(1 for line in f if line.strip() and not line.startswith("#"))
-        return True, f"OK \u2014 {data_lines} righe dati"
-    except Exception as e:
-        return False, f"errore lettura: {e}"
-
-
-def start_proxy_startup_check() -> None:
-    """Esegue un controllo proxy in background e logga lo stato startup."""
-    ytdlp_proxy  = (Config._proxy or "").strip()
-    ffmpeg_proxy = (Config._ffmpeg_proxy or "").strip()
-    proxy_log    = logging.getLogger("pitonazz")
-
-    def _fmt(text: str, color: str, *, bolded: bool = False) -> str:
-        value = hi(text, color)
-        return b(value) if bolded else value
-
-    def _status_label(enabled: bool) -> str:
-        return _fmt("ON", _CLR_ON, bolded=True) if enabled else _fmt("OFF", _CLR_OFF, bolded=True)
-
-    def _endpoint_label(proxy_url: str) -> str:
-        endpoint = _proxy_endpoint(proxy_url)
-        if endpoint is None:
-            return _fmt("(URL non valida)", _CLR_GRAY)
-        host, port = endpoint
-        return _fmt(f"({host}:{port})", _CLR_GRAY)
-
-    def _check_and_log() -> None:
-        try:
-            if ytdlp_proxy:
-                ok    = _probe_proxy(ytdlp_proxy)
-                state = _status_label(ok)
-                proxy_log.info(tag("PROXY", f"{state} ytdlp {_endpoint_label(ytdlp_proxy)}"))
-            else:
-                proxy_log.info(tag("PROXY", f"{_status_label(False)} ytdlp {_fmt(_UNCONFIGURED_PROXY, _CLR_GRAY)}"))
-
-            if ffmpeg_proxy:
-                ok    = _probe_proxy(ffmpeg_proxy)
-                state = _status_label(ok)
-                proxy_log.info(tag("PROXY", f"{state} ffmpeg {_endpoint_label(ffmpeg_proxy)}"))
-            else:
-                proxy_log.info(tag("PROXY", f"{_status_label(False)} ffmpeg {_fmt(_UNCONFIGURED_PROXY, _CLR_GRAY)}"))
-        except Exception:
-            proxy_log.exception("Errore durante il proxy startup check in background.")
-
-    threading.Thread(target=_check_and_log, name="proxy-startup-check", daemon=True).start()
-
-
-def start_cookie_startup_check() -> None:
-    """Verifica il file cookie in background e logga lo stato startup."""
-    cookie_log = logging.getLogger("pitonazz")
-    enabled    = Config.COOKIES_ENABLED
-    path       = (Config.EFFECTIVE_COOKIE_FILE or "").strip()
-
-    def _fmt(text: str, color: str, *, bolded: bool = False) -> str:
-        value = hi(text, color)
-        return b(value) if bolded else value
-
-    def _status_label(on: bool) -> str:
-        return _fmt("ON", _CLR_ON, bolded=True) if on else _fmt("OFF", _CLR_OFF, bolded=True)
-
-    def _check_and_log() -> None:
-        try:
-            state = _status_label(enabled)
-            if not enabled:
-                cookie_log.info(tag("COOKIE", f"{state} {_fmt(_UNCONFIGURED_COOKIE, _CLR_GRAY)}"))
-                return
-            ok, msg = _validate_cookie_file(path)
-            detail  = _fmt(msg, _CLR_ON if ok else _CLR_OFF)
-            icon    = "\u2705" if ok else "\u26a0\ufe0f"
-            cookie_log.info(tag("COOKIE", f"{state} {icon} {detail}"))
-            if not ok:
-                cookie_log.warning(tag("COOKIE", f"Cookie disabilitati di fatto \u2014 {msg}"))
-        except Exception:
-            cookie_log.exception("Errore durante il cookie startup check in background.")
-
-    threading.Thread(target=_check_and_log, name="cookie-startup-check", daemon=True).start()

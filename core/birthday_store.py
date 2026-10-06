@@ -97,17 +97,6 @@ def get_channel(guild_id: int) -> Optional[int]:
     data = _load()
     return data.get(str(guild_id), {}).get("channel_id")
 
-def set_prompt_enabled(guild_id: int, enabled: bool) -> None:
-    # Legacy no-op compat: mantenuta per non rompere import esterni.
-    pass
-
-
-def get_prompt_enabled(guild_id: int) -> bool:
-    # Legacy compat: feature prompt IA rimossa.
-    _ = guild_id
-    return False
-
-
 def set_wish_messages(guild_id: int, messages: list[str]) -> list[str]:
     data = _load()
     clean = [str(m).strip() for m in messages if str(m).strip()]

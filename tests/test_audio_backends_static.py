@@ -39,7 +39,8 @@ assert "_clear_runtime_caches" in benchmark_py, "FAIL: benchmark deve svuotare c
 assert "--backend" in benchmark_py, "FAIL: benchmark deve accettare --backend"
 assert "--jsonl" in benchmark_py, "FAIL: benchmark deve poter produrre JSONL confrontabile"
 
-requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
-assert "wavelink" in requirements.lower(), "FAIL: requirements deve includere wavelink per link-up"
+lavalink_py = (ROOT / "core" / "audio_backends" / "lavalink.py").read_text(encoding="utf-8")
+# Il backend parla con Lavalink via REST (aiohttp): nessuna dipendenza da wavelink.
+assert "import wavelink" not in lavalink_py, "FAIL: il backend non deve dipendere da wavelink"
 
 print("OK: audio backend adapter and benchmark surfaces exist")
