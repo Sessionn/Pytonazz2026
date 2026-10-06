@@ -1,3 +1,4 @@
+import datetime
 import unittest
 from pathlib import Path
 import sys
@@ -6,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from monitoring.cookie_browser import Alerter, Outcome, netscape
+from monitoring.cookie_browser import Alerter, Outcome, netscape, next_delay
 from monitoring.cookie_watchdog import classify_cookie_probe_output
 
 OK = Outcome("COOKIE AGGIORNATI · test audio OK", "ok")
@@ -32,6 +33,25 @@ class NetscapeTests(unittest.TestCase):
     def test_rejects_injected_fields(self):
         with self.assertRaises(ValueError):
             netscape([cookie("SID"), {**cookie("SAPISID"), "value": "a\tb"}])
+
+
+class ScheduleTests(unittest.TestCase):
+    def at(self, hour, minute=0):
+        return datetime.datetime(2026, 10, 6, hour, minute, tzinfo=datetime.timezone.utc)
+
+    def test_healthy_waits_for_tonight_or_tomorrow_night(self):
+        self.assertEqual(next_delay(OK, self.at(1, 30)), 3600)
+        self.assertEqual(next_delay(OK, self.at(2, 30)), 86400)
+        self.assertEqual(next_delay(OK, self.at(12, 30)), 14 * 3600)
+
+    def test_failures_retry_hourly_and_login_sooner(self):
+        self.assertEqual(next_delay(PROBE, self.at(12)), 3600)
+        self.assertEqual(next_delay(LOGIN, self.at(12)), 300)
+        self.assertEqual(next_delay(STARTING, self.at(12)), 30)
+
+    def test_firefox_millisecond_expiry_becomes_seconds(self):
+        content = netscape([{**cookie("SID"), "expiry": 1823000000000}, cookie("SAPISID")])
+        self.assertIn("\t1823000000\tSID\t", content)
 
 
 class AlerterTests(unittest.TestCase):

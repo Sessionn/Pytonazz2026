@@ -1,13 +1,16 @@
 """Maintain YouTube cookies from the dedicated, manually authenticated browser.
 
 Run as a user service; noVNC must remain on localhost.
-Every cycle exports the YouTube cookies of the browser profile, runs a real
-playback test with them and installs them only if audio decodes. Persistent
-problems (login lost, browser down, test failing) are sent once to ntfy.
+Once at startup and then every night it exports the YouTube cookies of the
+browser profile, runs a real playback test with them and installs them only
+if audio decodes. A failed refresh is retried hourly. It never runs while the
+bot is playing and keeps the lowest CPU priority, so playback cannot stutter.
+Persistent problems (login lost, browser down, test failing) go to ntfy.
 Never logs cookie values or handles Google passwords.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import shutil
@@ -19,8 +22,12 @@ from pathlib import Path
 STATE = Path.home() / ".local/share/pytonazz-cookie-browser"
 CONTAINER = "pytonazz-cookie-browser"
 PROFILE = "/home/seluser/pytonazz-profile"
-OK_INTERVAL_SECONDS = 900
-RETRY_INTERVAL_SECONDS = 30
+# 02:30 UTC = 04:30 in Italy (summer), 03:30 in winter: nobody is listening.
+NIGHTLY_REFRESH_UTC = os.getenv("PYTONAZZ_COOKIE_REFRESH_UTC", "02:30")
+FAILED_RETRY_SECONDS = 3600
+BUSY_RETRY_SECONDS = 600
+STARTING_RETRY_SECONDS = 30
+LOGIN_RETRY_SECONDS = 300
 ALERT_AFTER_SECONDS = 3600
 ALERT_COOLDOWN_SECONDS = 21600
 
@@ -71,8 +78,11 @@ def netscape(cookies):
         domain = cookie.get("domain", "")
         if domain.lstrip(".") != "youtube.com" and not domain.endswith(".youtube.com"):
             continue
+        expiry = int(cookie.get("expiry", 0))
+        if expiry > 10**11:  # recent Firefox stores milliseconds; Netscape wants seconds
+            expiry //= 1000
         values = [domain, "TRUE" if domain.startswith(".") else "FALSE", cookie.get("path", "/"),
-                  "TRUE" if cookie.get("secure") else "FALSE", str(int(cookie.get("expiry", 0))),
+                  "TRUE" if cookie.get("secure") else "FALSE", str(expiry),
                   cookie["name"], cookie["value"]]
         if any(any(char in value for char in "\t\r\n") for value in values):
             raise ValueError("Invalid cookie fields")
@@ -176,9 +186,35 @@ def _ntfy_sender():
         return lambda **_: None
 
 
+def seconds_until_nightly(now: dt.datetime, at: str = NIGHTLY_REFRESH_UTC) -> float:
+    hour, minute = (int(part) for part in at.split(":"))
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += dt.timedelta(days=1)
+    return (target - now).total_seconds()
+
+
+def next_delay(outcome: Outcome, now: dt.datetime) -> float:
+    if outcome.healthy:
+        return seconds_until_nightly(now)
+    if outcome.kind == "starting":
+        return STARTING_RETRY_SECONDS
+    if outcome.kind == "login":
+        # Only a cheap cookie read: pick up a fresh manual login quickly.
+        return LOGIN_RETRY_SECONDS
+    return FAILED_RETRY_SECONDS
+
+
+def bot_is_playing() -> bool:
+    """Discord playback runs one FFmpeg per active voice stream."""
+    return subprocess.run(["pgrep", "-u", str(os.getuid()), "-x", "ffmpeg"],
+                          capture_output=True).returncode == 0
+
+
 def main():
     import fcntl
     import config  # noqa: F401  loads .env for ntfy settings
+    os.nice(19)  # inherited by the probe, yt-dlp and FFmpeg children
     os.umask(0o077)
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (STATE / "lock").open("w") as lock:
@@ -186,6 +222,9 @@ def main():
         alerter = Alerter(_ntfy_sender())
         previous = None
         while True:
+            if bot_is_playing():
+                time.sleep(BUSY_RETRY_SECONDS)
+                continue
             try:
                 outcome = refresh_once()
             except Exception as exc:
@@ -195,7 +234,7 @@ def main():
                 print(outcome.message, flush=True)
                 previous = outcome.message
             alerter.observe(outcome, time.time())
-            time.sleep(OK_INTERVAL_SECONDS if outcome.kind in ("ok", "probe") else RETRY_INTERVAL_SECONDS)
+            time.sleep(next_delay(outcome, dt.datetime.now(dt.timezone.utc)))
 
 
 if __name__ == "__main__":
