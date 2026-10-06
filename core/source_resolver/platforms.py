@@ -462,5 +462,9 @@ def _lookup_uncached(ref: PlatformRef, limit: int) -> Collection:
         query = page_search_query(f"https://tidal.com/browse/track/{ref.entity_id}")
         if not query:
             raise LookupError("brano Tidal non leggibile")
-        return Collection(query, [_meta(query, "", 0, "", f"https://tidal.com/browse/track/{ref.entity_id}")])
+        # og:title di Tidal: "Artista - Brano".
+        artist, sep, title = query.partition(" - ")
+        if not sep or not title.strip():
+            artist, title = "", query
+        return Collection(title, [_meta(title, artist, 0, "", f"https://tidal.com/browse/track/{ref.entity_id}")])
     raise LookupError(f"{PLATFORM_LABELS.get(ref.platform, ref.platform)}: {ref.kind} non supportato")

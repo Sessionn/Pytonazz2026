@@ -125,16 +125,26 @@ def fake_run_ytdlp(cls, query, requester, requester_id):
         webpage_url="https://www.youtube.com/watch?v=GDpmVUEjagg",
         duration=225, thumbnail="https://i.ytimg.com/vi/x/hq.jpg",
         requester=requester, requester_id=requester_id, source="youtube",
-        stream_url="https://rr1---sn.googlevideo.com/audio", artist="Daft Punk",
+        artist="Daft Punk",
     )]
 
 
-def fail_fetch_stream(cls, url):
-    raise AssertionError("lo stream arriva gia' dall'abbinamento: niente seconda estrazione")
+stream_fetches = []
 
 
-SourceResolver._run_ytdlp = classmethod(fake_run_ytdlp)
-SourceResolver._fetch_stream_url = classmethod(fail_fetch_stream)
+def fake_fetch_stream(cls, url):
+    # L'abbinamento usa la ricerca flat: lo stream si estrae una volta sola, qui.
+    stream_fetches.append(url)
+    return "https://rr1---sn.googlevideo.com/audio"
+
+
+def fail_full_search(cls, query, requester, requester_id):
+    raise AssertionError("l'abbinamento non deve estrarre per intero i candidati")
+
+
+SourceResolver._run_ytdlp_flat_candidates = classmethod(fake_run_ytdlp)
+SourceResolver._run_ytdlp = classmethod(fail_full_search)
+SourceResolver._fetch_stream_url = classmethod(fake_fetch_stream)
 
 
 async def lazy_flow():
@@ -150,6 +160,7 @@ async def lazy_flow():
     assert not tracks[0].is_pending
     assert tracks[0].title == "Uno", "il titolo resta quello della piattaforma"
     assert ytdlp_queries[0] == "ytsearch1:Uno A", ytdlp_queries
+    assert stream_fetches == ["https://www.youtube.com/watch?v=GDpmVUEjagg"], stream_fetches
 
     # Brano singolo: abbinato subito.
     single = await SourceResolver._resolve_impl("https://www.deezer.com/track/3135556", "tester", 7)

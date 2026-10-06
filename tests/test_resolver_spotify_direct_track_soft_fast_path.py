@@ -15,7 +15,7 @@ from core.source_resolver.models import TrackInfo
 
 
 def _run_case(sp_track: dict, first_candidate: TrackInfo) -> None:
-    original_run_ytdlp = SourceResolver._run_ytdlp
+    original_run_ytdlp = SourceResolver._run_ytdlp_flat_candidates
     calls = []
     query_with_artist = f"{sp_track['name']} {', '.join(a['name'] for a in sp_track['artists'])}"
 
@@ -26,10 +26,10 @@ def _run_case(sp_track: dict, first_candidate: TrackInfo) -> None:
         return [first_candidate]
 
     try:
-        SourceResolver._run_ytdlp = classmethod(fake_run_ytdlp)
+        SourceResolver._run_ytdlp_flat_candidates = classmethod(fake_run_ytdlp)
         resolved = SourceResolver._sp_track_from_obj(sp_track, sp_track["artists"][0]["name"], "tester", 1)
     finally:
-        SourceResolver._run_ytdlp = original_run_ytdlp
+        SourceResolver._run_ytdlp_flat_candidates = original_run_ytdlp
 
     assert calls == [f"ytsearch1:{query_with_artist}"], calls
     assert resolved is not None

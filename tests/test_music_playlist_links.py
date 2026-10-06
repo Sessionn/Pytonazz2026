@@ -101,6 +101,13 @@ ref = platforms.parse_platform_url("https://www.deezer.com/fr/album/302127")
 assert (ref.platform, ref.kind, ref.entity_id) == ("deezer", "album", "302127"), ref
 ref = platforms.parse_platform_url("https://tidal.com/browse/track/77646169")
 assert (ref.platform, ref.kind) == ("tidal", "track"), ref
+_page_query = platforms.page_search_query
+platforms.page_search_query = lambda url: "Ed Sheeran - Perfect"
+tidal = platforms._lookup_uncached(ref, 1).tracks[0]
+assert (tidal["title"], tidal["artist"]) == ("Perfect", "Ed Sheeran"), tidal
+platforms.page_search_query = lambda url: "Perfect"
+assert platforms._lookup_uncached(ref, 1).tracks[0]["title"] == "Perfect"
+platforms.page_search_query = _page_query
 assert platforms.is_short_link("https://spotify.link/AbCdEf")
 assert platforms.is_short_link("https://deezer.page.link/xyz")
 assert not platforms.is_short_link("https://youtu.be/dQw4w9WgXcQ")

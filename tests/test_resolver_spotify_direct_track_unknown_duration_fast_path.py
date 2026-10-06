@@ -15,7 +15,7 @@ from core.source_resolver.models import TrackInfo
 
 
 def main() -> None:
-    original_run_ytdlp = SourceResolver._run_ytdlp
+    original_run_ytdlp = SourceResolver._run_ytdlp_flat_candidates
     calls = []
     sp_track = {
         "name": "CALM DES FCKDOWN",
@@ -46,10 +46,10 @@ def main() -> None:
         ]
 
     try:
-        SourceResolver._run_ytdlp = classmethod(fake_run_ytdlp)
+        SourceResolver._run_ytdlp_flat_candidates = classmethod(fake_run_ytdlp)
         resolved = SourceResolver._sp_track_from_obj(sp_track, "Ski Mask the Slump God", "tester", 1)
     finally:
-        SourceResolver._run_ytdlp = original_run_ytdlp
+        SourceResolver._run_ytdlp_flat_candidates = original_run_ytdlp
 
     assert calls == [f"ytsearch1:{query_with_artist}"], calls
     assert resolved is not None

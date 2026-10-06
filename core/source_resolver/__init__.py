@@ -1742,7 +1742,7 @@ class SourceResolver:
 
         fast_query = f"ytsearch1:{query_with_artist}" if query_with_artist else ""
         if fast_query:
-            fast_candidates = cls._run_ytdlp(fast_query, requester, requester_id)
+            fast_candidates = cls._run_ytdlp_flat_candidates(fast_query, requester, requester_id)
             if fast_candidates:
                 fast_score = _compute_enrich_confidence(query_with_artist, fast_candidates[0], sp_meta)
                 if _should_accept_spotify_direct_fast_match(sp_title, fast_candidates[0], fast_score):
@@ -1788,7 +1788,7 @@ class SourceResolver:
         candidates = []
         used_step  = 0
         for step, q in enumerate(yt_queries, start=1):
-            candidates = cls._run_ytdlp(q, requester, requester_id)
+            candidates = cls._run_ytdlp_flat_candidates(q, requester, requester_id)
             if candidates:
                 used_step = step
                 break
@@ -2164,6 +2164,50 @@ class SourceResolver:
         except Exception as exc:
             log.debug(tag("RESOLVE", f"flat-first ytsearch fallback  {b(query)}  {exc}"))
             return None
+
+    @classmethod
+    def _run_ytdlp_flat_candidates(cls, query: str, requester: str, requester_id: int) -> list:
+        """Candidati di una ricerca YouTube senza estrarre i loro stream.
+
+        L'abbinamento metadati -> video usa solo titolo, artista e durata, che la
+        ricerca flat gia' fornisce: estrarre ogni candidato costava ~5s l'uno.
+        Lo stream del solo video scelto si estrae dopo, in resolve_fresh_url.
+        """
+        cache_key = f"flat|{query.strip()}"
+        cached = cls._get_cached_ytdlp_results(cache_key, requester, requester_id)
+        if cached is not None:
+            return cached
+        origin_query = re.sub(r"^ytsearch\d*:", "", query.strip(), count=1).strip()
+        try:
+            with yt_dlp.YoutubeDL(_make_opts({"extract_flat": True})) as ydl:
+                info = ydl.extract_info(query, download=False)
+        except Exception as exc:
+            log.debug(tag("RESOLVE", f"ricerca flat fallita  {b(query)}  {exc}"))
+            return []
+        results = []
+        for e in (info or {}).get("entries") or []:
+            if not e or cls._is_drm(e) or e.get("live_status") in ("is_live", "is_upcoming"):
+                continue
+            webpage_url = cls._first_ytdlp_webpage_url(e)
+            if not webpage_url:
+                continue
+            src = _source_label(webpage_url, e)
+            thumbnail = _entry_thumbnail(e, webpage_url, src)
+            results.append(TrackInfo(
+                title        = e.get("title", "Senza titolo"),
+                webpage_url  = webpage_url,
+                duration     = int(e.get("duration") or 0),
+                thumbnail    = thumbnail,
+                requester    = requester,
+                requester_id = requester_id,
+                source       = src,
+                artist       = e.get("artist") or e.get("channel") or e.get("uploader", ""),
+                origin_query = origin_query,
+                thumbnail_source = src if thumbnail else "",
+                thumbnail_confidence = 0.45 if thumbnail else 0.0,
+            ))
+        cls._set_cached_ytdlp_results(cache_key, results)
+        return results
 
     @staticmethod
     def _first_ytdlp_webpage_url(info: dict) -> str:
