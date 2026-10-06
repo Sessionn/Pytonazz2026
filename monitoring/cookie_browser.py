@@ -1,16 +1,20 @@
 """Maintain YouTube cookies from the dedicated, manually authenticated browser.
 
 Run as a user service; noVNC must remain on localhost.
-Once at startup and then every night it exports the YouTube cookies of the
-browser profile, runs a real playback test with them and installs them only
-if audio decodes. A failed refresh is retried hourly. It never runs while the
-bot is playing and keeps the lowest CPU priority, so playback cannot stutter.
+Firefox keeps YouTube open and rotates the session cookies, which invalidates
+any older copy within an hour or two. So every few minutes it reads the
+profile's YouTube cookies (a cheap SQLite snapshot) and, only when they have
+changed, runs a real playback test and installs them if audio decodes. While
+the bot is playing the test is skipped and the fresh cookies are installed
+directly: the browser holds the live session, the installed copy is the stale
+one. A failed test is retried hourly; everything runs at the lowest CPU
+priority, so playback cannot stutter.
 Persistent problems (login lost, browser down, test failing) go to ntfy.
 Never logs cookie values or handles Google passwords.
 """
 from __future__ import annotations
 
-import datetime as dt
+import hashlib
 import json
 import os
 import shutil
@@ -22,10 +26,8 @@ from pathlib import Path
 STATE = Path.home() / ".local/share/pytonazz-cookie-browser"
 CONTAINER = "pytonazz-cookie-browser"
 PROFILE = "/home/seluser/pytonazz-profile"
-# 02:30 UTC = 04:30 in Italy (summer), 03:30 in winter: nobody is listening.
-NIGHTLY_REFRESH_UTC = os.getenv("PYTONAZZ_COOKIE_REFRESH_UTC", "02:30")
+SYNC_SECONDS = int(os.getenv("PYTONAZZ_COOKIE_SYNC_SECONDS", "600"))
 FAILED_RETRY_SECONDS = 3600
-BUSY_RETRY_SECONDS = 600
 STARTING_RETRY_SECONDS = 30
 LOGIN_RETRY_SECONDS = 300
 ALERT_AFTER_SECONDS = 3600
@@ -99,13 +101,19 @@ def netscape(cookies):
 class Outcome:
     message: str
     kind: str  # "ok", "login", "probe", "browser", "starting"
+    digest: str | None = None  # of the browser export that is now installed
+    installed: bool = False
 
     @property
     def healthy(self) -> bool:
         return self.kind == "ok"
 
 
-def refresh_once() -> Outcome:
+def refresh_once(installed_digest: str | None = None, verify: bool = True) -> Outcome:
+    """Install the browser's cookies if they differ from the ones installed last.
+
+    ``verify=False`` (bot playing) installs without the playback test.
+    """
     from config import Config
     from monitoring.cookie_watchdog import CookieWatchConfig, run_audio_probe_isolated
 
@@ -117,28 +125,50 @@ def refresh_once() -> Outcome:
         return Outcome("LOGIN RICHIESTO · apri il browser dedicato e accedi a YouTube", "login")
     if not Config.EFFECTIVE_COOKIE_FILE:
         return Outcome("COOKIE NON INSTALLATI · COOKIE_FILE disabilitato", "probe")
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    destination = Path(Config.EFFECTIVE_COOKIE_FILE)
+    if digest == installed_digest:
+        # The bot's yt-dlp saves its cookie jar back into the file, and after a
+        # bot check it saves a crippled one: put the verified export back.
+        if _read(destination) == content:
+            return Outcome("COOKIE INVARIATI", "ok", digest)
+        _install(content, destination, backup=False)
+        return Outcome("COOKIE RIPRISTINATI · file riscritto da yt-dlp", "ok", digest, True)
     candidate = STATE / "candidate.cookies.txt"
     candidate.write_text(content, encoding="utf-8")
     os.chmod(candidate, 0o600)
     try:
-        result = run_audio_probe_isolated(str(candidate), CookieWatchConfig.from_env().test_url)
-        if not result.ok:
-            return Outcome(f"COOKIE NON INSTALLATI · {result.rule_name} · {result.detail[:160]}", "probe")
-        destination = Path(Config.EFFECTIVE_COOKIE_FILE)
-        if destination.exists():
-            backup = destination.with_name(destination.name + ".last-good")
-            shutil.copyfile(destination, backup)
-            os.chmod(backup, 0o600)
-        temporary = destination.with_name(destination.name + ".browser-incoming")
-        try:
-            shutil.copyfile(candidate, temporary)
-            os.chmod(temporary, 0o600)
-            os.replace(temporary, destination)
-        finally:
-            temporary.unlink(missing_ok=True)
-        return Outcome("COOKIE AGGIORNATI · test audio OK", "ok")
+        if verify:
+            result = run_audio_probe_isolated(str(candidate), CookieWatchConfig.from_env().test_url)
+            if not result.ok:
+                return Outcome(f"COOKIE NON INSTALLATI · {result.rule_name} · {result.detail[:160]}", "probe")
+        _install(content, destination, backup=verify)
+        if verify:
+            return Outcome("COOKIE AGGIORNATI · test audio OK", "ok", digest, True)
+        return Outcome("COOKIE AGGIORNATI · bot in riproduzione, test rimandato", "ok", digest, True)
     finally:
         candidate.unlink(missing_ok=True)
+
+
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _install(content: str, destination: Path, *, backup: bool) -> None:
+    if backup and destination.exists():
+        last_good = destination.with_name(destination.name + ".last-good")
+        shutil.copyfile(destination, last_good)
+        os.chmod(last_good, 0o600)
+    temporary = destination.with_name(destination.name + ".browser-incoming")
+    try:
+        temporary.write_text(content, encoding="utf-8")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 class Alerter:
@@ -186,17 +216,9 @@ def _ntfy_sender():
         return lambda **_: None
 
 
-def seconds_until_nightly(now: dt.datetime, at: str = NIGHTLY_REFRESH_UTC) -> float:
-    hour, minute = (int(part) for part in at.split(":"))
-    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if target <= now:
-        target += dt.timedelta(days=1)
-    return (target - now).total_seconds()
-
-
-def next_delay(outcome: Outcome, now: dt.datetime) -> float:
+def next_delay(outcome: Outcome) -> float:
     if outcome.healthy:
-        return seconds_until_nightly(now)
+        return SYNC_SECONDS
     if outcome.kind == "starting":
         return STARTING_RETRY_SECONDS
     if outcome.kind == "login":
@@ -221,20 +243,20 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         alerter = Alerter(_ntfy_sender())
         previous = None
+        installed = None
         while True:
-            if bot_is_playing():
-                time.sleep(BUSY_RETRY_SECONDS)
-                continue
             try:
-                outcome = refresh_once()
+                outcome = refresh_once(installed, verify=not bot_is_playing())
             except Exception as exc:
                 # Exception text may include session data.
                 outcome = Outcome(f"BROWSER NON DISPONIBILE · {type(exc).__name__}", "browser")
-            if outcome.message != previous or outcome.healthy:
+            if outcome.digest:
+                installed = outcome.digest
+            if outcome.message != previous or outcome.installed:
                 print(outcome.message, flush=True)
                 previous = outcome.message
             alerter.observe(outcome, time.time())
-            time.sleep(next_delay(outcome, dt.datetime.now(dt.timezone.utc)))
+            time.sleep(next_delay(outcome))
 
 
 if __name__ == "__main__":
