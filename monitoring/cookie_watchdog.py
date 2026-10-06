@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,7 +116,8 @@ def _int_env(values: Mapping[str, str], key: str, default: int) -> int:
 
 
 def classify_cookie_probe_output(*, returncode: int, output: str) -> CookieProbeResult:
-    text = output.strip()
+    # Signed stream URLs carry session-bound tokens: never forward them.
+    text = re.sub(r"https?://\S+", "[URL oscurato]", output.strip())
     lowered = text.lower()
     if returncode == 0:
         return CookieProbeResult(ok=True, rule_name="cookie_ok", detail=text or "probe ok")
@@ -121,6 +126,12 @@ def classify_cookie_probe_output(*, returncode: int, output: str) -> CookieProbe
             ok=False,
             rule_name="youtube_cookie",
             detail=f"YouTube richiede cookie validi o verifica anti-bot. Output: {text}",
+        )
+    if "403" in lowered or "forbidden" in lowered:
+        return CookieProbeResult(
+            ok=False,
+            rule_name="youtube_stream",
+            detail="Stream audio rifiutato (HTTP 403): verificare client e formato; da solo non prova cookie scaduti.",
         )
     if "--cookies" in lowered or "cookies-from-browser" in lowered:
         return CookieProbeResult(
@@ -220,6 +231,24 @@ def _run_ytdlp_cookie_probe_sync(config: CookieWatchConfig) -> CookieProbeResult
     except Exception as exc:
         messages.append(str(exc))
         return classify_cookie_probe_output(returncode=1, output="\n".join(messages))
+
+
+def run_audio_probe_isolated(cookie_file: str, test_url: str, *, timeout: int = 45) -> CookieProbeResult:
+    """Real playback test (extraction + 1s FFmpeg decode) in a bounded worker process."""
+    root = Path(__file__).resolve().parents[1]
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "monitoring.audio_probe"],
+            input=json.dumps({"cookie_file": cookie_file, "test_url": test_url}),
+            capture_output=True, text=True, timeout=timeout, cwd=root,
+        )
+        if result.returncode:
+            return CookieProbeResult(False, "error", "Processo del test audio terminato in errore.")
+        return CookieProbeResult(**json.loads(result.stdout))
+    except subprocess.TimeoutExpired:
+        return CookieProbeResult(False, "error", f"Test audio scaduto dopo {timeout} secondi.")
+    except Exception:
+        return CookieProbeResult(False, "error", "Impossibile eseguire il test audio isolato.")
 
 
 async def run_cookie_check_once(
