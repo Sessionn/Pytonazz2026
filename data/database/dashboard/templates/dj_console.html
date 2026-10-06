@@ -3,208 +3,229 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111316">
   <title>Pytonazz DJ Console</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/dj-console-favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dj_console.css') }}">
 </head>
 <body data-guild-id="{{ guild_id }}">
-  <main class="console-shell">
-    <section class="hero-panel">
-      <div class="brand-block">
-        <p class="eyebrow">Pytonazz Remote Deck</p>
-        <h1>DJ Console</h1>
+  <main class="rig">
+    <header class="rig-top">
+      <div class="badge">
+        <span class="badge-brand">PYTONAZZ</span>
+        <span class="badge-model">DJ-01 · Remote Deck</span>
       </div>
-      <div class="status-grid" hidden>
-        <div class="status-card status-card-voice">
-          <span class="status-label">Voice</span>
-          <span class="status-flare" aria-hidden="true"></span>
-          <div class="status-value-shell">
-            <strong id="voice-channel" class="status-value">-</strong>
-          </div>
-          <span class="status-meta">Current room bus</span>
-        </div>
-        <div class="status-card status-card-live">
-          <span class="status-label">State</span>
-          <span class="status-flare" aria-hidden="true"></span>
-          <div class="status-value-shell state-shell">
-            <div class="state-line">
-              <span id="playback-indicator" class="live-dot is-offline"></span>
-              <strong id="playback-state" class="state-pill state-offline">Offline</strong>
-            </div>
-          </div>
-          <span class="status-meta">Playback transport</span>
-        </div>
-        <div class="status-card status-card-effect">
-          <span class="status-label">Filter / FX</span>
-          <span class="status-flare" aria-hidden="true"></span>
-          <div class="status-value-shell">
-            <strong id="effect-summary" class="status-value">off</strong>
-          </div>
-          <span class="status-meta">Active audio chain</span>
-        </div>
-        <div class="status-card status-card-energy">
-          <span class="status-label">EQ</span>
-          <span class="status-flare" aria-hidden="true"></span>
-          <div class="status-value-shell">
-            <strong id="tone-summary" class="status-value">flat</strong>
-          </div>
-          <span class="status-meta">Low / mid / high shape</span>
-        </div>
+      <div class="link-status">
+        <span id="playback-indicator" class="led is-offline" aria-hidden="true"></span>
+        <strong id="playback-state" class="link-state state-offline">Offline</strong>
+        <span class="link-sep" aria-hidden="true"></span>
+        <span class="silk">Voice</span>
+        <span id="voice-channel" class="link-room">-</span>
       </div>
-    </section>
+    </header>
 
-    <section class="deck-grid">
-      <article class="deck-panel platter-panel">
-        <div class="platter-wrap" id="platter-wrap">
+    <section class="unit deck" aria-label="Deck">
+      <div class="lcd">
+        <div class="lcd-row lcd-head">
+          <span class="lcd-tag">Now Playing</span>
+          <span class="lcd-flags">
+            <span class="lcd-flag" data-flag="loop">Loop</span>
+            <span class="lcd-flag" data-flag="shuffle">Shuffle</span>
+            <span class="lcd-flag" data-flag="autoplay">Auto</span>
+          </span>
+        </div>
+        <div class="lcd-track">
+          <h1 id="track-title" class="lcd-title">Nessuna traccia</h1>
+          <p class="lcd-sub"><span id="track-artist">-</span></p>
+          <p id="track-requester" class="lcd-req">-</p>
+        </div>
+        <div class="lcd-time">
+          <div class="time-cell">
+            <span class="lcd-tag">Elapsed</span>
+            <span id="position-label" class="lcd-digits">00:00</span>
+          </div>
+          <div class="time-cell time-cell-main">
+            <span class="lcd-tag">Remain</span>
+            <span id="remaining-label" class="lcd-digits">-00:00</span>
+          </div>
+          <div class="time-cell">
+            <span class="lcd-tag">Total</span>
+            <span id="duration-label" class="lcd-digits">00:00</span>
+          </div>
+        </div>
+        <div class="progress-track" aria-hidden="true"><div id="progress-fill"></div></div>
+        <div class="lcd-row lcd-foot">
+          <span><span class="lcd-tag">FX</span> <span id="effect-summary">clean</span></span>
+          <span><span class="lcd-tag">EQ</span> <span id="tone-summary">flat</span></span>
+        </div>
+      </div>
+
+      <div class="jog-bay">
+        <div class="platter-wrap" id="platter-wrap" title="Trascina per scratchare">
           <div class="platter-shadow"></div>
           <div class="platter-disc" id="platter-disc">
             <div class="platter-ring"></div>
             <div class="groove-layer"></div>
             <div class="platter-center">
-              <img id="cover-art" alt="Cover art">
+              <img id="cover-art" alt="Copertina">
               <div id="cover-fallback">NO ART</div>
               <span class="spindle-core"></span>
             </div>
           </div>
+          <span class="jog-marker" aria-hidden="true"></span>
         </div>
-        <div class="track-meta">
-          <p class="track-kicker">Now Playing</p>
-          <h2 id="track-title">Nessuna traccia</h2>
-          <p id="track-artist">-</p>
-          <p id="track-requester">-</p>
-        </div>
-        <div class="progress-block">
-          <div class="progress-topline">
-            <span id="position-label">00:00</span>
-            <span id="duration-label">00:00</span>
-          </div>
-          <div class="progress-track"><div id="progress-fill"></div></div>
-        </div>
-      </article>
+      </div>
 
-      <article class="deck-panel mixer-panel">
-        <div class="controls-header">
-          <h3>Mixer</h3>
+      <div class="transport">
+        <button type="button" class="pad-btn" data-transport="seek-back" aria-label="Indietro 10 secondi">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6 4 12l7 6V6Zm9 0-7 6 7 6V6Z"/></svg>
+          <span class="pad-num">-10s</span>
+        </button>
+        <button type="button" class="play-btn" data-transport="play" aria-label="Play / Pausa">
+          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15L19.5 12 7 4.5Z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></svg>
+        </button>
+        <button type="button" class="pad-btn" data-transport="seek-fwd" aria-label="Avanti 10 secondi">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 6 7 6-7 6V6Zm9 0 7 6-7 6V6Z"/></svg>
+          <span class="pad-num">+10s</span>
+        </button>
+        <button type="button" class="pad-btn" data-transport="skip" aria-label="Brano successivo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 5.5 10 6.5-10 6.5v-13ZM16.5 5.5h2.5v13h-2.5z"/></svg>
+          <span>Next</span>
+        </button>
+        <button type="button" class="pad-btn pad-danger" data-transport="stop" aria-label="Stop e disconnetti">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>
+          <span data-stop-label>Stop</span>
+        </button>
+      </div>
+
+      <div class="modes">
+        <button type="button" class="mode-btn" data-mode="loop" aria-label="Modalita' loop">
+          <span class="mode-led" aria-hidden="true"></span>
+          <span class="mode-name">Loop</span>
+          <span class="mode-value" data-loop-label>Off</span>
+        </button>
+        <button type="button" class="mode-btn" data-mode="shuffle" aria-label="Shuffle">
+          <span class="mode-led" aria-hidden="true"></span>
+          <span class="mode-name">Shuffle</span>
+        </button>
+        <button type="button" class="mode-btn" data-mode="autoplay" aria-label="Autoplay">
+          <span class="mode-led" aria-hidden="true"></span>
+          <span class="mode-name">Autoplay</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="unit mixer" aria-label="Mixer">
+      <h2 class="unit-title">Channel</h2>
+      <div class="channel">
+        <div class="knob-column">
+          <div class="knob-unit">
+            <span class="silk">Hi</span>
+            <div id="eq-high-knob" class="fx-knob" style="--knob-angle: 0deg;">
+              <span class="knob-marker"></span>
+              <input id="eq-high" class="knob-hitbox" type="range" min="-12" max="12" step="0.5" value="0" data-default="0" aria-label="EQ High">
+            </div>
+            <span id="eq-high-value" class="knob-value">0.0 dB</span>
+          </div>
+          <div class="knob-unit">
+            <span class="silk">Mid</span>
+            <div id="eq-mid-knob" class="fx-knob" style="--knob-angle: 0deg;">
+              <span class="knob-marker"></span>
+              <input id="eq-mid" class="knob-hitbox" type="range" min="-12" max="12" step="0.5" value="0" data-default="0" aria-label="EQ Mid">
+            </div>
+            <span id="eq-mid-value" class="knob-value">0.0 dB</span>
+          </div>
+          <div class="knob-unit">
+            <span class="silk">Low</span>
+            <div id="eq-low-knob" class="fx-knob" style="--knob-angle: 0deg;">
+              <span class="knob-marker"></span>
+              <input id="eq-low" class="knob-hitbox" type="range" min="-12" max="12" step="0.5" value="0" data-default="0" aria-label="EQ Low">
+            </div>
+            <span id="eq-low-value" class="knob-value">0.0 dB</span>
+          </div>
         </div>
-        <div class="mixer-layout">
-          <aside class="channel-strip">
-            <label for="volume-slider">Volume</label>
+
+        <div class="fader-column">
+          <span class="silk">Volume</span>
+          <div class="fader-bay">
+            <div class="fader-scale" aria-hidden="true">
+              <span>10</span><span>8</span><span>6</span><span>4</span><span>2</span><span>0</span>
+            </div>
             <div class="volume-well fader-slot">
-              <input id="volume-slider" class="volume-fader fader-vertical" type="range" min="0" max="1" step="0.01" value="0.5" data-default="0.5">
-              <button id="volume-slider-handle" class="fader-handle" type="button" aria-label="Volume fader handle"></button>
-            </div>
-            <span id="volume-value" class="volume-readout">0%</span>
-          </aside>
-          <div class="mixer-main">
-            <div class="mixer-grid">
-              <div class="control-stack">
-                <label>Base Filter</label>
-                <p class="control-help">Uno solo alla volta. Non abilita FX in automatico.</p>
-                <div class="filter-button-grid" id="base-filter-grid">
-                  <button type="button" data-base-filter="off">Off</button>
-                  <button type="button" data-base-filter="nightcore">Sped Up</button>
-                  <button type="button" data-base-filter="vaporwave">Slowed</button>
-                </div>
-              </div>
-            </div>
-            <div class="tone-grid">
-              <div class="control-stack">
-                <label>FX</label>
-                <p class="control-help">Layer cumulabili: EQ, spazio, delay e 8D.</p>
-                <div class="fx-pad-grid" id="fx-toggle-grid">
-                  <button data-filter-fx="bassboost">Bass</button>
-                  <button data-filter-fx="trebleboost">Treble</button>
-                  <button data-filter-fx="vocalboost">Vocal</button>
-                  <button data-filter-fx="radio">Radio</button>
-                  <button data-filter-fx="reverb">Reverb</button>
-                  <button data-filter-fx="echo">Echo</button>
-                  <button data-filter-fx="8d">8D Audio</button>
-                </div>
-              </div>
-            </div>
-            <div class="tone-grid">
-              <div class="control-stack">
-                <label>Tone Scenes</label>
-                <p class="control-help">Preset rapidi: muovono Low, Mid e High.</p>
-                <div class="fx-pad-grid">
-                  <button data-eq-scene="flat">Flat</button>
-                  <button data-eq-scene="club">Club</button>
-                  <button data-eq-scene="warm">Warm</button>
-                  <button data-eq-scene="vocal">Vocal</button>
-                  <button data-eq-scene="lofi">Lofi</button>
-                  <button data-eq-scene="bass-tight">Bass Tight</button>
-                  <button data-eq-scene="kill-low">Kill Low</button>
-                  <button data-eq-scene="kill-high">Kill High</button>
-                </div>
-              </div>
-            </div>
-            <div class="control-stack mixer-reset-stack">
-              <label>Mixer Reset</label>
-              <div class="fx-pad-grid">
-                <button id="reset-mixer-button" type="button">Reset Mixer</button>
-              </div>
-            </div>
-            <div class="control-stack contour-stack">
-              <label>Contour</label>
-              <div class="knob-bank">
-                <div class="knob-unit">
-                  <div class="knob-shell">
-                    <div id="fx-highpass-knob" class="fx-knob" style="--knob-angle: -135deg;">
-                      <span class="knob-marker"></span>
-                      <input id="fx-highpass" class="knob-hitbox" type="range" min="0" max="4000" step="10" value="0" data-default="0">
-                    </div>
-                  </div>
-                  <span class="knob-label">High Pass</span>
-                  <span id="fx-highpass-value" class="knob-value">off</span>
-                </div>
-                <div class="knob-unit">
-                  <div class="knob-shell">
-                    <div id="fx-lowpass-knob" class="fx-knob" style="--knob-angle: 135deg;">
-                      <span class="knob-marker"></span>
-                      <input id="fx-lowpass" class="knob-hitbox" type="range" min="200" max="20000" step="100" value="20000" data-default="20000">
-                    </div>
-                  </div>
-                  <span class="knob-label">Low Pass</span>
-                  <span id="fx-lowpass-value" class="knob-value">off</span>
-                </div>
-              </div>
-            </div>
-            <div class="eq-grid">
-              <div class="eq-band">
-                <label for="eq-low">Low</label>
-                <div class="fader-slot eq-slot">
-                  <input id="eq-low" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" value="0" orient="vertical" data-default="0">
-                  <button id="eq-low-handle" class="fader-handle" type="button" aria-label="Low EQ fader handle"></button>
-                </div>
-                <span id="eq-low-value">0 dB</span>
-              </div>
-              <div class="eq-band">
-                <label for="eq-mid">Mid</label>
-                <div class="fader-slot eq-slot">
-                  <input id="eq-mid" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" value="0" orient="vertical" data-default="0">
-                  <button id="eq-mid-handle" class="fader-handle" type="button" aria-label="Mid EQ fader handle"></button>
-                </div>
-                <span id="eq-mid-value">0 dB</span>
-              </div>
-              <div class="eq-band">
-                <label for="eq-high">High</label>
-                <div class="fader-slot eq-slot">
-                  <input id="eq-high" class="fader-vertical eq-fader" type="range" min="-12" max="12" step="0.5" value="0" orient="vertical" data-default="0">
-                  <button id="eq-high-handle" class="fader-handle" type="button" aria-label="High EQ fader handle"></button>
-                </div>
-                <span id="eq-high-value">0 dB</span>
-              </div>
+              <input id="volume-slider" class="volume-fader fader-vertical" type="range" min="0" max="1" step="0.01" value="0.5" data-default="0.5" aria-label="Volume">
+              <button id="volume-slider-handle" class="fader-handle" type="button" aria-label="Fader volume"></button>
             </div>
           </div>
+          <span id="volume-value" class="knob-value">0%</span>
         </div>
-      </article>
+      </div>
 
-      <article class="deck-panel queue-panel">
-        <div class="controls-header">
-          <h3>Queue</h3>
+      <div class="filter-row">
+        <div class="knob-unit knob-small">
+          <span class="silk">HPF</span>
+          <div id="fx-highpass-knob" class="fx-knob" style="--knob-angle: -135deg;">
+            <span class="knob-marker"></span>
+            <input id="fx-highpass" class="knob-hitbox" type="range" min="0" max="4000" step="10" value="0" data-default="0" aria-label="High pass">
+          </div>
+          <span id="fx-highpass-value" class="knob-value">off</span>
         </div>
+        <div class="knob-unit knob-small">
+          <span class="silk">LPF</span>
+          <div id="fx-lowpass-knob" class="fx-knob" style="--knob-angle: 135deg;">
+            <span class="knob-marker"></span>
+            <input id="fx-lowpass" class="knob-hitbox" type="range" min="200" max="20000" step="100" value="20000" data-default="20000" aria-label="Low pass">
+          </div>
+          <span id="fx-lowpass-value" class="knob-value">off</span>
+        </div>
+      </div>
+
+      <div class="scenes">
+        <span class="silk">EQ Scenes</span>
+        <div class="scene-grid">
+          <button type="button" class="key-btn" data-eq-scene="flat">Flat</button>
+          <button type="button" class="key-btn" data-eq-scene="club">Club</button>
+          <button type="button" class="key-btn" data-eq-scene="warm">Warm</button>
+          <button type="button" class="key-btn" data-eq-scene="vocal">Vocal</button>
+          <button type="button" class="key-btn" data-eq-scene="lofi">Lofi</button>
+          <button type="button" class="key-btn" data-eq-scene="bass-tight">Tight</button>
+          <button type="button" class="key-btn" data-eq-scene="kill-low">Kill Lo</button>
+          <button type="button" class="key-btn" data-eq-scene="kill-high">Kill Hi</button>
+        </div>
+      </div>
+      <button id="reset-mixer-button" class="key-btn key-wide" type="button">Reset Mixer</button>
+      <p class="hint">Trascina knob e fader in verticale · doppio tap per azzerare</p>
+    </section>
+
+    <section class="unit fx" aria-label="Effetti">
+      <h2 class="unit-title">Beat FX</h2>
+      <div class="fx-block">
+        <span class="silk">Base · uno alla volta</span>
+        <div class="segmented" id="base-filter-grid">
+          <button type="button" data-base-filter="off">Off</button>
+          <button type="button" data-base-filter="nightcore">Sped Up</button>
+          <button type="button" data-base-filter="vaporwave">Slowed</button>
+        </div>
+      </div>
+      <div class="fx-block">
+        <span class="silk">Layer · cumulabili</span>
+        <div class="fx-pads" id="fx-toggle-grid">
+          <button type="button" class="fx-pad" data-filter-fx="bassboost">Bass</button>
+          <button type="button" class="fx-pad" data-filter-fx="trebleboost">Treble</button>
+          <button type="button" class="fx-pad" data-filter-fx="vocalboost">Vocal</button>
+          <button type="button" class="fx-pad" data-filter-fx="radio">Radio</button>
+          <button type="button" class="fx-pad" data-filter-fx="reverb">Reverb</button>
+          <button type="button" class="fx-pad" data-filter-fx="echo">Echo</button>
+          <button type="button" class="fx-pad" data-filter-fx="8d">8D</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="unit browser" aria-label="Coda">
+      <h2 class="unit-title">Queue</h2>
+      <div class="browser-screen">
         <ol id="queue-list" class="queue-list"></ol>
-      </article>
+      </div>
     </section>
   </main>
   <script src="{{ url_for('static', filename='js/dj_console.js') }}" defer></script>

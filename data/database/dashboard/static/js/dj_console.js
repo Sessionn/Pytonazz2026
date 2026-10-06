@@ -14,6 +14,7 @@ const els = {
   cover: document.getElementById("cover-art"),
   fallback: document.getElementById("cover-fallback"),
   position: document.getElementById("position-label"),
+  remaining: document.getElementById("remaining-label"),
   duration: document.getElementById("duration-label"),
   progress: document.getElementById("progress-fill"),
   volume: document.getElementById("volume-slider"),
@@ -22,11 +23,11 @@ const els = {
   resetMixerButton: document.getElementById("reset-mixer-button"),
   queue: document.getElementById("queue-list"),
   eqLow: document.getElementById("eq-low"),
-  eqLowHandle: document.getElementById("eq-low-handle"),
+  eqLowKnob: document.getElementById("eq-low-knob"),
   eqMid: document.getElementById("eq-mid"),
-  eqMidHandle: document.getElementById("eq-mid-handle"),
+  eqMidKnob: document.getElementById("eq-mid-knob"),
   eqHigh: document.getElementById("eq-high"),
-  eqHighHandle: document.getElementById("eq-high-handle"),
+  eqHighKnob: document.getElementById("eq-high-knob"),
   fxHighpass: document.getElementById("fx-highpass"),
   fxLowpass: document.getElementById("fx-lowpass"),
   fxHighpassKnob: document.getElementById("fx-highpass-knob"),
@@ -38,7 +39,17 @@ const els = {
   fxLowpassValue: document.getElementById("fx-lowpass-value"),
   platterWrap: document.getElementById("platter-wrap"),
   platterDisc: document.getElementById("platter-disc"),
+  playButton: document.querySelector('[data-transport="play"]'),
+  stopButton: document.querySelector('[data-transport="stop"]'),
+  stopLabel: document.querySelector("[data-stop-label]"),
+  loopLabel: document.querySelector("[data-loop-label]"),
 };
+
+const LOOP_CYCLE = ["off", "queue", "track"];
+const LOOP_LABELS = { off: "Off", queue: "Coda", track: "Brano" };
+const SEEK_STEP_SECONDS = 10;
+const STOP_ARM_MS = 2500;
+let stopArmedTimer = null;
 
 let state = null;
 let refreshTimer = null;
@@ -70,9 +81,9 @@ const EQ_SCENES = {
 };
 
 const EQ_BANDS = [
-  { key: "low", input: "eqLow", handle: "eqLowHandle", value: "eqLowValue" },
-  { key: "mid", input: "eqMid", handle: "eqMidHandle", value: "eqMidValue" },
-  { key: "high", input: "eqHigh", handle: "eqHighHandle", value: "eqHighValue" },
+  { key: "low", input: "eqLow", knob: "eqLowKnob", value: "eqLowValue" },
+  { key: "mid", input: "eqMid", knob: "eqMidKnob", value: "eqMidValue" },
+  { key: "high", input: "eqHigh", knob: "eqHighKnob", value: "eqHighValue" },
 ];
 
 const TONE_CONTROLS = [
@@ -202,6 +213,9 @@ function renderQueue(items) {
     }
     // Titoli/artisti arrivano da sorgenti esterne (YouTube, Spotify):
     // vanno inseriti come testo, mai come HTML.
+    const idx = document.createElement("span");
+    idx.className = "queue-idx";
+    idx.textContent = String(index + 1).padStart(2, "0");
     const art = document.createElement("div");
     art.className = "queue-art";
     const thumb = safeHttpUrl(track.thumbnail);
@@ -220,11 +234,14 @@ function renderQueue(items) {
     const copy = document.createElement("div");
     copy.className = "queue-copy";
     const titleEl = document.createElement("strong");
-    titleEl.textContent = `${index + 1}. ${track.title || ""}`;
+    titleEl.textContent = track.title || "";
     const artistEl = document.createElement("span");
     artistEl.textContent = track.artist || "Sconosciuto";
     copy.append(titleEl, artistEl);
-    li.append(art, copy);
+    const dur = document.createElement("span");
+    dur.className = "queue-dur";
+    dur.textContent = Number(track.duration) > 0 ? formatTime(track.duration) : "--:--";
+    li.append(idx, art, copy, dur);
     els.queue.appendChild(li);
   });
   queueKeys = nextKeys;
@@ -244,7 +261,46 @@ function renderError(code) {
   els.duration.textContent = "00:00";
   els.progress.style.width = "0%";
   renderQueue([]);
+  renderTransport(null);
   console.warn("DJ console access/state error", { guildId, error: lastErrorCode });
+}
+
+function renderTransport(next) {
+  const connected = Boolean(next && next.connected);
+  const hasTrack = Boolean(connected && next.current_track);
+  const playing = hasTrack && !next.is_paused;
+  els.playButton.classList.toggle("is-playing", playing);
+  els.playButton.classList.toggle("is-paused", hasTrack && !playing);
+  els.playButton.setAttribute("aria-pressed", playing ? "true" : "false");
+  document.querySelectorAll("[data-transport]").forEach((button) => {
+    // Stop only needs a voice connection; the rest needs a track loaded.
+    button.disabled = button.dataset.transport === "stop" ? !connected : !hasTrack;
+  });
+  if (!connected) disarmStop();
+
+  const loopMode = LOOP_CYCLE.includes(next?.loop_mode) ? next.loop_mode : "off";
+  const modes = {
+    loop: loopMode !== "off",
+    shuffle: Boolean(next?.shuffle_mode),
+    autoplay: Boolean(next?.autoplay_enabled),
+  };
+  els.loopLabel.textContent = LOOP_LABELS[loopMode];
+  document.querySelectorAll("[data-mode]").forEach((button) => {
+    const on = modes[button.dataset.mode];
+    button.disabled = !connected;
+    button.classList.toggle("is-active", on);
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  document.querySelectorAll("[data-flag]").forEach((flag) => {
+    flag.classList.toggle("is-on", modes[flag.dataset.flag]);
+  });
+}
+
+function disarmStop() {
+  clearTimeout(stopArmedTimer);
+  stopArmedTimer = null;
+  els.stopButton.classList.remove("is-armed");
+  els.stopLabel.textContent = "Stop";
 }
 
 function getDisplayedPosition() {
@@ -266,6 +322,7 @@ function getDisplayedPosition() {
 function renderPlaybackClock() {
   if (!state) {
     els.position.textContent = "00:00";
+    els.remaining.textContent = "-00:00";
     els.duration.textContent = "00:00";
     els.progress.style.width = "0%";
     return;
@@ -273,6 +330,7 @@ function renderPlaybackClock() {
   const position = getDisplayedPosition();
   const duration = Number(state.duration || 0);
   els.position.textContent = formatTime(position);
+  els.remaining.textContent = duration > 0 ? `-${formatTime(duration - position)}` : "--:--";
   els.duration.textContent = formatTime(duration);
   const progress = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
   els.progress.style.width = `${progress}%`;
@@ -338,8 +396,9 @@ function updateEqValueLabels() {
     const input = els[band.input];
     const value = els[band.value];
     if (!input || !value) return;
-    value.textContent = `${getControlValue(input).toFixed(1)} dB`;
-    setFaderHandlePosition(els[band.handle], input);
+    const db = getControlValue(input);
+    value.textContent = `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
+    setKnobAngle(els[band.knob], input);
   });
 }
 
@@ -532,6 +591,7 @@ function render(next) {
     button.title = compatible ? "" : "FX non compatibile con il filtro base attivo";
   });
   renderQueue(next.queue || []);
+  renderTransport(next);
 
   const eq = next.eq || { low: 0, mid: 0, high: 0 };
   const toneFilters = next.tone_filters || { highpass_hz: 0, lowpass_hz: 20000 };
@@ -909,7 +969,7 @@ setupVerticalDrag(els.volumeHandle, els.volume, {
 });
 
 EQ_BANDS.forEach((band) => {
-  setupVerticalDrag(els[band.handle], els[band.input], {
+  setupKnobDrag(els[band.knob], els[band.input], {
     onChange: () => {
       updateEqValueLabels();
       cancelEqAnimation();
@@ -956,7 +1016,7 @@ document.querySelectorAll("[data-eq-scene]").forEach((button) => {
   });
 });
 
-[els.volumeHandle, ...EQ_BANDS.map((band) => els[band.handle])].forEach((handle) => {
+[els.volumeHandle].forEach((handle) => {
   handle.addEventListener("pointerup", () => {
     const now = performance.now();
     const previous = lastTapAt.get(handle) || 0;
@@ -969,7 +1029,7 @@ document.querySelectorAll("[data-eq-scene]").forEach((button) => {
   });
 });
 
-[els.fxHighpassKnob, els.fxLowpassKnob].forEach((knob) => {
+[els.fxHighpassKnob, els.fxLowpassKnob, ...EQ_BANDS.map((band) => els[band.knob])].forEach((knob) => {
   knob.addEventListener("pointerup", () => {
     const now = performance.now();
     const previous = lastTapAt.get(knob) || 0;
@@ -982,6 +1042,61 @@ document.querySelectorAll("[data-eq-scene]").forEach((button) => {
   });
 });
 
+document.querySelectorAll("[data-transport]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (button.disabled) return;
+    const kind = button.dataset.transport;
+    if (kind === "play") {
+      // Optimistic: the LED and icon flip at once, the state push confirms.
+      if (state) {
+        state.position = getDisplayedPosition();
+        state.is_paused = !state.is_paused;
+        lastStateSyncAt = performance.now();
+        renderTransport(state);
+        syncPlatterMotion(state);
+      }
+      await postAction("toggle_play");
+    } else if (kind === "skip") {
+      await postAction("skip");
+    } else if (kind === "seek-back" || kind === "seek-fwd") {
+      const seconds = kind === "seek-back" ? -SEEK_STEP_SECONDS : SEEK_STEP_SECONDS;
+      await postAction("seek_relative", { seconds });
+    } else if (kind === "stop") {
+      // Stop disconnects the bot: require a second press to confirm.
+      if (!els.stopButton.classList.contains("is-armed")) {
+        els.stopButton.classList.add("is-armed");
+        els.stopLabel.textContent = "Conferma";
+        stopArmedTimer = window.setTimeout(disarmStop, STOP_ARM_MS);
+        return;
+      }
+      disarmStop();
+      await postAction("stop");
+    }
+  });
+});
+
+document.querySelectorAll("[data-mode]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (button.disabled || !state) return;
+    const mode = button.dataset.mode;
+    if (mode === "loop") {
+      const current = LOOP_CYCLE.includes(state.loop_mode) ? state.loop_mode : "off";
+      state.loop_mode = LOOP_CYCLE[(LOOP_CYCLE.indexOf(current) + 1) % LOOP_CYCLE.length];
+      renderTransport(state);
+      await postAction("set_loop_mode", { mode: state.loop_mode });
+    } else if (mode === "shuffle") {
+      state.shuffle_mode = !state.shuffle_mode;
+      renderTransport(state);
+      await postAction("toggle_shuffle");
+    } else if (mode === "autoplay") {
+      state.autoplay_enabled = !state.autoplay_enabled;
+      renderTransport(state);
+      await postAction("set_autoplay", { enabled: state.autoplay_enabled });
+    }
+  });
+});
+
+renderTransport(null);
 bootstrap();
 window.requestAnimationFrame(tickPlaybackClock);
 refreshTimer = window.setInterval(bootstrap, 4000);
