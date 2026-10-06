@@ -14,7 +14,10 @@ main_py = (root / "main.py").read_text(encoding="utf-8")
 cog_py = (root / "cogs" / "channel_control.py").read_text(encoding="utf-8")
 
 assert '"cogs.channel_control"' in runtime_py
-assert "@bot.tree.interaction_check" in main_py
+# interaction_check va ridefinito in una sottoclasse di CommandTree: usato come
+# decoratore (@bot.tree.interaction_check) non veniva mai eseguito.
+assert "@bot.tree.interaction_check" not in main_py
+assert "tree_cls=PytonazzCommandTree" in main_py
 assert "async def global_interaction_check" in main_py
 assert 'control != "no_bot_commands"' in main_py
 assert "async def on_message" in main_py

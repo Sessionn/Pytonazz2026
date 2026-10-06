@@ -18,6 +18,7 @@ assert "cfg.enable_command(comando)" in dev_py
 assert "def _interaction_command_slug" in main_py
 assert "cfg.is_command_disabled(command_name)" in main_py
 assert 'log.warning(tag("WARN", f"comando disabilitato' in main_py
-assert 'raise app_commands.CheckFailure("command disabled")' in main_py
+assert '"command disabled")' in main_py
+assert "tree_cls=PytonazzCommandTree" in main_py
 
 print("OK: disabled slash commands are blocked by the global interaction check")
