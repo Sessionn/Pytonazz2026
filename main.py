@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import random
 import sys
@@ -17,7 +16,7 @@ from core.bot_config import cfg
 from core.dj_access import init_dj_access_controller
 from core.log_colors import setup_logging
 from core.banner import print_banner
-from core.paths import CUSTOM_STATUSES_PATH, ensure_runtime_dirs
+from core.paths import ensure_runtime_dirs
 from core.runtime import (
     DEFAULT_COGS,
     ensure_ytdlp_current,
@@ -29,7 +28,8 @@ from core.runtime import (
 )
 from monitoring.cookie_watchdog import start_cookie_watchdog
 from assets.status_messages import STATUS_CYCLE
-from core.constants import UNDISABLEABLE, command_slug
+from core.constants import TYPE_MAP, UNDISABLEABLE, command_slug
+from core.devops.status_store import load_custom_statuses
 
 print_banner()           # <-- banner prima di qualsiasi log
 log_level = getattr(logging, Config.LOG_LEVEL, logging.INFO)
@@ -64,9 +64,22 @@ if Config.CACHE_ENABLED:
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.all()
 
+
+class PytonazzCommandTree(app_commands.CommandTree):
+    """CommandTree con il controllo globale (comandi disabilitati, manutenzione, canali).
+
+    discord.py esegue interaction_check prima di ogni slash command: va
+    ridefinito nella sottoclasse, non e' un decoratore.
+    """
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return await global_interaction_check(interaction)
+
+
 bot = commands.Bot(
     command_prefix="!",
     intents=intents,
+    tree_cls=PytonazzCommandTree,
     # Default prudente: nessun @everyone/@here o ping di ruolo accidentale
     # (titoli brani, testi utente, output AI). I comandi dev che devono
     # menzionare lo dichiarano esplicitamente.
@@ -107,7 +120,12 @@ async def _is_dev_user(discord_user) -> bool:
     return await bot.is_owner(discord_user)
 
 
-@bot.tree.interaction_check
+async def _deny(inter: discord.Interaction, message: str, reason: str):
+    if not inter.response.is_done():
+        await inter.response.send_message(message, ephemeral=True)
+    raise app_commands.CheckFailure(reason)
+
+
 async def global_interaction_check(inter: discord.Interaction) -> bool:
     command_name = _interaction_command_slug(inter)
     if (
@@ -116,27 +134,20 @@ async def global_interaction_check(inter: discord.Interaction) -> bool:
         and cfg.is_command_disabled(command_name)
     ):
         log.warning(tag("WARN", f"comando disabilitato  {b(command_name)}  user={inter.user}"))
-        if not inter.response.is_done():
-            await inter.response.send_message(
-                f"\u26d4 Il comando `/{command_name}` e' disabilitato al momento.",
-                ephemeral=True,
-            )
-        raise app_commands.CheckFailure("command disabled")
+        await _deny(inter, f"\u26d4 Il comando `/{command_name}` e' disabilitato al momento.", "command disabled")
+
+    if await _is_dev_user(inter.user):
+        return True
+    if cfg.maintenance and command_name != "help":
+        await _deny(inter, "\U0001f6a7 Bot in **manutenzione**: riprova piu' tardi.", "maintenance")
 
     if not inter.guild_id or not inter.channel_id:
-        return True
-    if await _is_dev_user(inter.user):
         return True
     control = cfg.get_channel_control(inter.guild_id, inter.channel_id)
     if control != "no_bot_commands":
         return True
     label = _CHANNEL_CONTROL_LABELS.get(control, control)
-    if not inter.response.is_done():
-        await inter.response.send_message(
-            f"\u274c Questo canale ha controllo **{label}**.",
-            ephemeral=True,
-        )
-    raise app_commands.CheckFailure("channel blocks bot commands")
+    await _deny(inter, f"\u274c Questo canale ha controllo **{label}**.", "channel blocks bot commands")
 
 
 _ERROR_REPLY = "\u26a0\ufe0f Si e' verificato un errore inatteso. Riprova tra poco."
@@ -192,29 +203,12 @@ async def watchdog():
 
 
 # ── Status rotation ──────────────────────────────────────────────────────────
-custom_statuses: list[str] = []
-
-
-def _load_custom_statuses() -> list:
-    """Carica le attività custom da file. Supporta sia stringhe che dizionari."""
-    try:
-        if CUSTOM_STATUSES_PATH.exists():
-            data = json.loads(CUSTOM_STATUSES_PATH.read_text(encoding="utf-8"))
-            result = []
-            for s in data:
-                if isinstance(s, str) and s.strip():
-                    result.append(s)
-                elif isinstance(s, dict) and s.get("name"):
-                    result.append(s)
-            return result
-    except Exception:
-        pass
-    return []
-
-
 def _build_full_status_list() -> list:
-    """Costruisce la lista completa STATUS_CYCLE + custom."""
-    custom = _load_custom_statuses()
+    """Costruisce la lista completa STATUS_CYCLE + custom (stringhe o dict con name)."""
+    custom = [
+        s for s in load_custom_statuses()
+        if (isinstance(s, str) and s.strip()) or (isinstance(s, dict) and s.get("name"))
+    ]
     return list(STATUS_CYCLE) + custom
 
 
@@ -234,16 +228,20 @@ def _build_activity(entry) -> discord.BaseActivity:
     if isinstance(entry, str):
         return discord.Game(name=entry)
     activity_type = entry.get("type", discord.ActivityType.playing)
+    # /status add salva il tipo come stringa ("listening"), STATUS_CYCLE come enum.
+    if isinstance(activity_type, str):
+        activity_type = TYPE_MAP.get(activity_type, discord.ActivityType.playing)
     name = entry.get("name", "")
-    if activity_type == discord.ActivityType.listening:
-        return discord.Activity(type=discord.ActivityType.listening, name=name)
-    if activity_type == discord.ActivityType.watching:
-        return discord.Activity(type=discord.ActivityType.watching, name=name)
-    if activity_type == discord.ActivityType.competing:
-        return discord.Activity(type=discord.ActivityType.competing, name=name)
+    if activity_type == discord.ActivityType.custom:
+        return discord.CustomActivity(name=name)
     if activity_type == discord.ActivityType.streaming:
         return discord.Streaming(name=name, url="https://twitch.tv/placeholder")
-    # playing e custom ricadono su Game
+    if activity_type in (
+        discord.ActivityType.listening,
+        discord.ActivityType.watching,
+        discord.ActivityType.competing,
+    ):
+        return discord.Activity(type=activity_type, name=name)
     return discord.Game(name=name)
 
 
@@ -255,7 +253,8 @@ def _build_status(entry) -> discord.Status:
     return getattr(discord.Status, raw, discord.Status.online)
 
 
-@tasks.loop(minutes=10)
+# Intervallo reale: cfg.status_interval, applicato in on_ready e da /status interval.
+@tasks.loop(seconds=300)
 async def rotate_status():
     if cfg.maintenance:
         return
@@ -271,7 +270,11 @@ async def apply_next_status():
     pool = getattr(bot, "_status_list", None) or _build_full_status_list()
     if not pool:
         return
-    chosen = random.choice(pool)
+    # Evita di ripetere lo status appena mostrato quando ce n'e' piu' di uno.
+    last = getattr(bot, "_last_status_entry", None)
+    choices = [entry for entry in pool if entry is not last] or pool
+    chosen = random.choice(choices)
+    bot._last_status_entry = chosen
     activity = _build_activity(chosen)
     status   = _build_status(chosen)
     await bot.change_presence(status=status, activity=activity)
@@ -332,8 +335,6 @@ bot.rotate_status_task = rotate_status   # task loop — usato da /status interv
 # ── Events ───────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    global custom_statuses
-    custom_statuses = _load_custom_statuses()
     bot._status_list = _build_full_status_list()
 
     log.info(tag("WATCHDOG", "Hot-reload attivo su cogs"))
