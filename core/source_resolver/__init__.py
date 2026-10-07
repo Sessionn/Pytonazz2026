@@ -51,6 +51,7 @@ from core.source_resolver.ytdlp import (
 )
 
 from core.source_resolver import platforms
+from core.source_resolver import tiktok
 from core.source_resolver.spotify import (
     _spotify_client,
     _spotify_item_popularity,
@@ -1087,6 +1088,69 @@ class SourceResolver:
         return None
 
     @classmethod
+    async def _resolve_tiktok(cls, url: str, requester: str, requester_id: int) -> list:
+        """Video TikTok: audio del video. Suono: se e' una canzone pubblicata si cerca
+        la versione completa ufficiale, altrimenti (suono originale) si riproduce lui."""
+        loop = asyncio.get_running_loop()
+        t0 = time.perf_counter()
+        ref = tiktok.parse_tiktok_url(url)
+        try:
+            if ref is not None and ref.kind == "short":
+                ref = await loop.run_in_executor(None, tiktok.expand_short_link, url)
+            if ref is None:
+                log.warning(tag("RESOLVE", f"link TikTok non riconosciuto  {b(url)}"))
+                return []
+            if ref.kind == "music":
+                sound = await loop.run_in_executor(None, tiktok.fetch_sound, ref.id)
+                if tiktok.is_named_song(sound):
+                    query = f"{sound.title} {sound.author}".strip()
+                    log.info(tag("TIKTOK", f"suono = canzone pubblicata  {b(query)}  ->  versione completa"))
+                    full = await cls.resolve_choices(query, requester, requester_id, n=1)
+                    if full:
+                        full[0].source_url = tiktok.canonical_url(ref)
+                        return full[:1]
+                track = TrackInfo(
+                    title=sound.title or "Suono TikTok",
+                    webpage_url=tiktok.canonical_url(ref),
+                    duration=0,
+                    thumbnail=sound.cover,
+                    requester=requester,
+                    requester_id=requester_id,
+                    source="tiktok",
+                    stream_url=sound.play_url,
+                    artist=sound.author,
+                    origin_query=url,
+                    source_url=url,
+                    thumbnail_source="tiktok" if sound.cover else "",
+                    thumbnail_confidence=0.6 if sound.cover else 0.0,
+                )
+            else:
+                video = await loop.run_in_executor(None, tiktok.fetch_video, ref.id)
+                ref = tiktok.TikTokRef("video", video.id, video.user or ref.user)
+                track = TrackInfo(
+                    title=tiktok.video_title(video),
+                    webpage_url=tiktok.canonical_url(ref),
+                    duration=video.duration,
+                    thumbnail=video.cover,
+                    requester=requester,
+                    requester_id=requester_id,
+                    source="tiktok",
+                    stream_url=video.video_url or (video.sound.play_url if video.sound else ""),
+                    artist=video.author,
+                    origin_query=url,
+                    source_url=url,
+                    thumbnail_source="tiktok" if video.cover else "",
+                    thumbnail_confidence=0.6 if video.cover else 0.0,
+                )
+        except Exception as exc:
+            log.warning(tag("RESOLVE", f"TikTok non risolto  {b(url)}  {type(exc).__name__}: {exc}"))
+            return []
+        if track.stream_url:
+            cls._set_cached_stream_url(track.webpage_url, track.stream_url)
+        log.info(tag("TIKTOK", f"{title(track.title)}  {ms((time.perf_counter() - t0) * 1000)}"))
+        return [track] if track.stream_url else []
+
+    @classmethod
     async def resolve(cls, query: str, requester: str, requester_id: int = 0) -> list:
         return await cls._await_resolve_with_soft_budget(
             cls._resolve_impl(query, requester, requester_id),
@@ -1106,6 +1170,10 @@ class SourceResolver:
                     return [cached_track]
             except Exception as _ce:
                 log.debug(tag("CACHE", f"direct-url read path error (ignorato): {_ce}"))
+
+        # ── TikTok: video e suoni dalle pagine di embed (niente account) ──────
+        if tiktok.is_tiktok_url(query):
+            return await cls._resolve_tiktok(query, requester, requester_id)
 
         # ── Spotify track singola ──────────────────────────────────────────────
         if track_id := extract_spotify_track_id(query):
@@ -2335,6 +2403,17 @@ class SourceResolver:
         try:
             maybe_prune_player_cache()
             stream_url = ""
+            if tiktok.is_tiktok_url(normalized_webpage_url):
+                # yt-dlp riceve "login richiesto" da TikTok: link nuovo dalla pagina di embed.
+                try:
+                    stream_url = tiktok.fresh_stream_url(normalized_webpage_url)
+                except Exception as exc:
+                    log.warning(tag("STREAM", f"TikTok non rinnovato  {b(normalized_webpage_url)}  {exc}"))
+                if stream_url:
+                    cls._set_cached_stream_url(normalized_webpage_url, stream_url)
+                else:
+                    cls.invalidate_stream_cache(normalized_webpage_url)
+                return stream_url
             if _is_youtube_watch_url(normalized_webpage_url):
                 stream_url = cls._extract_stream_url(
                     normalized_webpage_url, _NO_WEBPAGE_STREAM_EXTRACT_OPTS, quiet=True

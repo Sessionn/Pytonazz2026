@@ -35,6 +35,7 @@ RE_URL_LIKE = re.compile(
     r"|(?:geo\.)?music\.apple\.com"
     r"|(?:www\.|listen\.)?tidal\.com"
     r"|[a-z0-9-]+\.bandcamp\.com"
+    r"|(?:www\.|m\.|vm\.|vt\.)?tiktok\.com"
     r")(?:/|$)",
     re.IGNORECASE,
 )

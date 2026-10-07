@@ -21,6 +21,7 @@ from core.music.input import (
 )
 from core.music.player import MusicPlayer
 from core.source_resolver import platforms
+from core.source_resolver import tiktok
 from core.source_resolver import (
     SourceResolver,
     _is_yt_channel_url,
@@ -144,7 +145,8 @@ class Music(commands.Cog):
             condition.notify_all()
 
     async def _resolve_play_track(self, query: str, requester: str, requester_id: int):
-        if Config.AUDIO_BACKEND in {"lavalink", "wavelink"}:
+        # Lavalink non legge TikTok: le pagine di embed le gestisce SourceResolver.
+        if Config.AUDIO_BACKEND in {"lavalink", "wavelink"} and not tiktok.is_tiktok_url(query):
             backend = create_audio_backend("lavalink")
             try:
                 if isinstance(backend, LavalinkAudioBackend):
