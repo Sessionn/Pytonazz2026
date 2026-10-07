@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ACTION="${1:-start}"
+SESSION_NAME="${PYTONAZZ_TMUX_SESSION:-pytonazz}"
+ROOT_DIR="${PYTONAZZ_ROOT:-$HOME/Pytonazz2026}"
+PYTHON_BIN="${PYTONAZZ_PYTHON:-python3}"
+LOG_DIR="${PYTONAZZ_LOG_DIR:-$ROOT_DIR/logs}"
+LOG_FILE="$LOG_DIR/bot.log"
+LOG_MAX_BYTES="${PYTONAZZ_LOG_MAX_BYTES:-20971520}"
+LOG_KEEP="${PYTONAZZ_LOG_KEEP:-5}"
+SELF="$(readlink -f "$0")"
+
+# bot.log -> bot.log.1 -> ... -> bot.log.$LOG_KEEP (il piu' vecchio si perde).
+_log_rotate() {
+    [ -s "$LOG_FILE" ] || return 0
+    local i
+    for ((i = LOG_KEEP - 1; i >= 1; i--)); do
+        [ -f "$LOG_FILE.$i" ] && mv -f "$LOG_FILE.$i" "$LOG_FILE.$((i + 1))"
+    done
+    mv -f "$LOG_FILE" "$LOG_FILE.1"
+}
+
+# Riceve l'output del pane tmux (pipe-pane) e lo scrive in bot.log,
+# ruotando quando supera LOG_MAX_BYTES.
+_log_writer() {
+    mkdir -p "$LOG_DIR"
+    local line n=0
+    exec 3>>"$LOG_FILE"
+    while IFS= read -r line || [ -n "$line" ]; do
+        printf '%s
+' "$line" >&3
+        n=$((n + 1))
+        if [ "$n" -ge 200 ]; then
+            n=0
+            if [ "$(stat -c %s "$LOG_FILE" 2>/dev/null || echo 0)" -ge "$LOG_MAX_BYTES" ]; then
+                exec 3>&-
+                _log_rotate
+                exec 3>>"$LOG_FILE"
+            fi
+        fi
+    done
+}
+
+_tmux_has_session() {
+    tmux has-session -t "$SESSION_NAME" 2>/dev/null
+}
+
+_screen_has_legacy_session() {
+    command -v screen >/dev/null 2>&1 && screen -list 2>/dev/null | grep -q "[.]$SESSION_NAME[[:space:]]"
+}
+
+_bot_stop() {
+    local stopped=0
+
+    if _tmux_has_session; then
+        echo "Stopping tmux '$SESSION_NAME'..."
+        tmux kill-session -t "$SESSION_NAME"
+        stopped=1
+    fi
+
+    if _screen_has_legacy_session; then
+        echo "Stopping legacy screen '$SESSION_NAME'..."
+        screen -S "$SESSION_NAME" -X quit
+        stopped=1
+    fi
+
+    if [ "$stopped" -eq 1 ]; then
+        sleep 1
+        # Stop any orphaned bot process left after detaching/killing the session.
+        pkill -f "$PYTHON_BIN main.py" 2>/dev/null || true
+        pkill -f "python3 main.py" 2>/dev/null || true
+        echo "Bot stoppato"
+    else
+        echo "Nessuna sessione '$SESSION_NAME' attiva"
+    fi
+}
+
+_bot_start() {
+    if _tmux_has_session; then
+        echo "Il bot e' gia' in esecuzione in tmux '$SESSION_NAME'. Usa 'res' per riavviarlo."
+        return 0
+    fi
+
+    if _screen_has_legacy_session; then
+        echo "Trovata sessione legacy screen '$SESSION_NAME': fermala con stop/restart prima di avviare tmux."
+        return 1
+    fi
+
+    # Il bot parte solo dopo che pipe-pane e' agganciato, cosi' il log
+    # contiene anche le prime righe dell'avvio.
+    local ready="pytonazz-log-ready-$SESSION_NAME-$$"
+    mkdir -p "$LOG_DIR"
+    _log_rotate
+    tmux new-session -d -s "$SESSION_NAME" -c "$ROOT_DIR" \
+        "tmux wait-for $ready; source venv/bin/activate && exec $PYTHON_BIN main.py"
+    # Il writer gira nel server tmux, che non eredita l'ambiente di questo
+    # script: percorso e limiti gli arrivano espliciti.
+    tmux pipe-pane -o -t "$SESSION_NAME" \
+        "PYTONAZZ_LOG_DIR='$LOG_DIR' PYTONAZZ_LOG_MAX_BYTES='$LOG_MAX_BYTES' PYTONAZZ_LOG_KEEP='$LOG_KEEP' exec '$SELF' _log-writer"
+    tmux wait-for -S "$ready"
+    echo "Bot avviato in tmux '$SESSION_NAME'"
+    echo "   Usa: tmux attach -t $SESSION_NAME   per attaccarti"
+    echo "   Usa: Ctrl+A poi D                  per staccarti"
+    echo "   Log: $LOG_FILE (pytonazz-bot logs)"
+}
+
+_bot_status() {
+    if _tmux_has_session; then
+        echo "Bot attivo in tmux '$SESSION_NAME'"
+        return 0
+    fi
+
+    if _screen_has_legacy_session; then
+        echo "Bot attivo in legacy screen '$SESSION_NAME'"
+        return 0
+    fi
+
+    echo "Bot non attivo"
+    return 1
+}
+
+case "$ACTION" in
+    start)
+        _bot_start
+        ;;
+    stop)
+        _bot_stop
+        ;;
+    restart)
+        _bot_stop
+        _bot_start
+        ;;
+    status)
+        _bot_status
+        ;;
+    logs)
+        exec tail -n "${2:-200}" -F "$LOG_FILE"
+        ;;
+    _log-writer)
+        _log_writer
+        ;;
+    *)
+        echo "Usage: pytonazz-bot [start|stop|restart|status|logs [righe]]"
+        exit 1
+        ;;
+esac

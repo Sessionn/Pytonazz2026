@@ -33,8 +33,9 @@ Stato operativo verificato sulla VM:
 - dashboard: `127.0.0.1:5000`;
 - proxy pubblico: Caddy su `80/443`;
 - WARP SOCKS locale: `127.0.0.1:40000`;
-- processo bot: `screen` session `pytonazz`;
-- script runtime: `~/.local/bin/pytonazz-bot`;
+- processo bot: sessione `tmux` `pytonazz`;
+- script runtime: `~/.local/bin/pytonazz-bot` (copia di `scripts/pytonazz-bot`);
+- log bot: `~/Pytonazz2026/logs/bot.log` (rotazione automatica);
 - cookie YouTube: `/home/sessionn/cookies.txt`;
 - autostart: crontab utente.
 
@@ -43,12 +44,13 @@ Home policy:
 ```text
 ~/
 |-- Pytonazz2026/              # repo produzione
-|-- .local/bin/pytonazz-bot    # start/stop/restart
+|-- .local/bin/pytonazz-bot    # start/stop/restart/status/logs
+|-- .tmux.conf                 # copia di scripts/tmux.conf
 |-- .local/bin/rotate-warp     # utility manuale WARP
 |-- cookies.txt                # cookie YouTube aggiornabile da PC
 ```
 
-Non lasciare probe Python, screen log, backup `.env`, clone temporanei o altri artifact nella root della home. Finito il debug, rimuovili.
+Non lasciare probe Python, backup `.env`, clone temporanei o altri artifact nella root della home. Finito il debug, rimuovili.
 
 ## 2. Prerequisiti
 
@@ -273,7 +275,7 @@ sudo systemctl status caddy --no-pager
 
 ## 12. Service systemd
 
-La VM attuale usa `screen` e crontab, non systemd per il bot. Questa sezione resta valida se in futuro vuoi migrare a un servizio systemd.
+La VM attuale usa `tmux` e crontab, non systemd per il bot. Questa sezione resta valida se in futuro vuoi migrare a un servizio systemd.
 
 Crea `/etc/systemd/system/pytonazz.service`:
 
@@ -305,31 +307,35 @@ sudo systemctl restart pytonazz
 sudo systemctl status pytonazz --no-pager
 ```
 
-Se invece usi `screen`, assicurati che lo script di start entri nel repo, attivi `venv` e lanci `python main.py`.
+Se invece usi `tmux`, lo script `scripts/pytonazz-bot` entra nel repo, attiva `venv`, lancia `python3 main.py` e salva l'output in `logs/bot.log`.
 
-Setup screen usato sulla VM attuale:
+Setup tmux usato sulla VM attuale:
 
 ```bash
 mkdir -p ~/.local/bin
+install -m 755 ~/Pytonazz2026/scripts/pytonazz-bot ~/.local/bin/pytonazz-bot
+cp ~/Pytonazz2026/scripts/tmux.conf ~/.tmux.conf
 
 # Script operativo atteso:
 ~/.local/bin/pytonazz-bot start
 ~/.local/bin/pytonazz-bot stop
 ~/.local/bin/pytonazz-bot restart
+~/.local/bin/pytonazz-bot logs      # segue logs/bot.log
 
 # Alias consigliati in ~/.bashrc:
 alias gp='cd ~/Pytonazz2026 && git pull && cd ~'
 alias sta='~/.local/bin/pytonazz-bot start'
 alias sto='~/.local/bin/pytonazz-bot stop'
 alias res='~/.local/bin/pytonazz-bot restart'
-alias scr='screen -r pytonazz'
+alias scr='tmux attach -t pytonazz'
+alias st='~/.local/bin/pytonazz-bot status'
 alias warp-rotate='~/.local/bin/rotate-warp'
 
 # Autostart:
 (crontab -l 2>/dev/null; echo '@reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start') | crontab -
 ```
 
-Evita `screen -L` senza `-Logfile`: crea `screenlog.0` nella directory corrente, spesso la home.
+Il log ruota a 20 MB e a ogni avvio (5 file); per cambiarlo esporta `PYTONAZZ_LOG_MAX_BYTES` / `PYTONAZZ_LOG_KEEP` prima di `start`. Lo stop chiude anche il writer del log.
 
 ## 13. Deploy aggiornamenti
 
@@ -354,7 +360,7 @@ sudo systemctl restart pytonazz
 sudo systemctl restart caddy
 ```
 
-Con `screen`, sostituisci il restart systemd con i tuoi alias di stop/start.
+Con `tmux`, sostituisci il restart systemd con i tuoi alias di stop/start.
 
 Deploy standard sulla VM attuale:
 
@@ -486,7 +492,7 @@ Segreti da ruotare se finiti in file o log:
 - [ ] `ufw` con `22`, `80`, `443` aperte e `5000` chiusa
 - [ ] Caddy attivo
 - [ ] HTTPS pubblico funzionante
-- [ ] servizio systemd o screen attivo
+- [ ] servizio systemd o sessione tmux attiva
 - [ ] `python tools/benchmark_resolve.py "titolo artista"` eseguito
 - [ ] `/play` reale provato in Discord
 - [ ] home utente pulita: repo, dotfile/cartelle utente e `cookies.txt`

@@ -394,14 +394,17 @@ Per installazione completa segui [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
 
 ### VM operativa attuale
 
-La VM di produzione usa `screen`, non un servizio `pytonazz.service` systemd.
+La VM di produzione usa `tmux` (sessione `pytonazz`), non un servizio `pytonazz.service` systemd.
 
 Layout:
 
 - repo: `~/Pytonazz2026`;
-- branch: `main-2`;
+- branch: quello di produzione corrente (`git -C ~/Pytonazz2026 status -sb`);
 - venv: `~/Pytonazz2026/venv`;
-- script runtime: `~/.local/bin/pytonazz-bot`;
+- script runtime: `~/.local/bin/pytonazz-bot`, copia di `scripts/pytonazz-bot` (`start|stop|restart|status|logs`);
+- config tmux: `~/.tmux.conf`, copia di `scripts/tmux.conf` (prefisso `Ctrl+A`);
+- log del bot: `~/Pytonazz2026/logs/bot.log`, scritto da `tmux pipe-pane`; ruota a 20 MB e a ogni avvio, tiene 5 file (`PYTONAZZ_LOG_MAX_BYTES`, `PYTONAZZ_LOG_KEEP`); `pytonazz-bot logs` lo segue, `less -R` per i colori;
+- POT provider YouTube: container `pytonazz-pot-provider` su `127.0.0.1:4416`, installato da `scripts/setup_pot_provider.sh`;
 - utility WARP manuale: `~/.local/bin/rotate-warp`;
 - cookie YouTube: `/home/sessionn/cookies.txt`;
 - dashboard: `127.0.0.1:5000`;
@@ -415,7 +418,8 @@ gp   # cd ~/Pytonazz2026 && git pull && cd ~
 sta  # start bot
 sto  # stop bot
 res  # restart bot
-scr  # screen -r pytonazz
+scr  # tmux attach -t pytonazz
+st   # stato bot
 ```
 
 Autostart:
@@ -424,7 +428,7 @@ Autostart:
 @reboot sleep 15 && /home/sessionn/.local/bin/pytonazz-bot start
 ```
 
-La home dell'utente deve restare pulita. Sono ammessi solo repo, dotfile/cartelle utente, script operativi in `~/.local/bin` e `~/cookies.txt`. Probe, benchmark temporanei, log screen e backup manuali vanno eliminati a fine lavoro; se serve conservarli per poco, tenerli fuori dal repo e non committarli.
+La home dell'utente deve restare pulita. Sono ammessi solo repo, dotfile/cartelle utente, script operativi in `~/.local/bin` e `~/cookies.txt`. Probe, benchmark temporanei e backup manuali vanno eliminati a fine lavoro; se serve conservarli per poco, tenerli fuori dal repo e non committarli.
 
 Deploy tipico sulla VM attuale:
 
@@ -440,7 +444,8 @@ res
 Controlli rapidi:
 
 ```bash
-screen -list
+tmux ls
+pytonazz-bot logs 50
 ss -ltnp | grep -E ':80|:443|:5000|:40000'
 systemctl is-active cron caddy docker warp-svc
 ```
