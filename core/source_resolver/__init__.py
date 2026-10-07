@@ -217,7 +217,12 @@ def _extract_spotify_entity_id(url: str, entity: str) -> Optional[str]:
                 return None
             return spotify_id if _SPOTIFY_ID_PATTERN.fullmatch(spotify_id) else None
 
-    parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+    try:
+        parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+    except ValueError:
+        # Testo libero con parentesi quadre ("love nwantiti [North African Remix]"):
+        # urlparse lo scambia per un host IPv6 e /play andava in errore.
+        return None
     host = (parsed.hostname or "").lower()
     if host not in _SPOTIFY_HOSTS:
         return None

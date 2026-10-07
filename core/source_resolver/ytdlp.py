@@ -165,7 +165,10 @@ def _is_soundcloud_url(url: str) -> bool:
     raw = (url or "").strip()
     if not raw:
         return False
-    parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+    try:
+        parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+    except ValueError:  # testo con parentesi quadre: non e' un link
+        return False
     host = (parsed.hostname or "").lower()
     if not host:
         return False
@@ -209,7 +212,10 @@ def _is_soundcloud_short_url(url: str) -> bool:
     raw = (url or "").strip()
     if not raw:
         return False
-    parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+    try:
+        parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+    except ValueError:  # testo con parentesi quadre: non e' un link
+        return False
     return (parsed.hostname or "").lower() == "on.soundcloud.com"
 
 
