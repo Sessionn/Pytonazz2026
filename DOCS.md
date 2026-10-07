@@ -343,6 +343,12 @@ Developer:
 - `/ai_reset`
 - `/debug`
 
+Controllo globale dei comandi: `PytonazzCommandTree` (passato a `commands.Bot` come `tree_cls`) applica a ogni slash command `/disable_command`, i canali `no_bot_commands` e la `/maintenance`. In manutenzione i non-dev possono usare solo `/help`.
+
+`/set_log_channel` inoltra nel canale scelto i log di livello `ERROR` (`core/log_channel.py`): messaggi raggruppati ogni 5 s, stesso errore ripetuto mostrato una volta ogni 10 minuti.
+
+`/backupconfig` include anche `dj_role_config.json`.
+
 Dev audio:
 
 - comandi di test MP3/voice in `cogs/dev_audio.py`.
