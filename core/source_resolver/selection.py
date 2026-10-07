@@ -33,6 +33,20 @@ _VIDEO_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Caricamenti tradotti/sottotitolati di canali di testi ("Sub. Español", "Letra",
+# "Traduzione", ...): non sono l'originale. Visto il 2026-10-07: per "bohemian
+# rhapsody queen" vinceva "Queen — Bohemian Rhapsody (Sub. Español / Lyrics)".
+_TRANSLATED_UPLOAD_RE = re.compile(
+    r"\bsub(?:s|titles?|titulad[ao]s?|titled)?\b\.?\s*(?:español|espanol|ita(?:liano)?|eng(?:lish)?|pt|portugu[eê]s)"
+    r"|\b(?:subtitulad[ao]|traducid[ao]|traducci[oó]n|traduzione|tradotto|sottotitol[io]|sottotitolato"
+    r"|legendad[ao]|tradu[cç][aã]o|letra)\b",
+    re.IGNORECASE,
+)
+
+
+def is_translated_upload(title: str) -> bool:
+    return bool(_TRANSLATED_UPLOAD_RE.search(title or ""))
+
 
 @dataclass(frozen=True)
 class CandidateScore:
@@ -100,6 +114,7 @@ def score_candidate(query: str, track, spotify_meta: dict | None = None) -> Cand
     extra_variant_tags = candidate_variant_tags - requested_variant_tags
     unwanted_variant = _is_variant(title) and not _query_requests_variant(q)
     unwanted_video = _is_music_video(title, artist) and not query_requests_video(q)
+    unwanted_translation = is_translated_upload(title) and not is_translated_upload(q)
     duration_penalty = _duration_penalty(q, duration, spotify_meta)
 
     if requested_variant_tags:
@@ -113,6 +128,8 @@ def score_candidate(query: str, track, spotify_meta: dict | None = None) -> Cand
         penalty += 0.30
     if unwanted_video:
         penalty += 0.18
+    if unwanted_translation:
+        penalty += 0.25
     penalty += duration_penalty
 
     if spotify_meta:
@@ -135,6 +152,7 @@ def score_candidate(query: str, track, spotify_meta: dict | None = None) -> Cand
     severe = bool(
         unwanted_variant
         or unwanted_video
+        or unwanted_translation
         or duration_penalty >= 0.22
         or (_looks_like_song_query(q) and query_score < 0.20)
     )
@@ -143,6 +161,8 @@ def score_candidate(query: str, track, spotify_meta: dict | None = None) -> Cand
         reason_parts.append("unrequested_variant")
     if unwanted_video:
         reason_parts.append("unrequested_video")
+    if unwanted_translation:
+        reason_parts.append("translated_upload")
     if duration_penalty:
         reason_parts.append("duration")
     if is_official_upload(track):
