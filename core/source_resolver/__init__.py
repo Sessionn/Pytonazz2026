@@ -42,6 +42,8 @@ from core.source_resolver.ytdlp import (
     _STREAM_URL_CACHE_TTL,
     _STREAM_URL_CACHE_MAX,
     _make_opts,
+    enable_player_cache,
+    maybe_prune_player_cache,
     _strip_yt_radio,
     _is_soundcloud_url,
     _resolve_soundcloud_short_url,
@@ -666,6 +668,19 @@ _FAST_STREAM_EXTRACT_OPTS = {
     "youtube_include_dash_manifest": False,
     "youtube_include_hls_manifest": False,
 }
+# Primo tentativo senza scaricare la pagina del video: per lo stream audio
+# bastano le API del player (misurato sulla VM: 3.03 -> 2.62 s, 0 errori su 15).
+# Se fallisce si riprova con l'estrazione completa.
+_NO_WEBPAGE_STREAM_EXTRACT_OPTS = {
+    **_FAST_STREAM_EXTRACT_OPTS,
+    "extractor_args": {"youtube": {"player_skip": ["webpage"]}},
+}
+enable_player_cache()
+
+
+def _is_youtube_watch_url(url: str) -> bool:
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    return host in {"www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
 
 
 def _get_query_cache():
@@ -2313,33 +2328,16 @@ class SourceResolver:
             inflight.wait()
             return cls._get_cached_stream_url(normalized_webpage_url) or ""
         try:
-            try:
-                with yt_dlp.YoutubeDL(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
-                    info = ydl.extract_info(normalized_webpage_url, download=False)
-            except yt_dlp.utils.ExtractorError as e:
-                cls.invalidate_stream_cache(normalized_webpage_url)
-                err_str = str(e).lower()
-                if any(kw in err_str for kw in ("video unavailable", "private video",
-                                                 "this video is not available",
-                                                 "has been removed")):
-                    log.warning(tag("WARN", f"video non disponibile (rimosso/privato): {b(normalized_webpage_url)}"))
-                else:
-                    log.error(tag("ERR", f"fetch_stream_url ExtractorError: {e}"))
-                return ""
-            except Exception as e:
-                cls.invalidate_stream_cache(normalized_webpage_url)
-                log.error(tag("ERR", f"fetch_stream_url: {e}"))
-                return ""
-            if not info or cls._is_drm(info):
-                cls.invalidate_stream_cache(normalized_webpage_url)
-                return ""
-            entries = info.get("entries") or []
-            if entries:
-                info = next((entry for entry in entries if entry and not cls._is_drm(entry)), {}) or {}
-                if not info:
-                    cls.invalidate_stream_cache(normalized_webpage_url)
-                    return ""
-            stream_url = cls._best_audio_url(info) or ""
+            maybe_prune_player_cache()
+            stream_url = ""
+            if _is_youtube_watch_url(normalized_webpage_url):
+                stream_url = cls._extract_stream_url(
+                    normalized_webpage_url, _NO_WEBPAGE_STREAM_EXTRACT_OPTS, quiet=True
+                )
+                if not stream_url:
+                    log.debug(tag("STREAM", f"estrazione rapida fallita, provo completa  {b(normalized_webpage_url)}"))
+            if not stream_url:
+                stream_url = cls._extract_stream_url(normalized_webpage_url, _FAST_STREAM_EXTRACT_OPTS)
             if stream_url:
                 cls._set_cached_stream_url(normalized_webpage_url, stream_url)
             else:
@@ -2350,6 +2348,38 @@ class SourceResolver:
                 done = cls._stream_url_inflight.pop(normalized_webpage_url, None)
                 if done is not None:
                     done.set()
+
+    @classmethod
+    def _extract_stream_url(cls, webpage_url: str, opts: dict, *, quiet: bool = False) -> str:
+        """Una estrazione yt-dlp del link audio; "" se fallisce (quiet: errori solo in debug)."""
+        try:
+            with yt_dlp.YoutubeDL(_make_opts(opts)) as ydl:
+                info = ydl.extract_info(webpage_url, download=False)
+        except yt_dlp.utils.ExtractorError as e:
+            err_str = str(e).lower()
+            if quiet:
+                log.debug(tag("STREAM", f"estrazione rapida: {e}"))
+            elif any(kw in err_str for kw in ("video unavailable", "private video",
+                                               "this video is not available",
+                                               "has been removed")):
+                log.warning(tag("WARN", f"video non disponibile (rimosso/privato): {b(webpage_url)}"))
+            else:
+                log.error(tag("ERR", f"fetch_stream_url ExtractorError: {e}"))
+            return ""
+        except Exception as e:
+            if quiet:
+                log.debug(tag("STREAM", f"estrazione rapida: {e}"))
+            else:
+                log.error(tag("ERR", f"fetch_stream_url: {e}"))
+            return ""
+        if not info or cls._is_drm(info):
+            return ""
+        entries = info.get("entries") or []
+        if entries:
+            info = next((entry for entry in entries if entry and not cls._is_drm(entry)), {}) or {}
+            if not info:
+                return ""
+        return cls._best_audio_url(info) or ""
 
     @staticmethod
     def _is_drm(info: dict) -> bool:

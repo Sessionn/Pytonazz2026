@@ -10,8 +10,11 @@ exactly — _make_opts() merges Config.YDL_OPTIONS unchanged.
 from __future__ import annotations
 
 import logging
+import os
+import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 from config import Config
 from core.log_colors import tag
@@ -57,6 +60,67 @@ class _YdlLogger:
                 notify_ytdlp_cookie_error(msg)
             except Exception as exc:
                 log.debug(tag("COOKIE", f"notifica cookie yt-dlp saltata: {exc}"))
+
+
+# ── Cache del player YouTube pre-elaborato ───────────────────────────────────
+
+_PLAYER_CACHE_MAX_AGE_SECONDS = 7 * 24 * 3600
+_PLAYER_CACHE_MAX_FILES = 8
+
+
+def enable_player_cache() -> None:
+    """Accende la cache del player YouTube pre-elaborato del risolutore JS di yt-dlp.
+
+    Senza cache, a ogni estrazione deno rielabora l'intero player (~2.5 MB):
+    sulla VM la challenge passa da ~1.5 s a ~0.65 s (misurato 2026-10-07).
+    yt-dlp la tiene spenta perche' non ruota i file (~4.3 MB per versione del
+    player, YouTube ne alterna alcune): la rotazione la fa prune_player_cache.
+    """
+    try:
+        from yt_dlp.extractor.youtube.jsc._builtin import ejs
+    except ImportError:
+        log.debug(tag("RESOLVE", "cache player yt-dlp non disponibile in questa versione"))
+        return
+    if hasattr(ejs.EJSBaseJCP, "_ENABLE_PREPROCESSED_PLAYER_CACHE"):
+        ejs.EJSBaseJCP._ENABLE_PREPROCESSED_PLAYER_CACHE = True
+        maybe_prune_player_cache()
+
+
+def prune_player_cache(cache_dir: Path | None = None, *, now: float | None = None) -> int:
+    """Elimina i player in cache piu' vecchi di 7 giorni e tiene al massimo 8 file."""
+    if cache_dir is None:
+        cache_root = os.path.expanduser(os.getenv("XDG_CACHE_HOME", "~/.cache"))
+        cache_dir = Path(cache_root) / "yt-dlp" / "challenge-solver"
+    try:
+        files = sorted(
+            (p for p in cache_dir.glob("player,*.json") if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return 0
+    now = time.time() if now is None else now
+    removed = 0
+    for index, path in enumerate(files):
+        try:
+            if index >= _PLAYER_CACHE_MAX_FILES or now - path.stat().st_mtime > _PLAYER_CACHE_MAX_AGE_SECONDS:
+                path.unlink()
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+_last_prune: float | None = None
+
+
+def maybe_prune_player_cache() -> None:
+    """prune_player_cache al massimo una volta al giorno (il bot resta acceso per settimane)."""
+    global _last_prune
+    now = time.monotonic()
+    if _last_prune is None or now - _last_prune >= 24 * 3600:
+        _last_prune = now
+        prune_player_cache()
 
 
 # ── Option builder ────────────────────────────────────────────────────────────
