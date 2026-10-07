@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 import re
 import time
@@ -9,8 +10,13 @@ from urllib.parse import quote, urlparse
 from config import Config
 from core.audio_backends.base import AudioLoadResult
 from core.music.input import is_text_search, normalize_url_like, spotify_kind
+from core.log_colors import b, ms, tag
 from core.source_resolver import SourceResolver, TrackInfo, _get_query_cache, extract_spotify_track_id
+from core.source_resolver.deezer_catalog import DeezerCatalog
 from core.source_resolver.selection import needs_quality_fallback, rank_tracks
+from core.source_resolver.smart import SmartResolver
+
+log = logging.getLogger("pitonazz.resolver")
 
 
 def _search_prefix() -> str:
@@ -130,6 +136,8 @@ class LavalinkAudioBackend:
         self.uri = uri or Config.LAVALINK_URI
         self.password = password or Config.LAVALINK_PASSWORD
         self._session = None
+        # Sessione separata: quella di Lavalink manda la password a ogni richiesta.
+        self._deezer: DeezerCatalog | None = None
 
     def _identifier(self, query: str) -> str:
         if is_text_search(query):
@@ -428,6 +436,53 @@ class LavalinkAudioBackend:
         if self._session is not None:
             await self._session.close()
             self._session = None
+        if self._deezer is not None:
+            await self._deezer.close()
+            self._deezer = None
+
+    async def _resolve_smart(self, query: str, requester: str, requester_id: int) -> TrackInfo | None:
+        """Query testuale -> brano giusto (catalogo + ISRC + YouTube Music/YouTube).
+
+        None se il resolver non trova una scelta affidabile o lo stream non si
+        estrae: /play prosegue con il percorso precedente.
+        """
+        if self._deezer is None:
+            self._deezer = DeezerCatalog()
+        t0 = time.perf_counter()
+        resolver = SmartResolver(self._deezer.search, self._deezer.track, self._request_loadtracks)
+        try:
+            choice = await resolver.choose(query)
+        except Exception as exc:
+            log.warning(tag("RESOLVE", f"resolver testuale fallito  {b(query)}  {type(exc).__name__}: {exc}"))
+            return None
+        if choice is None:
+            log.info(tag("RESOLVE", f"resolver testuale: nessuna scelta affidabile  {b(query)}"))
+            return None
+        t_choice = time.perf_counter()
+        stream_url = await self._fetch_stream_url(choice.url)
+        if not stream_url:
+            return None
+        log.info(tag(
+            "RESOLVE",
+            f"{b(query)}  ->  {b(choice.title)} - {choice.artist}  [{choice.route}]"
+            f"  scelta {ms((t_choice - t0) * 1000)}  stream {ms((time.perf_counter() - t_choice) * 1000)}",
+        ))
+        log.debug(tag("RESOLVE", f"motivo: {choice.reason}  video={choice.source_title} | {choice.source_author}"))
+        from_catalog = choice.catalog is not None and bool(choice.thumbnail)
+        return TrackInfo(
+            title=choice.title,
+            webpage_url=choice.url,
+            duration=int(choice.duration or 0),
+            thumbnail=choice.thumbnail,
+            requester=requester,
+            requester_id=requester_id,
+            source="youtube",
+            stream_url=stream_url,
+            artist=choice.artist,
+            origin_query=query,
+            thumbnail_source="deezer" if from_catalog else ("youtube" if choice.thumbnail else ""),
+            thumbnail_confidence=0.95 if from_catalog else (0.45 if choice.thumbnail else 0.0),
+        )
 
     async def resolve_track_info(
         self,
@@ -456,6 +511,12 @@ class LavalinkAudioBackend:
                 if canonical != normalized:
                     self._store_track_info(normalized, track)
             return track
+
+        if is_text_search(normalized) and Config.SMART_RESOLVER:
+            smart = await self._resolve_smart(normalized, requester, requester_id)
+            if smart is not None:
+                self._store_track_info(normalized, smart)
+                return smart
 
         try:
             payload = await self._request_loadtracks(self._identifier(normalized))

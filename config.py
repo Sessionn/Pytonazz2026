@@ -55,6 +55,9 @@ class Config:
     LAVALINK_URI: str = os.getenv("LAVALINK_URI", "http://127.0.0.1:2333").strip()
     LAVALINK_PASSWORD: str = os.getenv("LAVALINK_PASSWORD", "youshallnotpass").strip()
     LAVALINK_SEARCH_SOURCE: str = os.getenv("LAVALINK_SEARCH_SOURCE", "youtube_music").strip().lower()
+    # Resolver testuale "da bot professionale" (catalogo Deezer + ISRC + YouTube Music);
+    # false = percorso precedente.
+    SMART_RESOLVER: bool = os.getenv("SMART_RESOLVER", "true").strip().lower() not in ("false", "0", "no", "off")
     LAVALINK_SPOTIFY_NATIVE: bool = os.getenv("LAVALINK_SPOTIFY_NATIVE", "true").strip().lower() in ("true", "1", "yes", "on")
     GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
     YTDLP_PATH:            str = os.getenv("YTDLP_PATH", "").strip()

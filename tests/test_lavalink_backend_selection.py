@@ -19,6 +19,10 @@ from config import Config
 from core.source_resolver import SourceResolver
 from core.source_resolver.models import TrackInfo
 
+# Questi test coprono il percorso Lavalink diretto, che resta il ripiego del
+# resolver intelligente (testato in tests/test_lavalink_smart_integration.py).
+Config.SMART_RESOLVER = False
+
 
 def _track(title: str, author: str = "h6itam", length: int = 97000) -> dict:
     return {
