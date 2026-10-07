@@ -1198,6 +1198,14 @@ class SourceResolver:
         # ─────────────────────────────────────────────────────────────────────────────
 
         search_n = max(n, _YT_CANDIDATES)
+        # Candidati visti nelle ricerche: riserva se il video scelto non e' disponibile.
+        candidate_pool: list = []
+
+        def _yt_search(search_query: str) -> list:
+            found = cls._run_ytdlp(search_query, requester, requester_id)
+            candidate_pool.extend(found)
+            return found
+
         canonical_search_n = 1 if n == 1 else search_n
         results = []
         sp_meta_hint: Optional[dict] = None
@@ -1254,7 +1262,7 @@ class SourceResolver:
 
             yt_t0 = time.perf_counter()
             results = await loop.run_in_executor(
-                None, cls._run_ytdlp, f"ytsearch1:{yt_query}", requester, requester_id
+                None, _yt_search, f"ytsearch1:{yt_query}"
             )
             log.debug(tag("PERF", f"ytsearch1 raw  {b(yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
 
@@ -1291,7 +1299,7 @@ class SourceResolver:
                 ))
                 yt_t0 = time.perf_counter()
                 wider_results = await loop.run_in_executor(
-                    None, cls._run_ytdlp, f"ytsearch{search_n}:{query}", requester, requester_id
+                    None, _yt_search, f"ytsearch{search_n}:{query}"
                 )
                 wider_results = _drop_unrequested_variants(query, wider_results, context="quality-widen")
                 log.debug(tag("PERF", f"ytsearch{search_n} quality-widen  {b(query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
@@ -1315,7 +1323,7 @@ class SourceResolver:
                         ))
                         yt_t0 = time.perf_counter()
                         canonical_results = await loop.run_in_executor(
-                            None, cls._run_ytdlp, f"ytsearch{search_n}:{canonical_yt_query}", requester, requester_id
+                            None, _yt_search, f"ytsearch{search_n}:{canonical_yt_query}"
                         )
                         log.debug(tag("PERF", f"ytsearch{search_n} video-retry  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
                         if canonical_results:
@@ -1362,7 +1370,7 @@ class SourceResolver:
                         ))
                         yt_t0 = time.perf_counter()
                         canonical_results = await loop.run_in_executor(
-                            None, cls._run_ytdlp, f"ytsearch{retry_n}:{canonical_yt_query}", requester, requester_id
+                            None, _yt_search, f"ytsearch{retry_n}:{canonical_yt_query}"
                         )
                         log.debug(tag("PERF", f"ytsearch{retry_n} canonical  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
                         if canonical_results:
@@ -1396,7 +1404,7 @@ class SourceResolver:
                     retry_n = search_n if fast_path else canonical_search_n
                     yt_t0 = time.perf_counter()
                     results = await loop.run_in_executor(
-                        None, cls._run_ytdlp, f"ytsearch{retry_n}:{canonical_yt_query}", requester, requester_id
+                        None, _yt_search, f"ytsearch{retry_n}:{canonical_yt_query}"
                     )
                     results = _drop_unrequested_variants(query, results, context="canonical-empty")
                     log.debug(tag("PERF", f"ytsearch{retry_n} canonical  {b(canonical_yt_query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
@@ -1404,7 +1412,7 @@ class SourceResolver:
         if not results:
             yt_t0 = time.perf_counter()
             results  = await loop.run_in_executor(
-                None, cls._run_ytdlp, f"ytsearch{search_n}:{query}", requester, requester_id
+                None, _yt_search, f"ytsearch{search_n}:{query}"
             )
             results = _drop_unrequested_variants(query, results, context="fallback")
             log.debug(tag("PERF", f"ytsearch{search_n} fallback  {b(query)}  {ms((time.perf_counter() - yt_t0) * 1000)}"))
@@ -1496,6 +1504,11 @@ class SourceResolver:
                     results = await loop.run_in_executor(
                         None, cls._enrich_with_spotify, results, query
                     )
+
+        if n == 1 and results and not results[0].stream_url:
+            await cls._attach_winner_stream(
+                results[0], _drop_unrequested_variants(query, candidate_pool, context="stream-fallback")
+            )
 
         # ── WRITE PATH: salva il risultato in cache ─────────────────────────────────────────────
         if n == 1 and results and not _is_url_like_query(query):
@@ -2061,6 +2074,14 @@ class SourceResolver:
 
     @classmethod
     def _run_ytdlp(cls, query: str, requester: str, requester_id: int) -> list:
+        # Ricerca con piu' candidati: solo metadati (titolo, artista, durata
+        # bastano per scegliere). Misurato sulla VM (2026-10-07): ogni estrazione
+        # completa costa ~3.6 s (pagina + challenge JS), quindi ytsearch3 completo
+        # valeva ~11 s e portava /play oltre il limite di 20 s. Lo stream del solo
+        # video scelto si estrae dopo (_attach_winner_stream o resolve_fresh_url).
+        search = re.match(r"^ytsearch(\d+):", query.strip(), re.IGNORECASE)
+        if search and int(search.group(1)) > 1:
+            return cls._run_ytdlp_flat_candidates(query, requester, requester_id)
         cache_key = query.strip()
         cached = cls._get_cached_ytdlp_results(cache_key, requester, requester_id)
         if cached is not None:
@@ -2115,6 +2136,31 @@ class SourceResolver:
                 done = cls._ytdlp_query_inflight.pop(cache_key, None)
                 if done is not None:
                     done.set()
+
+    @classmethod
+    async def _attach_winner_stream(cls, chosen: "TrackInfo", candidates: list, max_attempts: int = 3) -> None:
+        """Estrae lo stream del brano scelto; se il video non e' disponibile passa
+        al candidato successivo della stessa ricerca, tenendo i metadati scelti."""
+        if not (chosen.webpage_url or "").startswith(("https://", "http://")):
+            return
+        loop = asyncio.get_running_loop()
+        tried: set[str] = set()
+        for candidate in [chosen, *candidates]:
+            url_key = (candidate.webpage_url or "").strip()
+            if not url_key.startswith(("https://", "http://")) or url_key in tried:
+                continue
+            if len(tried) >= max_attempts:
+                break
+            tried.add(url_key)
+            stream_url = await loop.run_in_executor(None, cls._fetch_stream_url, url_key)
+            if not stream_url:
+                continue
+            if url_key != chosen.webpage_url:
+                log.warning(tag("RESOLVE", f"video scelto non disponibile  {b(chosen.webpage_url)}  ->  {b(url_key)}"))
+                chosen.webpage_url = url_key
+                chosen.duration = int(candidate.duration or chosen.duration or 0)
+            chosen.stream_url = stream_url
+            return
 
     @classmethod
     def _run_ytdlp_flat_first(
