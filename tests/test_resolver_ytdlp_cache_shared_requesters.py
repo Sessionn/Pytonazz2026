@@ -34,6 +34,14 @@ class FakeYoutubeDL:
 
     def extract_info(self, query, download=False):
         extract_calls.append(query)
+        if query.startswith("ytsearch"):
+            # Ricerca flat: solo metadati, niente stream.
+            return {"entries": [{
+                "title": "Shared Cache Song",
+                "url": "https://www.youtube.com/watch?v=shared",
+                "duration": 123,
+                "channel": "Cache Artist",
+            }]}
         return {
             "title": "Shared Cache Song",
             "webpage_url": "https://www.youtube.com/watch?v=shared",
@@ -69,8 +77,12 @@ try:
     yt_dlp.YoutubeDL = FakeYoutubeDL
     SourceResolver._ytdlp_query_cache.clear()
 
+    SourceResolver._stream_url_cache.clear()
+
     first = SourceResolver._run_ytdlp("ytsearch1:shared cache song", "alpha", 1)
     second = SourceResolver._run_ytdlp("ytsearch1:shared cache song", "beta", 2)
+    # Lo stream e' estratto in background: si aggancia all'estrazione in corso.
+    prefetched = SourceResolver._fetch_stream_url("https://www.youtube.com/watch?v=shared")
 finally:
     yt_dlp.YoutubeDL = original_youtubedl
     SourceResolver._ytdlp_query_cache.clear()
@@ -79,6 +91,8 @@ assert extract_calls == [
     "ytsearch1:shared cache song",
     "https://www.youtube.com/watch?v=shared",
 ], extract_calls
+assert prefetched == "https://stream.test/shared", prefetched
+assert not first[0].stream_url, "ytsearch1 restituisce metadati, lo stream arriva dopo"
 assert len(first) == 1 and len(second) == 1, (first, second)
 assert first[0].requester == "alpha", first[0]
 assert first[0].requester_id == 1, first[0]
@@ -90,6 +104,7 @@ extract_calls.clear()
 try:
     yt_dlp.YoutubeDL = SlowFakeYoutubeDL
     SourceResolver._ytdlp_query_cache.clear()
+    SourceResolver._stream_url_cache.clear()
     results = []
 
     def run_query(requester, requester_id):
@@ -103,9 +118,11 @@ try:
         thread.start()
     for thread in threads:
         thread.join()
+    SourceResolver._fetch_stream_url("https://www.youtube.com/watch?v=shared")
 finally:
     yt_dlp.YoutubeDL = original_youtubedl
     SourceResolver._ytdlp_query_cache.clear()
+    SourceResolver._stream_url_cache.clear()
 
 assert extract_calls.count("ytsearch1:shared inflight song") == 1, extract_calls
 assert extract_calls.count("https://www.youtube.com/watch?v=shared") == 1, extract_calls

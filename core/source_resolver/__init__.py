@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import logging
 import random
 import re
@@ -656,6 +657,9 @@ def _spotify_enrich_mode(score: dict) -> str:
 # ── Query Cache singleton (lazy init) ──────────────────────────────────────────────────────────────
 _qc_instance: Optional[object] = None
 _qc_lock = threading.Lock()
+# Estrazioni anticipate dello stream (vedi _run_ytdlp_flat_first).
+_STREAM_PREFETCH = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="yt-prefetch")
+
 _FAST_STREAM_EXTRACT_OPTS = {
     "noplaylist": True,
     "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio",
@@ -1509,6 +1513,11 @@ class SourceResolver:
             await cls._attach_winner_stream(
                 results[0], _drop_unrequested_variants(query, candidate_pool, context="stream-fallback")
             )
+            if not results[0].stream_url and not _is_url_like_query(query):
+                wider = await loop.run_in_executor(None, _yt_search, f"ytsearch{_YT_CANDIDATES}:{query}")
+                await cls._attach_winner_stream(
+                    results[0], _drop_unrequested_variants(query, wider, context="stream-fallback")
+                )
 
         # ── WRITE PATH: salva il risultato in cache ─────────────────────────────────────────────
         if n == 1 and results and not _is_url_like_query(query):
@@ -2170,21 +2179,26 @@ class SourceResolver:
         requester_id: int,
         origin_query: str,
     ) -> Optional[list]:
+        """ytsearch1 in flat: restituisce subito i metadati e avvia in parallelo
+        l'estrazione dello stream del risultato.
+
+        La scelta del brano (abbinamento Spotify, video ufficiale da evitare,
+        varianti) continua intanto; alla fine _attach_winner_stream chiede lo
+        stream del vincitore a _fetch_stream_url, che si aggancia a questa
+        estrazione se e' lo stesso video. Prima l'estrazione (~3.3 s sulla VM)
+        partiva solo a ricerca finita e si ripeteva se vinceva un altro video.
+        """
         if not re.match(r"^ytsearch1:", query, re.IGNORECASE):
             return None
-        try:
-            with yt_dlp.YoutubeDL(_make_opts({"extract_flat": True, "format": "bestaudio/best"})) as ydl:
-                info = ydl.extract_info(query, download=False)
-            direct_url = cls._first_ytdlp_webpage_url(info or {})
-            if not direct_url:
-                return None
-            with yt_dlp.YoutubeDL(_make_opts(_FAST_STREAM_EXTRACT_OPTS)) as ydl:
-                direct_info = ydl.extract_info(direct_url, download=False)
-            results = cls._tracks_from_ytdlp_info(direct_info or {}, requester, requester_id, origin_query)
-            return results if results else None
-        except Exception as exc:
-            log.debug(tag("RESOLVE", f"flat-first ytsearch fallback  {b(query)}  {exc}"))
+        results = cls._run_ytdlp_flat_candidates(query, requester, requester_id)
+        if not results:
             return None
+        for track in results:
+            track.origin_query = origin_query
+        webpage_url = (results[0].webpage_url or "").strip()
+        if webpage_url.startswith(("https://", "http://")):
+            _STREAM_PREFETCH.submit(cls._fetch_stream_url, webpage_url)
+        return results
 
     @classmethod
     def _run_ytdlp_flat_candidates(cls, query: str, requester: str, requester_id: int) -> list:
