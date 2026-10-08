@@ -162,5 +162,22 @@ class ClassifierTests(unittest.TestCase):
         self.assertNotIn("googlevideo", result.detail)
 
 
+@unittest.skipUnless(hasattr(cookie_browser.os, "getuid"), "POSIX only")
+class BotIsPlayingTests(unittest.TestCase):
+    def proc(self, *processes):
+        root = Path(tempfile.mkdtemp())
+        for pid, comm, state in processes:
+            (root / str(pid)).mkdir()
+            (root / str(pid) / "stat").write_text(f"{pid} ({comm}) {state} 1 1 1")
+        (root / "self").mkdir()
+        return root
+
+    def test_running_ffmpeg_means_playing(self):
+        self.assertTrue(cookie_browser.bot_is_playing(self.proc((10, "python3", "S"), (11, "ffmpeg", "S"))))
+
+    def test_zombie_ffmpeg_is_ignored(self):
+        self.assertFalse(cookie_browser.bot_is_playing(self.proc((11, "ffmpeg", "Z"), (12, "ffmpeg2", "R"))))
+
+
 if __name__ == "__main__":
     unittest.main()

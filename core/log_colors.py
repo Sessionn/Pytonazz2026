@@ -1,4 +1,8 @@
+import atexit
+import copy
 import logging
+import logging.handlers
+import queue
 import re
 
 _R    = "\033[0m"
@@ -224,5 +228,34 @@ def setup_logging(level: int = logging.INFO) -> None:
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers.clear()
-    root.addHandler(handler)
+    root.addHandler(_start_terminal_listener(handler))
     logging.getLogger("yt_dlp").setLevel(logging.ERROR)
+
+
+class _NonBlockingHandler(logging.handlers.QueueHandler):
+    """Mette i record in coda; un thread dedicato li scrive sul terminale.
+
+    Una scrittura sul terminale puo' bloccarsi (Ctrl+S nel pane tmux, pty
+    piena): con lo StreamHandler diretto si bloccava l'event loop e il bot
+    restava congelato. Il record resta intero (colori, traceback) perche' lo
+    formatta ColorFormatter nel thread del listener."""
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        record = copy.copy(record)
+        record.msg = record.getMessage()  # gli argomenti potrebbero cambiare dopo
+        record.args = None
+        return record
+
+
+_listener: logging.handlers.QueueListener | None = None
+
+
+def _start_terminal_listener(handler: logging.Handler) -> logging.Handler:
+    global _listener
+    if _listener is not None:
+        _listener.stop()
+    log_queue: queue.SimpleQueue = queue.SimpleQueue()
+    _listener = logging.handlers.QueueListener(log_queue, handler, respect_handler_level=True)
+    _listener.start()
+    atexit.register(_listener.stop)  # svuota la coda all'uscita
+    return _NonBlockingHandler(log_queue)

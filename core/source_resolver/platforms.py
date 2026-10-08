@@ -425,9 +425,35 @@ def page_search_query(url: str) -> str:
         if m := re.search(r"<title[^>]*>(.*?)</title>", page, re.IGNORECASE | re.DOTALL):
             title = html.unescape(m.group(1))
     title = _TITLE_NOISE.sub("", " ".join(title.split())).strip()
+    if not is_useful_page_title(title, url):
+        log.warning(tag("RESOLVE", f"titolo di pagina inutile  {b(url)}  {b(title)}  ->  niente ricerca"))
+        return ""
     # "Brano by Artista" / "Brano di Artista" -> "Brano Artista"
     title = re.sub(r"\s+(?:by|di|von|de)\s+", " ", title, count=1, flags=re.IGNORECASE)
     return title[:200]
+
+
+# Pagine di login, verifica anti-bot o errore: il titolo non descrive il brano
+# (es. TikTok che risponde "Log in | TikTok" -> si suonava un brano a caso).
+_USELESS_TITLE = re.compile(
+    r"\b(?:log\s?in|sign\s?(?:in|up)|accedi|registrati|anmelden|connexion"
+    r"|just a moment|attention required|access denied|accesso negato|captcha"
+    r"|are you a robot|verify you are human|not a bot|security check"
+    r"|page not found|pagina non trovata|404 not found|error 404|403 forbidden"
+    r"|before you continue|prima di continuare)\b",
+    re.IGNORECASE,
+)
+_HOST_FILLER = {"www", "m", "com", "it", "net", "org", "co", "home", "homepage", "official", "site"}
+
+
+def is_useful_page_title(title: str, url: str = "") -> bool:
+    """False per titoli vuoti, di login/errore o col solo nome del sito."""
+    words = re.sub(r"[\W_]+", " ", title or "").lower().split()
+    if not words or _USELESS_TITLE.search(title):
+        return False
+    # Solo il nome del sito ("TikTok", "Example.com | Home"): nessuna informazione.
+    host_words = set(re.split(r"[.\-]+", _host(url))) - {""}
+    return not set(words) <= host_words | _HOST_FILLER
 
 
 _LOOKUP_CACHE_TTL = 120.0

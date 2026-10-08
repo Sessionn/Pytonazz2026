@@ -227,10 +227,27 @@ def next_delay(outcome: Outcome) -> float:
     return FAILED_RETRY_SECONDS
 
 
-def bot_is_playing() -> bool:
-    """Discord playback runs one FFmpeg per active voice stream."""
-    return subprocess.run(["pgrep", "-u", str(os.getuid()), "-x", "ffmpeg"],
-                          capture_output=True).returncode == 0
+def bot_is_playing(proc: Path = Path("/proc")) -> bool:
+    """Discord playback runs one FFmpeg per active voice stream.
+
+    Zombie FFmpeg processes (exited, not yet reaped by the bot) do not count:
+    pgrep matched them and the playback test stayed postponed for hours."""
+    uid = os.getuid()
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if entry.stat().st_uid != uid:
+                continue
+            stat = (entry / "stat").read_text()
+        except OSError:
+            continue  # the process exited meanwhile
+        # "pid (comm) state ...": comm may contain spaces and ')'.
+        comm = stat[stat.find("(") + 1:stat.rfind(")")]
+        state = stat[stat.rfind(")") + 2:][:1]
+        if comm == "ffmpeg" and state not in ("Z", "X"):
+            return True
+    return False
 
 
 def main():

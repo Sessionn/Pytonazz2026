@@ -92,8 +92,10 @@ _bot_start() {
     local ready="pytonazz-log-ready-$SESSION_NAME-$$"
     mkdir -p "$LOG_DIR"
     _log_rotate
+    # stty -ixon: un Ctrl+S nel pane fermava l'output e il bot restava
+    # congelato alla prima riga di log (successo il 2026-10-08 per 1h36).
     tmux new-session -d -s "$SESSION_NAME" -c "$ROOT_DIR" \
-        "tmux wait-for $ready; source venv/bin/activate && exec $PYTHON_BIN main.py"
+        "tmux wait-for $ready; stty -ixon; source venv/bin/activate && exec $PYTHON_BIN main.py"
     # Il writer gira nel server tmux, che non eredita l'ambiente di questo
     # script: percorso e limiti gli arrivano espliciti.
     tmux pipe-pane -o -t "$SESSION_NAME" \

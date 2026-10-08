@@ -111,6 +111,20 @@ assert [t["title"] for t in col.tracks] == ["Uno", "Due"], "deve rispettare l'or
 HTML_ROUTES["https://music.amazon.com/albums/X"] = '<meta property="og:title" content="Blinding Lights by The Weeknd on Amazon Music">'
 assert platforms.page_search_query("https://music.amazon.com/albums/X") == "Blinding Lights The Weeknd"
 
+# Pagine di login/errore o col solo nome del sito: nessuna ricerca (prima si
+# cercava "Log in | TikTok" e suonava un brano a caso).
+for page_url, page_title in [
+    ("https://www.tiktok.com/@x/video/1", "Log in | TikTok"),
+    ("https://example.com/a", "Just a moment..."),
+    ("https://example.com/b", "404 Not Found"),
+    ("https://www.tiktok.com/c", "TikTok"),
+    ("https://shop.example.com/d", "Example | Home"),
+]:
+    HTML_ROUTES[page_url] = f"<title>{page_title}</title>"
+    assert platforms.page_search_query(page_url) == "", page_title
+assert platforms.is_useful_page_title("Daft Punk - One More Time", "https://example.com")
+assert platforms.is_useful_page_title("Fatal Error - Artista", "https://example.com")
+
 print("OK: metadati Deezer / Apple Music / fallback pagina")
 
 # ── Risoluzione lazy ─────────────────────────────────────────────────────────
