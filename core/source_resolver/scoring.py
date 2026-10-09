@@ -40,6 +40,16 @@ _INLINE_PRODUCER_CREDIT = re.compile(
     re.IGNORECASE,
 )
 
+_FEATURING_SEGMENT = re.compile(
+    r"[\(\[\{]\s*(?:feat\.?|ft\.?|featuring|with)\s[^\)\]\}]*[\)\]\}]",
+    re.IGNORECASE,
+)
+
+_INLINE_FEATURING = re.compile(
+    r"\b(?:feat\.?|ft\.?|featuring)\s+[^()\[\]\|\-]+",
+    re.IGNORECASE,
+)
+
 _NON_MUSIC_QUERY_KEYWORDS = re.compile(
     # Includes "bannato" because this bot is used mainly in Italian communities.
     r"\b(meme|clip|shitpost|tiktok|reel|funny|bannato)\b",
@@ -201,12 +211,30 @@ def _fuzzy_jaccard_tokens(a: str, b: str) -> float:
     return intersection / union if union else 0.0
 
 
+def _strip_featuring(title: str) -> str:
+    """Remove featured-artist credits ("(feat. X)", "ft. X") from a title."""
+    title = _FEATURING_SEGMENT.sub(" ", title or "")
+    return _INLINE_FEATURING.sub(" ", title)
+
+
 def _enrich_sim(query: str, sp_title: str, sp_artist: str) -> float:
-    """Compute max Jaccard similarity for query vs title and query vs title+artist."""
+    """Compute max Jaccard similarity for query vs title and query vs title+artist.
+
+    Featured artists not named in the query are not counted against the title:
+    for "BRATZ" the release "BRATZ (feat. Nerissima Serpe)" scored 0.33 against
+    1.0 for an unrelated homonym (seen 2026-10-09).
+    """
     q_norm  = _normalize_for_sim(query)
-    t_norm  = _normalize_for_sim(sp_title)
-    ta_norm = _normalize_for_sim(f"{sp_title} {sp_artist}")
-    return max(_fuzzy_jaccard_tokens(q_norm, t_norm), _fuzzy_jaccard_tokens(q_norm, ta_norm))
+    titles = [sp_title]
+    bare_title = _strip_featuring(sp_title)
+    if bare_title.strip() and bare_title != sp_title:
+        titles.append(bare_title)
+    best = 0.0
+    for title in titles:
+        t_norm  = _normalize_for_sim(title)
+        ta_norm = _normalize_for_sim(f"{title} {sp_artist}")
+        best = max(best, _fuzzy_jaccard_tokens(q_norm, t_norm), _fuzzy_jaccard_tokens(q_norm, ta_norm))
+    return best
 
 
 def _duration_similarity(yt_duration: int, sp_duration: int) -> float:
