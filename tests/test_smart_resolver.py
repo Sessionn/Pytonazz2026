@@ -122,3 +122,27 @@ assert choice.url.endswith("=velvet"), choice
 assert run(resolver([], [], []), "qualsiasi cosa") is None
 
 print("OK: resolver testuale (intento, versioni, consenso, accordo, cover, videoclip)")
+
+
+# ── Parola ambigua nel nome non chiesta dalla query (2026-10-10) ─────────────
+from core.source_resolver.smart import _version_penalty  # noqa: E402
+
+# "apt rose bruno mars" sceglieva "APT. lofi ~ ROSÉ, Bruno Mars" di un canale lofi.
+assert _version_penalty(parse_intent("apt rose bruno mars"), "APT. lofi ~ ROSÉ, Bruno Mars", "seoul story lofi")[0] > 0
+assert _version_penalty(parse_intent("apt rose bruno mars"), "APT.", "ROSÉ")[0] == 0
+# Se la query contiene la parola, fa parte del nome.
+assert _version_penalty(parse_intent("live forever oasis"), "Live Forever", "Oasis")[0] == 0
+assert _version_penalty(parse_intent("piano man billy joel"), "Piano Man", "Billy Joel")[0] == 0
+print("OK: parola ambigua del nome conta come versione se non chiesta")
+
+# Versione chiesta senza artista: un "(Live)" qualsiasi del catalogo non e' affidabile,
+# una versione precisa che spiega le altre parole della query si'.
+from core.source_resolver.smart import score_catalog  # noqa: E402
+
+idol = CatalogTrack(id="1", title="Birds Of A Feather (Australian Idol Live Performance)", artist="Charlie-Moon Meader", duration=126, rank=400000)
+assert not score_catalog(parse_intent("birds of a feather live"), idol)[1]
+live_aid = CatalogTrack(id="2", title="Bohemian Rhapsody (Live Aid)", artist="Queen", duration=148, rank=600000)
+assert score_catalog(parse_intent("bohemian rhapsody live aid"), live_aid)[1]
+assert score_catalog(parse_intent("birds of a feather billie eilish live"),
+                     CatalogTrack(id="3", title="BIRDS OF A FEATHER (Live)", artist="Billie Eilish", duration=220, rank=500000))[1]
+print("OK: versioni senza artista affidate a YouTube, tranne quelle precise")

@@ -283,9 +283,11 @@ def candidate_from_lavalink(track: dict, origin: str, position: int) -> Candidat
 
 def _version_penalty(intent: Intent, title: str, author: str = "") -> tuple[float, list[str]]:
     """Penalita' per versioni non chieste o mancanti (spotDL: -15 per parola)."""
-    have = version_tags(title, author)
-    # "Live Forever" chiesto come "live forever oasis": "live" e' il nome, non la versione.
-    want = set(intent.tags) - (find_tags(core_title(title, author)) & WEAK_TAGS)
+    name_tags = find_tags(core_title(title, author)) & WEAK_TAGS
+    # Una parola ambigua del nome ("lofi" in "APT. lofi ~ ROSÉ, Bruno Mars") e' il nome
+    # solo se la query la contiene ("live forever oasis"); altrimenti e' una versione.
+    have = version_tags(title, author) | (name_tags - set(intent.tags))
+    want = set(intent.tags) - name_tags
     notes = []
     penalty = 0.0
     # "tiktok version" e' quasi sempre una versione sped up o un edit.
@@ -348,7 +350,14 @@ def score_catalog(intent: Intent, track: CatalogTrack) -> tuple[float, bool, str
     popularity = 12 * math.log10(max(track.rank, 1) + 1) / 6
     score = 50 * title_in_query + 30 * query_explained + 15 * artist_named + popularity - penalty
     reliable = title_in_query >= 0.75 and query_explained >= 0.65 and penalty < 15
-    if intent.tags & YT_NATIVE_TAGS and artist_named < 0.5:
+    # Anche "birds of a feather live": senza artista il catalogo trova un "(Live)"
+    # qualsiasi (Charlie-Moon Meader, Australian Idol), YouTube la versione famosa.
+    # Resta affidabile una versione precisa che spiega le altre parole della query
+    # ("bohemian rhapsody live aid" -> "Bohemian Rhapsody (Live Aid)").
+    name_words = set(t)
+    extra_words = [w for w in intent.core if w not in name_words]
+    specific_version = bool(extra_words) and coverage(extra_words, tokens(track.title)) >= 1.0
+    if intent.tags and artist_named < 0.5 and not (specific_version and not intent.tags & YT_NATIVE_TAGS):
         reliable = False
         notes.append("versione-da-youtube")
     reason = f"titolo={title_in_query:.2f} query={query_explained:.2f} artista={artist_named:.2f} pop={popularity:.1f} {' '.join(notes)}"
