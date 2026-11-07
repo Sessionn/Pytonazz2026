@@ -80,6 +80,7 @@ button { font: inherit; color: inherit; }
 }
 
 .unit {
+  min-width: 0;
   position: relative;
   padding: 18px;
   border-radius: var(--radius);
@@ -205,7 +206,9 @@ button { font: inherit; color: inherit; }
 /* ── Deck ────────────────────────────────────────────────────────────── */
 .deck {
   grid-area: deck;
+  container-type: inline-size;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-content: start;
 }
@@ -243,7 +246,7 @@ button { font: inherit; color: inherit; }
   text-shadow: none;
 }
 
-.lcd-flags { display: flex; gap: 6px; }
+.lcd-flags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 
 .lcd-flag {
   padding: 1px 6px;
@@ -270,9 +273,11 @@ button { font: inherit; color: inherit; }
   font-size: clamp(1.15rem, 2.1vw, 1.55rem);
   font-weight: 600;
   line-height: 1.2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .lcd-sub,
@@ -287,7 +292,7 @@ button { font: inherit; color: inherit; }
 
 .lcd-time {
   display: grid;
-  grid-template-columns: 1fr 1.3fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr);
   gap: 8px;
   padding: 8px 0;
   border-top: 1px solid #111a23;
@@ -458,7 +463,7 @@ button { font: inherit; color: inherit; }
 /* Transport */
 .transport {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.5fr 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto repeat(2, minmax(0, 1fr));
   grid-template-areas: "back fwd play next stop";
   align-items: center;
   gap: 10px;
@@ -552,23 +557,25 @@ button { font: inherit; color: inherit; }
 .play-btn.is-playing { box-shadow: 0 0 0 4px #121417, 0 0 0 5px var(--green), 0 0 22px var(--green-glow), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
 .play-btn.is-playing .icon-play { display: none; }
 .play-btn.is-playing .icon-pause { display: block; }
-.play-btn.is-paused { color: var(--amber); animation: pausedBlink 1.1s steps(2, start) infinite; }
+.play-btn.is-paused { color: var(--amber); }
 
 /* Mode switches */
 .modes {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
 .mode-btn {
   min-height: 44px;
-  padding: 8px 12px;
+  padding: 8px;
   border-radius: 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  text-align: left;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  text-align: center;
 }
 
 .mode-led {
@@ -589,7 +596,6 @@ button { font: inherit; color: inherit; }
 }
 
 .mode-value {
-  margin-left: auto;
   font-family: var(--font-lcd);
   font-size: 0.68rem;
   color: var(--silk-dim);
@@ -962,7 +968,7 @@ button { font: inherit; color: inherit; }
 }
 .queue-item:last-child { border-bottom: 0; }
 .queue-item:hover { background: rgba(126, 196, 255, 0.05); }
-.queue-item.is-new { animation: rowIn 420ms cubic-bezier(.2, .8, .2, 1); }
+.queue-item.is-new { animation: rowIn 260ms cubic-bezier(.2, .8, .2, 1); }
 
 .queue-idx {
   font-family: var(--font-lcd);
@@ -1013,7 +1019,6 @@ button { font: inherit; color: inherit; }
   to { transform: rotate(calc(var(--scratch-rotate, 0deg) + 360deg)); }
 }
 @keyframes ledPulse { 50% { opacity: 0.55; } }
-@keyframes pausedBlink { to { opacity: 0.45; } }
 @keyframes rowIn {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: none; }
@@ -1022,7 +1027,6 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .platter-disc.is-spinning,
   .led.is-live,
-  .play-btn.is-paused,
   .queue-item.is-new { animation: none; }
 }
 
@@ -1057,12 +1061,15 @@ button { font: inherit; color: inherit; }
   .browser-screen { max-height: 420px; }
 }
 
-@media (max-width: 400px) {
+@container (max-width: 390px) {
   .transport {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-template-areas:
       "play play play play"
       "back fwd next stop";
   }
-  .mode-value { display: none; }
+  .lcd-tag { letter-spacing: .06em; }
+  .lcd-digits { font-size: .85rem; }
+  .time-cell-main .lcd-digits { font-size: 1.15rem; }
+  .mode-value { flex-basis: 100%; }
 }

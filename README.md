@@ -2,7 +2,7 @@
 
 ![Pytonazz Gif](assets/git/demo.gif)
 
-Pytonazz2026 e' un bot Discord modulare scritto in Python, costruito su `discord.py` 2.x. Il progetto copre musica, AI, moderazione, welcome/goodbye, compleanni, TTS, console DJ remota e una dashboard web per ispezionare il cache database musicale.
+Pytonazz2026 e' un bot Discord modulare scritto in Python, costruito su `discord.py` 2.x. Il progetto copre musica, moderazione, welcome/goodbye, compleanni, TTS, console DJ remota e una dashboard web per ispezionare il cache database musicale.
 
 Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
 
@@ -22,7 +22,6 @@ Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
 - Cache DB musicale: SQLite normalizzato con tracce canoniche, sorgenti risolte, query/alias osservati, stream URL temporanei e viste compatibili.
 - Dashboard web: Flask + Waitress, login, statistiche DB, tabelle cache, associazioni Spotify, eliminazioni, schema DB e console DJ.
 - Console DJ remota: OAuth Discord, controllo ruolo DJ, eventi server-sent e azioni player da browser.
-- AI: risposte tramite Groq, memoria per canale, supporto immagini e ricerca live via trigger web.
 - Community: compleanni, welcome/goodbye, autorole, quote card, 8-ball, roulette.
 - Moderazione: purge, ruoli, kick, ban, timeout, isolamento/museruola, gestione canali voice.
 - Dev tools: sync slash commands, restart, maintenance, backup/restore config, runtime command enable/disable, cache commands.
@@ -36,7 +35,6 @@ Questo README e' la panoramica del progetto. Per i dettagli tecnici usa:
 - `spotipy` per metadati Spotify, cover e canonicalizzazione.
 - SQLite via `sqlite3` per cache persistente.
 - Flask + Waitress per dashboard locale.
-- Groq API per AI.
 - Edge TTS per sintesi vocale.
 - Pillow per quote card.
 - `httpx` / `aiohttp` per richieste HTTP.
@@ -74,7 +72,6 @@ bash scripts/setup.sh
 - Bot Discord creato nel Developer Portal, token in `DISCORD_TOKEN`.
 - FFmpeg installato nel sistema o disponibile in `PATH`.
 - Spotify app opzionale ma consigliata per cover e matching: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`.
-- Groq API key opzionale se vuoi usare il modulo AI: `GROQ_API_KEY`.
 - Cookie YouTube opzionali ma utili su VPS/VM: `COOKIE_FILE=/percorso/assoluto/cookies.txt`.
 
 ## Variabili importanti
@@ -94,7 +91,6 @@ SPOTIFY_AMBIGUOUS_WAIT_SECONDS=0.75
 RESOLVE_HARD_TIMEOUT_SECONDS=4.75
 RESOLVE_MAX_WAIT_SECONDS=20.0
 
-GROQ_API_KEY=
 
 CACHE_ENABLED=true
 DB_PATH=data/database/cache.db
@@ -220,4 +216,4 @@ python tests/run_all.py
 
 ## Licenza e note
 
-Progetto personale a scopo ludico, didattico e operativo per una community Discord. Non committare `.env`, cookie, token Discord, segreti Spotify, chiavi Groq o backup contenenti dati reali.
+Progetto personale a scopo ludico, didattico e operativo per una community Discord. Non committare `.env`, cookie, token Discord, segreti Spotify o backup contenenti dati reali.

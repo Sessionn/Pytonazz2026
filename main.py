@@ -3,6 +3,7 @@ import logging
 import random
 import sys
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -256,9 +257,13 @@ def _build_status(entry) -> discord.Status:
 # Intervallo reale: cfg.status_interval, applicato in on_ready e da /status interval.
 @tasks.loop(seconds=300)
 async def rotate_status():
-    if cfg.maintenance:
+    if cfg.maintenance or not bot.is_ready():
         return
-    await bot.apply_next_status()
+    try:
+        await bot.apply_next_status()
+    except aiohttp.ClientConnectionError as exc:
+        # The gateway can disconnect between is_ready() and the write.
+        log.debug(tag("STATUS", f"Rotazione rinviata: gateway disconnesso ({exc})"))
 
 
 @rotate_status.before_loop

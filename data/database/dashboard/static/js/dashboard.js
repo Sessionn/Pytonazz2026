@@ -413,7 +413,6 @@ const state = {
   known: {},
   hits: {},
   view: {},
-  stats: null,
   drawerRow: null,
   pollTimer: null,
   liveTimer: null,
@@ -444,26 +443,40 @@ async function fetchJson(url, { headers = {}, ...options } = {}) {
 
 /* ── Statistiche ────────────────────────────────────────────────────────── */
 
-function tween(el, to, duration = 700) {
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const statFrames = new WeakMap();
+
+function tween(el, to, duration = 440) {
+  if (Number(el.dataset.target) === to && !reducedMotion.matches) return;
+  cancelAnimationFrame(statFrames.get(el));
+  statFrames.delete(el);
+  el.dataset.target = String(to);
+
   const from = Number(el.dataset.value || 0);
-  el.dataset.value = String(to);
-  if (from === to) {
-    el.textContent = fmtNumber(to);
+  const show = value => {
+    el.dataset.value = String(value);
+    const label = fmtNumber(value);
+    if (el.textContent !== label) el.textContent = label;
+  };
+  if (from === to || reducedMotion.matches) {
+    show(to);
     return;
   }
-  if (state.stats) {
-    el.classList.remove("is-bumped");
-    void el.offsetWidth;
-    el.classList.add("is-bumped");
-  }
+
   const start = performance.now();
   const step = now => {
+    if (reducedMotion.matches) {
+      show(to);
+      statFrames.delete(el);
+      return;
+    }
     const progress = Math.min((now - start) / duration, 1);
     const eased = 1 - Math.pow(1 - progress, 3);
-    el.textContent = fmtNumber(Math.round(from + (to - from) * eased));
-    if (progress < 1) requestAnimationFrame(step);
+    show(Math.round(from + (to - from) * eased));
+    if (progress < 1) statFrames.set(el, requestAnimationFrame(step));
+    else statFrames.delete(el);
   };
-  requestAnimationFrame(step);
+  statFrames.set(el, requestAnimationFrame(step));
 }
 
 function applyStatsPayload(data) {
@@ -483,7 +496,6 @@ function applyStatsPayload(data) {
 
   setNavCount("cache", data.total);
   setNavCount("aliases", data.aliases);
-  state.stats = data;
   markUpdated();
 }
 
@@ -629,7 +641,7 @@ function loadSection(name, { silent = false } = {}) {
       }
       if (name === "cache") renderSourceMix();
       if (state.section === name) {
-        renderTable({ highlight: new Set(added), previousHits: silent ? previousHits : null });
+        renderTable({ animate: !previousIds && !silent, highlight: new Set(added), previousHits: silent ? previousHits : null });
       }
       if (added.length && name === "cache") {
         showToast(added.length === 1 ? "Nuova sorgente in cache" : `${added.length} nuove sorgenti in cache`, "success");
@@ -690,7 +702,7 @@ function renderHead(name) {
   els.head.innerHTML = `<tr>${cells.join("")}</tr>`;
 }
 
-function renderTable({ highlight = new Set(), previousHits = null } = {}) {
+function renderTable({ animate = false, highlight = new Set(), previousHits = null } = {}) {
   const name = state.section;
   const section = SECTIONS[name];
   const view = state.view[name];
@@ -707,15 +719,15 @@ function renderTable({ highlight = new Set(), previousHits = null } = {}) {
     const filtered = view.search || view.filters.source || view.filters.valid !== "";
     els.body.innerHTML = `<tr><td colspan="${colspan}"><div class="empty"><strong>${filtered ? "Nessun risultato" : "Nessun dato"}</strong>${filtered ? "Prova a modificare ricerca o filtri." : "La tabella e' vuota."}</div></td></tr>`;
   } else {
-    // Animazione d'ingresso solo al primo render della pagina, non sui refresh live.
-    const animate = !previousHits;
     els.body.innerHTML = pageRows
       .map((row, index) => {
         const id = Number(row.id);
         const cells = section.columns.map(col => `<td class="${col.cls || ""}">${col.render(row)}</td>`).join("");
         const classes = ["is-clickable"];
         if (highlight.has(id)) classes.push("row-new");
-        const style = animate ? ` style="animation-delay:${Math.min(index, 20) * 14}ms"` : ' style="animation:none"';
+        const entering = animate && index < 8;
+        if (entering) classes.push("row-entering");
+        const style = entering ? ` style="--row-delay:${index * 16}ms"` : "";
         return `<tr class="${classes.join(" ")}" data-id="${id}"${style}>${cells}<td class="num"><div class="row-actions">${section.actions(row)}</div></td></tr>`;
       })
       .join("");
@@ -913,9 +925,9 @@ function deleteRow(name, id) {
         if (name === "cache") renderSourceMix();
         if (state.section === name) renderTable({ previousHits: new Map() });
       };
-      if (row) {
+      if (row && !reducedMotion.matches) {
         row.classList.add("row-leaving");
-        setTimeout(finish, 220);
+        setTimeout(finish, 160);
       } else {
         finish();
       }

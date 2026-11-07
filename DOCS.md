@@ -38,7 +38,6 @@ tests/
 I cogs caricati di default sono definiti in `core/runtime.py`:
 
 ```text
-cogs.ai
 cogs.birthdays
 cogs.dj
 cogs.dev
@@ -235,23 +234,11 @@ Console DJ:
 
 La console DJ usa OAuth Discord per identificare l'utente, poi `core/dj_access.py` verifica ruolo e permessi. Le azioni vengono inoltrate al player del server tramite controller condiviso.
 
-## 8. AI
-
-`cogs/ai.py` gestisce risposte conversazionali e contesto per canale. Usa Groq tramite `core/ai_client.py` e runtime/memoria dedicati.
-
-Caratteristiche:
-
-- risposta a menzioni/DM secondo logica del cog;
-- memoria breve per canale;
-- supporto immagini;
-- trigger web testuali per arricchire prompt con ricerca live;
-- cooldown configurato in `Config.AI_COOLDOWN_SECONDS`.
-
-## 9. TTS
+## 8. TTS
 
 `cogs/tts.py` usa `edge-tts` per generare audio temporaneo, poi FFmpeg/Discord voice per riprodurlo. Il volume TTS e' gestibile dai comandi dev.
 
-## 10. Moderazione
+## 9. Moderazione
 
 `cogs/moderation.py` copre:
 
@@ -272,7 +259,7 @@ I controlli condivisi sono in:
 - `core/moderation/utils.py`
 - `core/moderation/isolation_registry.py`
 
-## 11. Welcome, goodbye, autorole
+## 10. Welcome, goodbye, autorole
 
 `cogs/welcome.py` gestisce gruppi:
 
@@ -289,7 +276,7 @@ Persistenza e rendering:
 
 Supporta messaggi, embed, immagini, field dinamici, preview e reset.
 
-## 12. Compleanni
+## 11. Compleanni
 
 `cogs/birthdays.py` gestisce gruppo `/bday`.
 
@@ -311,7 +298,7 @@ Comandi principali:
 
 I dati sono salvati in JSON sotto `assets/data`.
 
-## 13. Fun, help, dev tools
+## 12. Fun, help, dev tools
 
 Fun:
 
@@ -340,7 +327,6 @@ Developer:
 - `/say`
 - `/announce`
 - `/cog_list`
-- `/ai_reset`
 - `/debug`
 
 Controllo globale dei comandi: `PytonazzCommandTree` (passato a `commands.Bot` come `tree_cls`) applica a ogni slash command `/disable_command`, i canali `no_bot_commands` e la `/maintenance`. In manutenzione i non-dev possono usare solo `/help`.
@@ -353,7 +339,7 @@ Dev audio:
 
 - comandi di test MP3/voice in `cogs/dev_audio.py`.
 
-## 14. Filtri audio
+## 13. Filtri audio
 
 `cogs/filters.py` espone filtri preset:
 
@@ -369,7 +355,7 @@ Dev audio:
 
 `core/music/live_fx.py` applica trasformazioni PCM live. `MusicPlayer` conserva stato EQ, filtri e notifica dashboard/DJ console.
 
-## 15. Test
+## 14. Test
 
 I test sono script Python, non una suite pytest classica.
 
@@ -394,7 +380,7 @@ Tutti i test in PowerShell:
 Get-ChildItem tests -Filter *.py | ForEach-Object { .\venv\Scripts\python.exe $_.FullName }
 ```
 
-## 16. Setup VM e deploy
+## 15. Setup VM e deploy
 
 Per installazione completa segui [SETUP_UBUNTU_VM.md](SETUP_UBUNTU_VM.md).
 
@@ -463,7 +449,7 @@ sudo systemctl restart pytonazz
 sudo systemctl status pytonazz --no-pager
 ```
 
-## 17. Troubleshooting
+## 16. Troubleshooting
 
 ### `source tools/rebuild_cache_db.py` fallisce
 
@@ -525,7 +511,7 @@ python tests/test_resolver_spotify_canonical_fallback_cover.py
 python tests/test_resolver_spotify_late_hint.py
 ```
 
-## 18. Regole di sviluppo
+## 17. Regole di sviluppo
 
 - Non committare `.env`, cookie, DB runtime o backup con dati reali.
 - Dopo modifiche al resolver, esegui test scoring, Spotify fallback e cache thumbnail.

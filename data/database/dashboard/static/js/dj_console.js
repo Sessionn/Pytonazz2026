@@ -54,7 +54,7 @@ let stopArmedTimer = null;
 let state = null;
 let refreshTimer = null;
 let lastErrorCode = "";
-let queueKeys = new Set();
+let queueRows = new Map();
 let scratchRotation = 0;
 let scratchActive = false;
 let scratchStartAngle = 0;
@@ -64,6 +64,7 @@ let scratchLastAngle = 0;
 let scratchLastMoveAt = 0;
 let scratchAudio = null;
 let lastStateSyncAt = performance.now();
+let playbackFrame = 0;
 let sendEqTimer = null;
 let eqAnimationFrame = 0;
 const lastTapAt = new WeakMap();
@@ -194,28 +195,42 @@ function safeHttpUrl(value) {
 }
 
 function renderQueue(items) {
-  els.queue.innerHTML = "";
-  if (!items || !items.length) {
-    const li = document.createElement("li");
-    li.textContent = "Coda vuota.";
-    els.queue.appendChild(li);
-    queueKeys = new Set();
+  if (!items.length) {
+    if (queueRows.size || !els.queue.firstElementChild) {
+      const li = document.createElement("li");
+      li.textContent = "Coda vuota.";
+      els.queue.replaceChildren(li);
+    }
+    queueRows.clear();
     return;
   }
-  const nextKeys = new Set();
+  if (!queueRows.size) els.queue.replaceChildren();
+
+  const nextRows = new Map();
+  const occurrences = new Map();
   items.slice(0, 20).forEach((track, index) => {
-    const li = document.createElement("li");
-    const key = `${track.webpage_url || track.spotify_url || track.title || "track"}-${index}`;
-    nextKeys.add(key);
-    li.className = "queue-item";
-    if (!queueKeys.has(key)) {
-      li.classList.add("is-new");
+    const signature = JSON.stringify([
+      track.webpage_url, track.spotify_url, track.title, track.artist,
+      track.thumbnail, track.duration, track.requester_id,
+    ]);
+    const occurrence = (occurrences.get(signature) || 0) + 1;
+    occurrences.set(signature, occurrence);
+    const key = `${signature}:${occurrence}`;
+    const existing = queueRows.get(key);
+    const label = String(index + 1).padStart(2, "0");
+    if (existing) {
+      if (existing.firstElementChild.textContent !== label) existing.firstElementChild.textContent = label;
+      nextRows.set(key, existing);
+      return;
     }
+
+    const li = document.createElement("li");
+    li.className = "queue-item is-new";
     // Titoli/artisti arrivano da sorgenti esterne (YouTube, Spotify):
     // vanno inseriti come testo, mai come HTML.
     const idx = document.createElement("span");
     idx.className = "queue-idx";
-    idx.textContent = String(index + 1).padStart(2, "0");
+    idx.textContent = label;
     const art = document.createElement("div");
     art.className = "queue-art";
     const thumb = safeHttpUrl(track.thumbnail);
@@ -235,6 +250,7 @@ function renderQueue(items) {
     copy.className = "queue-copy";
     const titleEl = document.createElement("strong");
     titleEl.textContent = track.title || "";
+    titleEl.title = titleEl.textContent;
     const artistEl = document.createElement("span");
     artistEl.textContent = track.artist || "Sconosciuto";
     copy.append(titleEl, artistEl);
@@ -242,12 +258,22 @@ function renderQueue(items) {
     dur.className = "queue-dur";
     dur.textContent = Number(track.duration) > 0 ? formatTime(track.duration) : "--:--";
     li.append(idx, art, copy, dur);
-    els.queue.appendChild(li);
+    nextRows.set(key, li);
   });
-  queueKeys = nextKeys;
+
+  for (const [key, row] of queueRows) {
+    if (!nextRows.has(key)) row.remove();
+  }
+  let index = 0;
+  for (const row of nextRows.values()) {
+    const atIndex = els.queue.children[index++];
+    if (row !== atIndex) els.queue.insertBefore(row, atIndex || null);
+  }
+  queueRows = nextRows;
 }
 
 function renderError(code) {
+  state = null;
   lastErrorCode = code || "unknown_error";
   els.voice.textContent = "-";
   els.playback.textContent = "Access denied";
@@ -255,11 +281,10 @@ function renderError(code) {
   els.effectSummary.textContent = lastErrorCode;
   els.toneSummary.textContent = "-";
   els.title.textContent = "Console DJ non disponibile";
+  els.title.removeAttribute("title");
   els.artist.textContent = lastErrorCode;
   els.requester.textContent = "Controlla il log backend per i dettagli.";
-  els.position.textContent = "00:00";
-  els.duration.textContent = "00:00";
-  els.progress.style.width = "0%";
+  renderPlaybackClock();
   renderQueue([]);
   renderTransport(null);
   console.warn("DJ console access/state error", { guildId, error: lastErrorCode });
@@ -329,16 +354,23 @@ function renderPlaybackClock() {
   }
   const position = getDisplayedPosition();
   const duration = Number(state.duration || 0);
-  els.position.textContent = formatTime(position);
-  els.remaining.textContent = duration > 0 ? `-${formatTime(duration - position)}` : "--:--";
-  els.duration.textContent = formatTime(duration);
+  const labels = [
+    [els.position, formatTime(position)],
+    [els.remaining, duration > 0 ? `-${formatTime(duration - position)}` : "--:--"],
+    [els.duration, formatTime(duration)],
+  ];
+  for (const [element, label] of labels) {
+    if (element.textContent !== label) element.textContent = label;
+  }
   const progress = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
   els.progress.style.width = `${progress}%`;
 }
 
 function tickPlaybackClock() {
+  playbackFrame = 0;
+  if (!state?.connected || state.is_paused || !state.current_track) return;
   renderPlaybackClock();
-  window.requestAnimationFrame(tickPlaybackClock);
+  playbackFrame = window.requestAnimationFrame(tickPlaybackClock);
 }
 
 function clamp(value, min, max) {
@@ -575,9 +607,13 @@ function render(next) {
   const activeFxNames = normalizeList(next.active_fx_names);
   els.effectSummary.textContent = [baseFilterName !== "off" ? FILTER_LABELS[baseFilterName] || baseFilterName : "clean", ...activeFxNames.map((name) => FILTER_LABELS[name] || name)].join(" + ");
   els.title.textContent = current ? current.title : "Nessuna traccia";
+  els.title.title = current?.title || "";
   els.artist.textContent = current ? (current.artist || "Artista sconosciuto") : "-";
   els.requester.textContent = current ? `Requested by ${current.requester || current.requester_id}` : "-";
   renderPlaybackClock();
+  if (!playbackFrame && next.connected && !next.is_paused && current) {
+    playbackFrame = window.requestAnimationFrame(tickPlaybackClock);
+  }
   syncFilterSelect(baseFilterName);
   setActiveButton("[data-base-filter]", (button) => button.dataset.baseFilter === baseFilterName);
   setActiveButton("[data-filter-fx]", (button) => activeFxNames.includes(String(button.dataset.filterFx || "").trim().toLowerCase()));
@@ -1098,7 +1134,6 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
 
 renderTransport(null);
 bootstrap();
-window.requestAnimationFrame(tickPlaybackClock);
 refreshTimer = window.setInterval(bootstrap, 4000);
 if (window.EventSource) {
   const source = new EventSource(eventsUrl);

@@ -59,7 +59,6 @@ class Config:
     # false = percorso precedente.
     SMART_RESOLVER: bool = os.getenv("SMART_RESOLVER", "true").strip().lower() not in ("false", "0", "no", "off")
     LAVALINK_SPOTIFY_NATIVE: bool = os.getenv("LAVALINK_SPOTIFY_NATIVE", "true").strip().lower() in ("true", "1", "yes", "on")
-    GROQ_API_KEY:          str = os.getenv("GROQ_API_KEY", "")
     YTDLP_PATH:            str = os.getenv("YTDLP_PATH", "").strip()
     FFMPEG_PATH:           str = os.getenv("FFMPEG_PATH", "").strip()
 
@@ -148,9 +147,6 @@ class Config:
     LOG_LEVEL: str  = os.getenv("LOG_LEVEL", "INFO").upper().strip()
     SHOW_BANNER: bool = os.getenv("SHOW_BANNER", "true").strip().lower() not in ("false", "0", "no", "off")
 
-    # ── AI ────────────────────────────────────────────────────────────────────────────────────
-    AI_COOLDOWN_SECONDS: int = 5
-
     # ── Song Cache DB ───────────────────────────────────────────────────────────
     _cache_enabled_raw: str     = os.getenv("CACHE_ENABLED", "false").strip().lower()
     CACHE_ENABLED: bool         = _cache_enabled_raw in ("true", "1", "yes", "on")
@@ -173,10 +169,6 @@ def validate_config() -> None:
     if not Config.DISCORD_TOKEN:
         raise RuntimeError(
             "DISCORD_TOKEN non trovato nel .env — impossibile avviare il bot."
-        )
-    if not Config.GROQ_API_KEY:
-        log.warning(
-            "GROQ_API_KEY non configurata: il cog AI non funzioner\u00e0."
         )
     if not Config.SPOTIFY_CLIENT_ID or not Config.SPOTIFY_CLIENT_SECRET:
         log.warning(

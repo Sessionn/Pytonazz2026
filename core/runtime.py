@@ -21,7 +21,6 @@ _YTDLP_PACKAGE = "yt-dlp"
 _YTDLP_VERSION_RE = re.compile(r"\d+")
 
 DEFAULT_COGS = [
-    "cogs.ai",
     "cogs.birthdays",
     "cogs.channel_control",
     "cogs.dj",

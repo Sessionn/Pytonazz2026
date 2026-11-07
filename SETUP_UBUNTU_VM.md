@@ -58,7 +58,7 @@ Non lasciare probe Python, backup `.env`, clone temporanei o altri artifact nell
 - utente con `sudo`;
 - dominio o DDNS puntato alla VM, per esempio `pytonazz.duckdns.org`;
 - bot Discord gia creato;
-- credenziali Discord, Spotify e Groq;
+- credenziali Discord e Spotify;
 - branch Git corretto gia pushato dal PC locale.
 
 ## 3. Regole rete lato cloud
@@ -142,7 +142,6 @@ DEV_IDS=
 DEV_ID=
 GUILD_IDS=
 
-GROQ_API_KEY=
 
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
@@ -474,7 +473,6 @@ Segreti da ruotare se finiti in file o log:
 
 - `DISCORD_TOKEN`;
 - `SPOTIFY_CLIENT_SECRET`;
-- `GROQ_API_KEY`;
 - `DASH_PASSWORD`;
 - `DASH_SECRET_KEY`.
 

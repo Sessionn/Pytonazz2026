@@ -231,8 +231,6 @@ kbd { font-family: var(--mono); font-size: 11px; color: var(--text-subtle); bord
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 .kpi-label { margin: 0; font-size: 12.5px; color: var(--text-muted); font-weight: 500; }
 .kpi-value { margin: 4px 0 2px; font-size: 26px; font-weight: 650; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.15; }
-.kpi-value.is-bumped { animation: bump .6s var(--ease-out); }
-@keyframes bump { 30% { color: var(--accent-strong); } }
 .kpi-foot { margin: 0; font-size: 12px; color: var(--text-subtle); }
 .tone-success { color: var(--success); }
 .tone-danger { color: var(--danger); }
@@ -302,12 +300,12 @@ kbd { font-family: var(--mono); font-size: 11px; color: var(--text-subtle); bord
   border-bottom: 1px solid var(--border);
   transition: background-color .15s var(--ease);
 }
-.table tbody tr { animation: row-in .35s var(--ease-out) both; }
+.table tbody tr.row-entering { animation: row-in .24s var(--ease-out) var(--row-delay, 0ms) backwards; }
 .table tbody tr:last-child td { border-bottom: 0; }
 .table tbody tr.is-clickable { cursor: pointer; }
 .table tbody tr:hover td { background: var(--surface-hover); }
 .table tbody tr.row-new td { animation: row-new 2.4s var(--ease) both; }
-.table tbody tr.row-leaving { opacity: 0; transform: translateX(12px); transition: opacity .22s var(--ease), transform .22s var(--ease); }
+.table tbody tr.row-leaving { opacity: 0; transform: translateX(12px); transition: opacity .16s var(--ease), transform .16s var(--ease); }
 @keyframes row-in { from { opacity: 0; transform: translateY(4px); } }
 @keyframes row-new { 0%, 40% { background: var(--accent-soft); } }
 .flash { animation: flash 1.2s var(--ease); }
@@ -510,5 +508,5 @@ button.query-chip:hover { border-color: var(--accent); color: var(--text); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  *, *::before, *::after { animation-delay: 0ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

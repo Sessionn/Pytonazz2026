@@ -17,8 +17,6 @@ from discord.ext import commands
 
 from config import Config
 from core.bot_config import cfg
-from core.ai_client import invalidate_prompt_cache
-from core.ai_runtime import clear_conversation_memory
 from core.constants import TYPE_MAP, STAT_MAP, TYPE_LABEL, STATUS_LABEL, UNDISABLEABLE, command_slug
 from core.devops.backup import MAX_RESTORE_BYTES, build_backup_archive, restore_backup_archive
 from core.log_colors import tag, b, hi, user, _BGRN, _BRED
@@ -530,24 +528,6 @@ class Dev(commands.Cog):
             color=0x2f3136,
         )
         await inter.response.send_message(embed=embed, ephemeral=True)
-
-    @app_commands.command(name="ai_reset", description=f"{_OWN} Azzera la memoria conversazionale dell'AI")
-    @app_commands.describe(canale="Canale da resettare (default: tutti)")
-    @dev_check
-    async def ai_reset(self, inter: discord.Interaction, canale: Optional[discord.TextChannel] = None):
-        invalidate_prompt_cache()
-        if canale:
-            _ = clear_conversation_memory(canale.id)
-            log.info(tag("AI", f"ai_reset canale=#{canale.name} da {user(str(inter.user))}"))
-            await inter.response.send_message(
-                f"\U0001f9f9 Memoria AI resettata per {canale.mention}.", ephemeral=True
-            )
-        else:
-            count = clear_conversation_memory()
-            log.info(tag("AI", f"ai_reset TUTTI ({count} canali) da {user(str(inter.user))}"))
-            await inter.response.send_message(
-                f"\U0001f9f9 Memoria AI resettata per **{count}** canali.", ephemeral=True
-            )
 
     @app_commands.command(name="debug", description=f"{_OWN} Attiva/disattiva il livello log DEBUG a runtime")
     @app_commands.describe(stato="on = DEBUG enrichment Spotify, off = INFO")

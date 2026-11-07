@@ -13,7 +13,7 @@ bot e quali punti toccare quando si aggiungono comandi, flussi o integrazioni.
 - FFmpeg riproduce gli stream su Discord voice.
 - SQLite in `core/cache_db.py` conserva tracce, sorgenti, alias e stream URL.
 - Flask/Waitress espone dashboard cache e console DJ.
-- Groq, Edge TTS e Pillow servono per AI, TTS e quote card.
+- Edge TTS e Pillow servono per TTS e quote card.
 
 ## 2. Avvio runtime
 
