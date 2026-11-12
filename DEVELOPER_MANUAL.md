@@ -380,3 +380,24 @@ Prima di spostare file:
 - Se tocchi resolver/player, hai testato almeno un caso cache, uno Spotify e uno stream.
 - Se tocchi dashboard, hai eseguito `test_dashboard_api.py` e `test_dashboard_security.py`.
 - Se tocchi VM/deploy, hai rimosso clone temporanei e log/probe da `/tmp` o home.
+
+### Benchmark dashboard e DSP audio
+
+Eseguire dalla root con il Python del virtualenv del bot. Gli script salvano
+facoltativamente un report JSON in `logs/benchmarks/`, esclusa da Git.
+
+```bash
+venv/bin/python tools/benchmark_dashboard.py --rows 500 --requests 30 --output logs/benchmarks/dashboard.json
+venv/bin/python tools/benchmark_live_dsp.py --frames 2000 --output logs/benchmarks/live-dsp.json
+venv/bin/python tests/run_all.py
+```
+
+Su Windows usare `venv\Scripts\python.exe` al posto di `venv/bin/python`.
+Il benchmark dashboard crea e rimuove un database temporaneo con dati sintetici.
+Misura l'applicazione Flask in processo, con sessione autenticata, escludendo
+rete, browser e Waitress. Riporta mediana, p95, massimo e dimensione delle risposte.
+Il benchmark DSP usa PCM stereo sintetico a 48 kHz e misura clean, EQ e un preset
+pesante. Riporta mediana, p95, p99 e frame oltre 20 ms. Restituisce codice 1 se
+il p99 di un caso raggiunge 20 ms. Questa soglia riguarda il DSP misurato e va
+valutata sull'hardware di produzione. La prova vocale Discord richiede una
+verifica separata della connessione e dell'audio ricevuto.
