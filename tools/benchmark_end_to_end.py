@@ -27,7 +27,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import Config
 from core import cache_db
 from core.music.player import compose_audio_filter
-from core.source_resolver import SourceResolver
+from core.source_resolver import SourceResolver, tiktok
+from core.audio_backends.lavalink import LavalinkAudioBackend
+from core.music.input import is_text_search
 from core.music.stream_ready import wait_until_ready
 
 
@@ -74,7 +76,21 @@ async def _bench_one(raw_query: str) -> BenchRow:
     db_ms = (time.perf_counter() - db_t0) * 1000
 
     resolve_t0 = time.perf_counter()
-    tracks = await SourceResolver.resolve(query, "bench", 1)
+    # Match Music._resolve_play_track, including the configured smart backend.
+    tracks = []
+    if Config.AUDIO_BACKEND in {"lavalink", "wavelink"} and not tiktok.is_tiktok_url(query):
+        backend = LavalinkAudioBackend()
+        try:
+            track = await backend.resolve_track_info(query, requester="bench", requester_id=1)
+            if track:
+                tracks = [track]
+        finally:
+            await backend.close()
+    if not tracks:
+        if is_text_search(query):
+            tracks = await SourceResolver.resolve_choices(query, "bench", 1, n=1)
+        else:
+            tracks = await SourceResolver.resolve(query, "bench", 1)
     resolve_ms = (time.perf_counter() - resolve_t0) * 1000
     if not tracks:
         total_ms = (time.perf_counter() - total_t0) * 1000
@@ -173,6 +189,8 @@ async def _main() -> None:
         print("usage: python tools/benchmark_end_to_end.py <query-or-url> [more cases...]")
         raise SystemExit(2)
 
+    print(f"backend={Config.AUDIO_BACKEND}")
+    print(f"smart_resolver={Config.SMART_RESOLVER}")
     Config.CACHE_ENABLED = True
     cache_db.init_db(enabled=True)
 
