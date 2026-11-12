@@ -674,14 +674,12 @@ _FAST_STREAM_EXTRACT_OPTS = {
     "youtube_include_dash_manifest": False,
     "youtube_include_hls_manifest": False,
 }
-# Start with the embedded client and skip the watch page. On the VM this
-# avoids extra client requests (about 0.6-1.3 s on the measured tracks).
-# Videos unavailable to this client retain the full extraction fallback below.
+# Primo tentativo senza scaricare la pagina del video: per lo stream audio
+# bastano le API del player (misurato sulla VM: 3.03 -> 2.62 s, 0 errori su 15).
+# Se fallisce si riprova con l'estrazione completa.
 _NO_WEBPAGE_STREAM_EXTRACT_OPTS = {
     **_FAST_STREAM_EXTRACT_OPTS,
-    "extractor_args": {
-        "youtube": {"player_client": ["web_embedded"], "player_skip": ["webpage"]},
-    },
+    "extractor_args": {"youtube": {"player_skip": ["webpage"]}},
 }
 enable_player_cache()
 
