@@ -42,7 +42,7 @@ def _version_key(version: str) -> tuple[int, ...]:
 
 
 def ensure_ytdlp_current(logger: logging.Logger) -> None:
-    """Check yt-dlp at startup and update it when a newer PyPI release exists."""
+    """Report the installed version; automatic upgrades require explicit opt-in."""
     try:
         current = importlib.metadata.version(_YTDLP_PACKAGE)
     except importlib.metadata.PackageNotFoundError:
@@ -50,6 +50,8 @@ def ensure_ytdlp_current(logger: logging.Logger) -> None:
         return
 
     logger.info(tag("BOOT", f"yt-dlp  versione attuale {hi(current)}"))
+    if os.getenv("YTDLP_AUTO_UPDATE", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        return
     try:
         request = urllib.request.Request(
             "https://pypi.org/pypi/yt-dlp/json",

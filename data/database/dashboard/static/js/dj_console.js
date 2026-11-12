@@ -53,6 +53,7 @@ let stopArmedTimer = null;
 
 let state = null;
 let refreshTimer = null;
+let stateRequest = null;
 let lastErrorCode = "";
 let queueRows = new Map();
 let scratchRotation = 0;
@@ -897,7 +898,16 @@ function setupKnobDrag(knob, input, { onChange, onCommit, onReset }) {
   });
 }
 
-async function bootstrap() {
+function bootstrap() {
+  if (stateRequest) return stateRequest;
+  stateRequest = fetchState()
+    .catch(error => console.warn("DJ state fetch failed", error))
+    .finally(() => { stateRequest = null; });
+  return stateRequest;
+}
+
+async function fetchState() {
+  const syncedAtRequest = lastStateSyncAt;
   const response = await fetch(stateUrl);
   if (response.status === 401) {
     console.info("DJ state requires auth again", { guildId });
@@ -919,7 +929,7 @@ async function bootstrap() {
     connected: payload.connected,
     title: payload.current_track?.title || null,
   });
-  render(payload);
+  if (lastStateSyncAt === syncedAtRequest) render(payload);
 }
 
 els.platterWrap.addEventListener("pointerdown", (event) => {
@@ -1132,19 +1142,30 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
   });
 });
 
+function startStatePolling() {
+  if (!refreshTimer) refreshTimer = window.setInterval(bootstrap, 4000);
+}
+
+function stopStatePolling() {
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+}
+
 renderTransport(null);
 bootstrap();
-refreshTimer = window.setInterval(bootstrap, 4000);
+startStatePolling();
 if (window.EventSource) {
   const source = new EventSource(eventsUrl);
   source.addEventListener("dj_state", (event) => {
     try {
       render(JSON.parse(event.data));
+      stopStatePolling();
     } catch (err) {
       console.warn("DJ SSE parse failed", err);
     }
   });
   source.onerror = () => {
+    startStatePolling();
     console.warn("DJ SSE error", { guildId, lastErrorCode });
   };
 }

@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import time
 from datetime import timedelta
+from threading import BoundedSemaphore
 from urllib.parse import urlencode, urlsplit
 
 import httpx
@@ -149,8 +150,30 @@ def create_app(db_path: str | None = None, bot=None) -> Flask:
             response.headers.setdefault("Cache-Control", "no-store")
         return response
 
+    # Reserve worker capacity for authentication and transport actions.
+    sse_slots = BoundedSemaphore(max(1, int(os.getenv("DASH_THREADS", "24")) // 2))
+
     def _sse_response(generator) -> Response:
-        return Response(generator, mimetype="text/event-stream", headers=_SSE_HEADERS)
+        if not sse_slots.acquire(blocking=False):
+            generator.close()
+            return Response(status=503, headers={"Retry-After": "10"})
+        released = False
+
+        def release_slot():
+            nonlocal released
+            if not released:
+                released = True
+                sse_slots.release()
+
+        def stream():
+            try:
+                yield from generator
+            finally:
+                release_slot()
+
+        response = Response(stream(), mimetype="text/event-stream", headers=_SSE_HEADERS)
+        response.call_on_close(release_slot)
+        return response
 
     controller = init_dj_access_controller(bot) if bot else get_dj_access_controller()
 

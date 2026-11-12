@@ -10,6 +10,7 @@ import httpx
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+os.environ["DASH_THREADS"] = "4"
 os.environ["DASH_USER"] = "admin"
 os.environ["DASH_PASSWORD"] = "secret-pass"
 os.environ["DASH_SECRET_KEY"] = "test-secret-key"
@@ -137,3 +138,20 @@ assert recovered.status_code == 200
 assert refresh_calls == ["refresh-me"]
 
 print("OK: dj console recovers from 401 identity check via refresh token")
+
+
+# SSE streams must leave workers available for control requests and release
+# their slots when clients disconnect, including a partially consumed stream.
+first_stream = client.get("/dj-console/events?guild_id=123", buffered=False)
+second_stream = client.get("/dj-console/events?guild_id=123", buffered=False)
+assert first_stream.status_code == second_stream.status_code == 200
+blocked_stream = client.get("/dj-console/events?guild_id=123", buffered=False)
+assert blocked_stream.status_code == 503
+assert blocked_stream.headers["Retry-After"] == "10"
+blocked_stream.close()
+second_stream.close()
+first_stream.close()
+reopened_stream = client.get("/dj-console/events?guild_id=123", buffered=False)
+assert reopened_stream.status_code == 200
+reopened_stream.close()
+print("OK: SSE capacity limit and slot release")

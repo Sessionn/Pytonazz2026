@@ -1,6 +1,7 @@
 # Libreria Discord — versione 2.x con supporto slash commands e ui
-discord.py>=2.3.2
-davey
+discord.py==2.7.1
+# Versione in uso sulla VM per la cifratura vocale Discord
+davey==0.1.6
 
 # Scaricatore audio — fork ATTIVO di youtube-dl
 yt-dlp>=2026.08.19

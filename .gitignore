@@ -5,6 +5,8 @@
 .env.shared
 .env.clone
 .env.vm
+.env.bak*
+.env.*.bak*
 
 # Python
 __pycache__/
@@ -12,6 +14,9 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+/venv
+venv.*/
+.venv.*/
 env/
 
 # birthdays

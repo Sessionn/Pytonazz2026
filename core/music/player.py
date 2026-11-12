@@ -138,7 +138,7 @@ class MusicPlayer:
         live_preset = combine_live_filter_preset(self.base_filter_name, self.active_fx_names)
         return {
             "guild_id": self.guild.id if self.guild else 0,
-            "connected": bool(vc),
+            "connected": bool(vc and vc.is_connected()),
             "voice_channel_name": getattr(getattr(vc, "channel", None), "name", ""),
             "is_paused": self.is_paused,
             "position": round(float(self.position), 2),

@@ -67,7 +67,7 @@ class DJAccessController:
         return None
 
     def subscribe(self, guild_id: int) -> queue.Queue[str]:
-        q: queue.Queue[str] = queue.Queue()
+        q: queue.Queue[str] = queue.Queue(maxsize=1)
         with self._lock:
             self._subscribers.setdefault(guild_id, set()).add(q)
         return q
@@ -82,42 +82,47 @@ class DJAccessController:
                 self._subscribers.pop(guild_id, None)
 
     def publish_player_update(self, guild_id: int) -> None:
-        try:
-            payload = json.dumps(self.get_player_snapshot(guild_id), separators=(",", ":"))
-        except Exception:
-            log.exception(tag("DJ", "publish_player_update snapshot failed"))
-            return
+        # Serialize snapshot creation and replacement across publishers.
         with self._lock:
-            subscribers = list(self._subscribers.get(guild_id, ()))
-        for q in subscribers:
+            subscribers = self._subscribers.get(guild_id, ())
+            if not subscribers:
+                return
             try:
-                q.put_nowait(payload)
+                payload = json.dumps(self.get_player_snapshot(guild_id), separators=(",", ":"))
             except Exception:
-                pass
+                log.exception(tag("DJ", "publish_player_update snapshot failed"))
+                return
+            for q in subscribers:
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    pass
+                q.put_nowait(payload)
 
     def get_player_snapshot(self, guild_id: int) -> dict[str, Any]:
         player = self._find_player(guild_id)
         guild = self.bot.get_guild(guild_id) if self.bot else None
         voice_client = guild.voice_client if guild else None
+        connected = bool(voice_client and voice_client.is_connected())
         voice_name = getattr(getattr(voice_client, "channel", None), "name", "")
         if guild:
             msg = (
                 f"snapshot request guild_id={guild_id} guild={guild.name} "
-                f"connected={bool(voice_client)} has_player={bool(player)}"
+                f"connected={connected} has_player={bool(player)}"
             )
             log.debug(tag("DJ", msg))
         else:
             log.warning(tag("DJ", f"snapshot guild missing guild_id={guild_id}"))
         if not player:
-            if voice_client:
+            if connected:
                 msg = (
                     f"snapshot without player guild_id={guild_id} "
                     f"voice={voice_name} has_music_cog={bool(self._resolve_music_cog())}"
                 )
-                log.warning(tag("DJ", msg))
+                log.debug(tag("DJ", msg))
             return {
                 "guild_id": guild_id,
-                "connected": bool(voice_client),
+                "connected": connected,
                 "voice_channel_name": voice_name,
                 "is_paused": False,
                 "position": 0.0,
