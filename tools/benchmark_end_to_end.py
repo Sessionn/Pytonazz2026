@@ -28,6 +28,7 @@ from config import Config
 from core import cache_db
 from core.music.player import compose_audio_filter
 from core.source_resolver import SourceResolver
+from core.music.stream_ready import wait_until_ready
 
 
 @dataclass
@@ -45,6 +46,7 @@ class BenchRow:
     total_ms: float
     first_frame_bytes: int
     error: str = ""
+    stream_ready_ms: float = 0.0
 
 
 def _build_ffmpeg_opts() -> dict:
@@ -119,6 +121,10 @@ async def _bench_one(raw_query: str) -> BenchRow:
             error="empty stream url",
         )
 
+    ready_t0 = time.perf_counter()
+    await wait_until_ready(stream_url)
+    stream_ready_ms = (time.perf_counter() - ready_t0) * 1000
+
     ffmpeg_opts = _build_ffmpeg_opts()
     init_t0 = time.perf_counter()
     source = discord.FFmpegPCMAudio(stream_url, **ffmpeg_opts)
@@ -157,6 +163,7 @@ async def _bench_one(raw_query: str) -> BenchRow:
         total_ms=total_ms,
         first_frame_bytes=first_frame_bytes,
         error=error,
+        stream_ready_ms=stream_ready_ms,
     )
 
 
@@ -169,11 +176,15 @@ async def _main() -> None:
     Config.CACHE_ENABLED = True
     cache_db.init_db(enabled=True)
 
+    failed = False
     for case in cases:
         row = await _bench_one(case)
+        failed = failed or bool(row.error)
         print("---")
         for key, value in asdict(row).items():
             print(f"{key}={value}")
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
